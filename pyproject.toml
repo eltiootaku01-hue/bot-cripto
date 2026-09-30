@@ -1,0 +1,10 @@
+[project]
+name = "bot-obrero"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
