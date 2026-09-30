@@ -1,0 +1,104 @@
+schema_version: 1
+failures:
+  - id: F-015
+    title: Ambiguous order result
+    category: recovery
+    evidence_level: C
+    source: null
+    source_date: null
+    source_context: null
+    description: Submit response is lost after the exchange may have accepted or filled the order.
+    root_cause: Network failure after submit.
+    consequence: Duplicate retry or incorrect local state.
+    expected_behavior: ORDER_RESULT_UNKNOWN; query exchange; freeze new entries until reconciled.
+    defense: client_order_id plus evidence-based recovery.
+    test: tests/test_phase11.py::test_ambiguous_order_freezes
+    test_file: tests/test_phase11.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: F-016
+    title: REST/WebSocket state conflict
+    category: reconciliation
+    evidence_level: C
+    source: null
+    source_date: null
+    source_context: null
+    description: REST and WebSocket report different account state.
+    root_cause: Desynchronization or stale data.
+    consequence: Incorrect trading decision.
+    expected_behavior: STATE_CONFLICT and freeze.
+    defense: Reconciliation gate.
+    test: tests/test_phase11.py::test_rest_websocket_conflict
+    test_file: tests/test_phase11.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: F-017
+    title: Protective order not confirmed
+    category: protection
+    evidence_level: C
+    source: null
+    source_date: null
+    source_context: null
+    description: Position exists but protective order submission is not confirmed by exchange evidence.
+    root_cause: Lost response or API failure.
+    consequence: Position is exposed without known protection.
+    expected_behavior: PROTECTION_UNKNOWN and defensive mode.
+    defense: Explicit protection state.
+    test: tests/test_phase11.py::test_protection_unknown_is_unsafe
+    test_file: tests/test_phase11.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: F-018
+    title: Multi-strategy position ownership
+    category: portfolio
+    evidence_level: C
+    source: null
+    source_date: null
+    source_context: null
+    description: Multiple strategies share one account position.
+    root_cause: Strategy/account state conflation.
+    consequence: One strategy can misread global exposure.
+    expected_behavior: Keep account position separate from strategy exposure.
+    defense: OwnershipBook and AccountPosition abstractions.
+    test: tests/test_phase11.py::test_account_vs_strategy_exposure
+    test_file: tests/test_phase11.py
+    severity: HIGH
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: F-019
+    title: Execution policy ignores emergency context
+    category: execution
+    evidence_level: C
+    source: null
+    source_date: null
+    source_context: null
+    description: Cost optimization is allowed to override emergency risk reduction.
+    root_cause: Universal execution rule.
+    consequence: Delayed risk reduction or new exposure.
+    expected_behavior: Emergency prioritizes exposure reduction; unknown freezes.
+    defense: Contextual ExecutionPolicy.
+    test: tests/test_phase11.py::test_execution_policy_is_contextual
+    test_file: tests/test_phase11.py
+    severity: HIGH
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: F-020
+    title: Compound unknown state
+    category: recovery
+    evidence_level: C
+    source: null
+    source_date: null
+    source_context: null
+    description: Multiple simultaneous failures leave state uncertain across connection, clock, fills and restart.
+    root_cause: Interacting failure modes.
+    consequence: State guessing or duplicate orders.
+    expected_behavior: Freeze, recover evidence, reconcile, remain frozen if uncertainty persists.
+    defense: Global TEST-MURPHY-001 and fail-closed guard.
+    test: tests/test_phase11.py::test_murphy_001_compound_failure
+    test_file: tests/test_phase11.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: IMPLEMENTED
