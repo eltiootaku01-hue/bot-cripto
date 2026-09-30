@@ -102,3 +102,137 @@ failures:
     severity: CRITICAL
     confidence: HIGH
     status: IMPLEMENTED
+
+  - id: O1
+    title: Account configuration mismatch
+    category: operational
+    evidence_level: C
+    derived_from: engineering scenario
+    reason: Strategy assumptions may differ from remote account position/margin/order configuration.
+    source: null
+    source_date: null
+    source_context: null
+    description: Local strategy assumptions do not match account configuration.
+    root_cause: Configuration drift or exchange-specific semantics.
+    consequence: Rejected or unintended orders.
+    expected_behavior: CONFIGURATION_MISMATCH and no new entry.
+    defense: AccountConfiguration validation behind adapter boundary.
+    test: tests/test_phase12.py::test_configuration_mismatch_blocks
+    test_file: tests/test_phase12.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: O2
+    title: Precision and minimum-notional violation
+    category: execution
+    evidence_level: C
+    derived_from: engineering scenario
+    reason: Financial quantities can violate symbol constraints or suffer binary floating-point artifacts.
+    source: null
+    source_date: null
+    source_context: null
+    description: Raw order values are not aligned with exchange constraints.
+    root_cause: Float arithmetic or missing constraint validation.
+    consequence: Rejected or malformed orders.
+    expected_behavior: Reject before execution.
+    defense: Decimal-based OrderConstraints.
+    test: tests/test_phase12.py::test_decimal_constraints
+    test_file: tests/test_phase12.py
+    severity: HIGH
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: O3
+    title: Stale order and ambiguous cancellation
+    category: execution
+    evidence_level: C
+    derived_from: engineering scenario
+    reason: Cancellation responses can be lost after partial execution.
+    source: null
+    source_date: null
+    source_context: null
+    description: Order lifecycle cannot be represented as binary success/failure.
+    root_cause: Partial fills and lost cancellation response.
+    consequence: Duplicate replacement or incorrect remaining quantity.
+    expected_behavior: CANCEL_UNKNOWN until exchange state is queried.
+    defense: Explicit lifecycle states.
+    test: tests/test_phase12.py::test_cancel_unknown
+    test_file: tests/test_phase12.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: IMPLEMENTED
+  - id: E3
+    title: State, balance and position mismatch
+    category: reconciliation
+    evidence_level: C
+    derived_from: engineering scenario
+    reason: Local and remote state can diverge after restart or incomplete snapshots.
+    source: null
+    source_date: null
+    source_context: null
+    description: Local state cannot be trusted without reconciliation.
+    root_cause: Restart, delayed events or incomplete remote data.
+    consequence: Incorrect exposure or duplicate operations.
+    expected_behavior: MATCH, MISMATCH, INCOMPLETE or UNKNOWN; never guess.
+    defense: Reconciliation gate and fail-closed guard.
+    test: tests/test_phase11.py::test_rest_websocket_conflict
+    test_file: tests/test_phase11.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: PARTIAL
+  - id: N1
+    title: Network and exchange operational failure
+    category: infrastructure
+    evidence_level: C
+    derived_from: engineering scenario
+    reason: Network, API, WebSocket, authentication and rate-limit failures require different recovery paths.
+    source: null
+    source_date: null
+    source_context: null
+    description: Infrastructure failures are classified instead of treated as one generic error.
+    root_cause: External infrastructure conditions.
+    consequence: Stale state, retries or unsafe assumptions.
+    expected_behavior: Bounded retry and appropriate degraded/frozen state.
+    defense: InfrastructureError, StreamHealth and RetryPolicy.
+    test: tests/test_phase12.py::test_stale_websocket
+    test_file: tests/test_phase12.py
+    severity: HIGH
+    confidence: HIGH
+    status: PARTIAL
+  - id: D3
+    title: Backtest/live execution-model mismatch
+    category: research
+    evidence_level: C
+    derived_from: engineering scenario
+    reason: Backtests can assume fills, liquidity or candle availability that live execution cannot guarantee.
+    source: null
+    source_date: null
+    source_context: null
+    description: Research must expose execution-model limitations.
+    root_cause: Simplified historical model.
+    consequence: Misleading performance estimates.
+    expected_behavior: Document assumptions and reject incomplete execution data.
+    defense: Candle closure and LiquidityModel guards; full backtester remains pending.
+    test: tests/test_phase12.py::test_orderbook_limit
+    test_file: tests/test_phase12.py
+    severity: HIGH
+    confidence: HIGH
+    status: PARTIAL
+  - id: S1
+    title: Host resource exhaustion
+    category: infrastructure
+    evidence_level: C
+    derived_from: engineering scenario
+    reason: Resource exhaustion can prevent safe persistence, networking or process operation.
+    source: null
+    source_date: null
+    source_context: null
+    description: Host resource state must participate in readiness.
+    root_cause: CPU, memory, disk, database or network degradation.
+    consequence: Corruption, dropped events or unsafe execution.
+    expected_behavior: Fail closed when critical dependencies are unhealthy.
+    defense: ResourceHealth plus trading_allowed; rotation and storage policies.
+    test: tests/test_phase12.py::test_resource_health_fail_closed
+    test_file: tests/test_phase12.py
+    severity: CRITICAL
+    confidence: HIGH
+    status: PARTIAL
