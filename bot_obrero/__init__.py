@@ -1,0 +1,1 @@
+"""BOT OBRERO defensive core: Murphy First."""
