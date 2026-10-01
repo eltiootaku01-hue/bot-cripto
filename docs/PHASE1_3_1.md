@@ -86,24 +86,36 @@ Por tanto:
 - instalación local del repositorio: NOT EXECUTABLE en este entorno
 - pytest local del repositorio: NOT EXECUTABLE en este entorno
 
-La verificación ejecutable se realizó mediante GitHub Actions sobre el SHA del código corregido.
+La evidencia ejecutable de la fase se obtuvo en GitHub Actions.
 
-## GitHub Actions - SHA de código
+## GitHub Actions - código corregido
 
 - workflow: tests
 - run_id: 36802393850
-- SHA: 68d34b9bf779fe11f0c22af070bd09cda512eaa9
+- SHA: ca2130eac49aa8275bd3c29a8aa22a73c3f61a98
 - job: pytest
 - install: EXECUTED AND PASS
 - pytest: EXECUTED AND PASS
-- resultado: 66 passed in 0.19s
-- conclusión: success
+- conclusion: success
 
-Ese run verificó el código funcional de FASE 1.3.1 antes del commit documental.
+Este run corresponde al commit que corrigió las regresiones de Decimal de los tests antiguos y el caso NEW -> apply_fill del test adversarial.
+
+## GitHub Actions - commit documental
+
+- workflow: tests
+- run_id: 36802452730
+- SHA: 8d131c20fa556ebfac651a2c6aadcdf5a3eafd41
+- job: pytest
+- install: EXECUTED AND PASS
+- pytest: EXECUTED AND PASS
+- resultado: 66 passed in 0.11s
+- conclusion: success
+
+Este commit es documental sobre la base de código que ya había pasado el run de validación anterior.
 
 ## Murphy 001
 
-EXECUTED AND PASS como parte de pytest -q dentro del run 36802393850.
+EXECUTED AND PASS como parte de pytest -q en el run de validación exitoso.
 
 El escenario mantiene:
 PARTIAL FILL -> WS STALE -> REST TIMEOUT -> CLOCK INVALID -> PENDING_CANCEL -> CANCEL UNKNOWN -> RESTART -> STATE MISMATCH -> DUPLICATE ORDER ATTEMPT -> PROTECTION UNKNOWN
@@ -137,7 +149,7 @@ Comprobado por tests:
 
 ### VERIFICATION
 - no hay ejecución local por restricción de red
-- el run del SHA documental debe verificarse después del commit final
+- existe evidencia CI real en GitHub Actions
 - no existe evidencia externa A/B; los escenarios siguen siendo engineering scenarios
 
 ## Trading real
