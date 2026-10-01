@@ -125,3 +125,12 @@ def test_expired_order_cannot_cancel():
     order = LifecycleOrder("x", Decimal("1"), Decimal(".4"), Decimal(".6"), status=LifecycleStatus.EXPIRED)
     with pytest.raises(InvalidLifecycleTransition):
         order.request_cancel()
+
+
+def test_invalid_fill_price_is_rejected_without_mutation():
+    order = LifecycleOrder("x", Decimal("1"))
+    order.acknowledge("e1")
+    before = (order.filled_qty, order.remaining_qty, order.average_fill_price, order.status)
+    with pytest.raises(ValueError, match="INVALID_FILL_PRICE"):
+        order.apply_fill("0.1", "0")
+    assert (order.filled_qty, order.remaining_qty, order.average_fill_price, order.status) == before
