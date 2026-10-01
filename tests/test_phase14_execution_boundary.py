@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import pytest
 
-from bot_obrero.execution import EvidenceBundle, EvidenceRecord, ExchangeAdapter, ExecutionOrchestrator, OrderIntent
+from bot_obrero.execution import EvidenceBundle, EvidenceRecord, ExchangeAdapter, ExecutionOrchestrator, OrderIntent, ReadinessInputs
 from bot_obrero.murphy import GuardState, MurphyGuard, ProtectionState
 from bot_obrero.order_lifecycle import LifecycleOrder, LifecycleStatus
 from bot_obrero.persistent_ledger import IdempotencyConflict, SQLiteIdempotencyLedger
