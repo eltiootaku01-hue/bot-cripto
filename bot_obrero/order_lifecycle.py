@@ -140,6 +140,8 @@ class LifecycleOrder:
         qty, px = Decimal(str(quantity)), Decimal(str(price))
         if qty <= 0 or qty > self.remaining_qty:
             raise ValueError("INVALID_FILL")
+        if px <= 0:
+            raise ValueError("INVALID_FILL_PRICE")
         prior = self.filled_qty
         self.filled_qty += qty
         self.remaining_qty -= qty
