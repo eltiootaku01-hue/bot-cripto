@@ -236,3 +236,43 @@ failures:
     severity: CRITICAL
     confidence: HIGH
     status: PARTIAL
+
+  - id: P1-READINESS-PROVENANCE
+    title: Readiness evidence without provenance
+    category: readiness
+    evidence_level: C
+    derived_from: code audit
+    reason: ReadinessInputs accepts raw booleans and does not prove which integration produced them.
+    consequence: A future integration could assert READY conditions without independently verified venue evidence.
+    expected_behavior: readiness evidence must be produced by deterministic verification components and consumed by an execution orchestrator.
+    defense: ReadinessGate plus MurphyGuard currently provide fail-closed evaluation only; provenance integration remains pending.
+    test: tests/test_phase13_adversarial.py::test_ready_requires_all_evidence
+    severity: HIGH
+    confidence: HIGH
+    status: PARTIAL
+  - id: P1-PROTECTION-PROVENANCE
+    title: Protection confirmation without venue evidence
+    category: protection
+    evidence_level: C
+    derived_from: code audit
+    reason: PositionProtection.confirm() directly changes state without an evidence object.
+    consequence: A caller could mark a position protected without proving an exchange-side protective order exists.
+    expected_behavior: CONFIRMED only after evidence-bearing adapter/reconciliation confirmation.
+    defense: explicit protection states; provenance integration remains pending.
+    test: tests/test_phase11.py::test_protection_unknown_is_unsafe
+    severity: HIGH
+    confidence: HIGH
+    status: PARTIAL
+  - id: P1-IDEMPOTENCY-PERSISTENCE
+    title: In-memory duplicate barrier lost on restart
+    category: recovery
+    evidence_level: C
+    derived_from: code audit
+    reason: Original IdempotencyLedger stores state only in RAM.
+    consequence: A restart can forget a previously submitted client_order_id and permit a duplicate submission attempt.
+    expected_behavior: durable client intent survives restart and mismatched reuse is rejected.
+    defense: SQLiteIdempotencyLedger in bot_obrero/persistent_ledger.py; orchestrator integration pending.
+    test: tests/test_persistent_ledger.py
+    severity: HIGH
+    confidence: HIGH
+    status: PARTIAL
