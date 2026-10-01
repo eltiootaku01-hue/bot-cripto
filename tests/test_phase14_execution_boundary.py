@@ -47,8 +47,8 @@ def evidence(intent_id="order-1", correlation_id="corr-1", *, expires=None, reco
     )
 
 
-def intent():
-    return OrderIntent("order-1", {"symbol": "BTCUSDT", "quantity": "1"}, "corr-1")
+def intent(correlation_id="corr-1"):
+    return OrderIntent("order-1", {"symbol": "BTCUSDT", "quantity": "1"}, correlation_id)
 
 
 def build(tmp_path, adapter=None, guard=None):
@@ -251,3 +251,39 @@ def test_14_naked_readiness_inputs_cannot_cross_execution_boundary(tmp_path):
     result = orch.execute(intent(), naked)
     assert not result.allowed and result.reason == "FAIL_CLOSED"
     assert adapter.submits == 0
+
+
+def test_15_matching_evidence_and_intent_correlations_are_accepted(tmp_path):
+    adapter = FakeAdapter()
+    orch, _ = build(tmp_path, adapter=adapter)
+    result = orch.execute(intent("corr-1"), evidence(correlation_id="corr-1"))
+    assert result.allowed and result.reason == "SUBMITTED"
+    assert adapter.submits == 1
+
+
+def test_16_mismatched_intent_and_bundle_correlation_fails_closed(tmp_path):
+    adapter = FakeAdapter()
+    orch, _ = build(tmp_path, adapter=adapter)
+    result = orch.execute(intent("corr-intent"), evidence(correlation_id="corr-bundle"))
+    assert not result.allowed and result.reason == "FAIL_CLOSED"
+    assert adapter.submits == 0
+
+
+def test_17_internally_consistent_records_cannot_authorize_wrong_bundle_context(tmp_path):
+    adapter = FakeAdapter()
+    orch, _ = build(tmp_path, adapter=adapter)
+    bundle = evidence(correlation_id="corr-bundle")
+    result = orch.execute(intent("corr-intent"), bundle)
+    assert all(record.correlation_id == bundle.correlation_id for record in bundle.records)
+    assert not result.allowed and result.reason == "FAIL_CLOSED"
+    assert adapter.submits == 0
+
+
+def test_18_multiple_records_share_the_same_correlation_context(tmp_path):
+    adapter = FakeAdapter()
+    orch, _ = build(tmp_path, adapter=adapter)
+    bundle = evidence(correlation_id="corr-1")
+    assert len(bundle.records) == len(REQUIRED)
+    assert all(record.correlation_id == bundle.correlation_id for record in bundle.records)
+    result = orch.execute(intent("corr-1"), bundle)
+    assert result.allowed and adapter.submits == 1

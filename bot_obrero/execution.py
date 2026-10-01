@@ -75,13 +75,14 @@ class EvidenceBundle:
     def valid_for(self, intent_id: str, now: datetime, required: tuple[str, ...]) -> bool:
         if not self.correlation_id:
             return False
+        if any(
+            record.intent_id != intent_id or record.correlation_id != self.correlation_id
+            for record in self.records
+        ):
+            return False
         for kind in required:
             record = self.record(kind)
-            if (
-                record is None
-                or record.correlation_id != self.correlation_id
-                or not record.valid_for(intent_id, now)
-            ):
+            if record is None or not record.valid_for(intent_id, now):
                 return False
         return True
 
@@ -227,6 +228,9 @@ class ExecutionOrchestrator:
     def execute(self, intent: OrderIntent, evidence: EvidenceBundle) -> ExecutionDecision:
         self._validate_intent(intent)
         if not isinstance(evidence, EvidenceBundle):
+            self.murphy.freeze()
+            return ExecutionDecision(False, "FAIL_CLOSED")
+        if evidence.correlation_id != intent.correlation_id:
             self.murphy.freeze()
             return ExecutionDecision(False, "FAIL_CLOSED")
         now = self.clock()
