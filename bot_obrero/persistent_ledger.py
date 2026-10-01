@@ -12,6 +12,10 @@ class IdempotencyConflict(ValueError):
     """The same client order ID was reused with different request intent."""
 
 
+class FillIdentityConflict(ValueError):
+    """A venue fill identity was associated with another order."""
+
+
 @dataclass(frozen=True)
 class LedgerRecord:
     client_order_id: str
@@ -20,17 +24,7 @@ class LedgerRecord:
 
 
 class SQLiteIdempotencyLedger:
-    """Durable idempotency ledger for crash recovery.
-
-    The ledger records the client order ID together with a canonical hash of
-    the original request intent. Reusing an ID with different intent is a
-    conflict, not a new order. Writes are transactional so the duplicate
-    barrier survives process restart.
-
-    This component is intentionally independent from exchange submission:
-    the execution orchestrator must atomically persist intent before crossing
-    the exchange boundary and must reconcile ambiguous outcomes before retry.
-    """
+    """Durable order and external-fill idempotency barrier."""
 
     def __init__(self, path: str | Path):
         self.path = str(path)
@@ -40,13 +34,17 @@ class SQLiteIdempotencyLedger:
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS idempotency_ledger (
+            """CREATE TABLE IF NOT EXISTS idempotency_ledger (
                 client_order_id TEXT PRIMARY KEY,
                 intent_hash TEXT NOT NULL,
                 result TEXT NOT NULL
-            )
-            """
+            )"""
+        )
+        self._connection.execute(
+            """CREATE TABLE IF NOT EXISTS applied_fills (
+                fill_id TEXT PRIMARY KEY,
+                client_order_id TEXT NOT NULL
+            )"""
         )
         self._connection.commit()
 
@@ -67,9 +65,8 @@ class SQLiteIdempotencyLedger:
         try:
             with self._connection:
                 self._connection.execute(
-                    "INSERT INTO idempotency_ledger(client_order_id,intent_hash,result) "
-                    "VALUES (?, ?, ?)",
-                    (client_order_id, digest, "SUBMITTED"),
+                    "INSERT INTO idempotency_ledger(client_order_id,intent_hash,result) VALUES (?, ?, ?)",
+                    (client_order_id, digest, "PENDING_SUBMIT"),
                 )
             return True
         except sqlite3.IntegrityError:
@@ -94,11 +91,38 @@ class SQLiteIdempotencyLedger:
 
     def get(self, client_order_id: str) -> LedgerRecord | None:
         row = self._connection.execute(
-            "SELECT client_order_id,intent_hash,result "
-            "FROM idempotency_ledger WHERE client_order_id=?",
+            "SELECT client_order_id,intent_hash,result FROM idempotency_ledger WHERE client_order_id=?",
             (client_order_id,),
         ).fetchone()
         return None if row is None else LedgerRecord(*row)
+
+    def register_fill(self, fill_id: str, client_order_id: str) -> bool:
+        if not fill_id or not client_order_id:
+            raise ValueError("INVALID_FILL_IDENTITY")
+        try:
+            with self._connection:
+                self._connection.execute(
+                    "INSERT INTO applied_fills(fill_id,client_order_id) VALUES (?,?)",
+                    (fill_id, client_order_id),
+                )
+            return True
+        except sqlite3.IntegrityError:
+            row = self._connection.execute(
+                "SELECT client_order_id FROM applied_fills WHERE fill_id=?",
+                (fill_id,),
+            ).fetchone()
+            if row is None:
+                raise
+            if row[0] != client_order_id:
+                raise FillIdentityConflict("FILL_ID_REUSED_FOR_DIFFERENT_ORDER")
+            return False
+
+    def unregister_fill(self, fill_id: str) -> None:
+        with self._connection:
+            self._connection.execute(
+                "DELETE FROM applied_fills WHERE fill_id=?",
+                (fill_id,),
+            )
 
     def close(self) -> None:
         self._connection.close()
