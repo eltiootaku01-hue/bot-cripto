@@ -226,6 +226,9 @@ class ExecutionOrchestrator:
 
     def execute(self, intent: OrderIntent, evidence: EvidenceBundle) -> ExecutionDecision:
         self._validate_intent(intent)
+        if not isinstance(evidence, EvidenceBundle):
+            self.murphy.freeze()
+            return ExecutionDecision(False, "FAIL_CLOSED")
         now = self.clock()
         readiness = self.readiness.evaluate_evidence(evidence, intent.client_order_id, now)
         if not readiness.allowed:
