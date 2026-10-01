@@ -242,3 +242,12 @@ def test_13_compound_failure_and_terminal_lifecycle_fail_closed(tmp_path):
     with pytest.raises(ValueError):
         order.apply_fill("0.1", "100")
     assert order.filled_qty == before
+
+
+def test_14_naked_readiness_inputs_cannot_cross_execution_boundary(tmp_path):
+    adapter = FakeAdapter()
+    orch, _ = build(tmp_path, adapter=adapter)
+    naked = ReadinessInputs(True, True, True, True, True, True, True)
+    result = orch.execute(intent(), naked)
+    assert not result.allowed and result.reason == "FAIL_CLOSED"
+    assert adapter.submits == 0
