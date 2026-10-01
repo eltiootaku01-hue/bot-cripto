@@ -1,38 +1,19 @@
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
-
 class ExecutionContext(str, Enum):
     NORMAL="NORMAL"; RISK_REDUCTION="RISK_REDUCTION"; UNKNOWN="UNKNOWN"
-
 @dataclass(frozen=True)
 class ExecutionDecision:
     allowed: bool
     reason: str
-
 class ExchangeAdapter(ABC):
-    """Abstract boundary: this phase contains no live exchange implementation."""
     @abstractmethod
-    def submit(self, order):
-        raise NotImplementedError
-
+    def submit(self, order): raise NotImplementedError
     @abstractmethod
-    def cancel(self, order):
-        raise NotImplementedError
-
+    def cancel(self, order): raise NotImplementedError
     @abstractmethod
-    def snapshot(self):
-        raise NotImplementedError
-
-class RiskGuard:
-    def __init__(self, murphy_guard):
-        self.guard = murphy_guard
-
-    def authorize_new_entry(self):
-        if not self.guard.allow_new_entry():
-            return ExecutionDecision(False, "FAIL_CLOSED")
-        return ExecutionDecision(True, "READY")
-
+    def snapshot(self): raise NotImplementedError
 @dataclass(frozen=True)
 class ReadinessInputs:
     reconciliation_match: bool
@@ -41,18 +22,19 @@ class ReadinessInputs:
     resources_healthy: bool
     permissions_safe: bool
     configuration_valid: bool
-
+    protection_safe: bool=False
 class ReadinessGate:
-    """Only deterministic evidence can transition the core to entry-ready."""
-    def evaluate(self, inputs: ReadinessInputs):
-        checks = (
-            inputs.reconciliation_match,
-            inputs.clock_valid,
-            inputs.stream_ready,
-            inputs.resources_healthy,
-            inputs.permissions_safe,
-            inputs.configuration_valid,
-        )
-        if not all(checks):
-            return ExecutionDecision(False, "FAIL_CLOSED")
-        return ExecutionDecision(True, "READY")
+    def evaluate(self,inputs):
+        checks=(inputs.reconciliation_match,inputs.clock_valid,inputs.stream_ready,inputs.resources_healthy,inputs.permissions_safe,inputs.configuration_valid,inputs.protection_safe)
+        return ExecutionDecision(all(checks),"READY" if all(checks) else "FAIL_CLOSED")
+class RiskGuard:
+    def __init__(self,murphy_guard,readiness_gate=None):
+        self.guard=murphy_guard; self.readiness_gate=readiness_gate or ReadinessGate()
+    def authorize_new_entry(self,readiness):
+        decision=self.readiness_gate.evaluate(readiness)
+        if not decision.allowed:
+            self.guard.freeze(); return decision
+        try: self.guard.ready(readiness)
+        except ValueError:
+            self.guard.freeze(); return ExecutionDecision(False,"FAIL_CLOSED")
+        return ExecutionDecision(True,"READY")
