@@ -31,7 +31,13 @@ Una evidencia es válida solamente si:
 - la decisión ya ocurrió cuando se evalúa;
 - no expiró.
 
-La validación reutiliza `EvidenceTimestamp` para conservar la defensa temporal existente.
+Antes de cualquier autorización efectiva, `ExecutionOrchestrator` exige además:
+
+`OrderIntent.correlation_id == EvidenceBundle.correlation_id`.
+
+Todos los `EvidenceRecord` del bundle deben permanecer asociados al mismo `intent_id` y `correlation_id` del contexto autorizado. Un bundle internamente consistente pero perteneciente a otra correlación no puede cruzar el execution boundary.
+
+La validación es fail-closed y ocurre antes del registro persistente de idempotencia, la transición lifecycle y la llamada al adapter.
 
 ## Persistent Idempotency
 
@@ -42,6 +48,8 @@ El registro inicial queda como `PENDING_SUBMIT`. Un timeout o pérdida de respue
 ## Protection Provenance
 
 `PositionProtection.confirm()` exige una `EvidenceRecord` de tipo `protection_safe`, vinculada al intento, con procedencia y frescura válidas. Una confirmación ausente, incorrecta o expirada produce `PROTECTION_UNKNOWN` y no `PROTECTION_CONFIRMED`.
+
+El estado interno de `PositionProtection` se almacena de forma privada y `.state` se expone únicamente como lectura. Las transiciones existentes (`submit()`, `confirm()`, `unknown()`, `unprotected()`) siguen siendo las únicas rutas públicas previstas para cambiar el estado. Una asignación accidental a `.state` produce `AttributeError` en lugar de mutar el estado interno.
 
 ## Fill Identity
 
@@ -69,7 +77,27 @@ La reconciliación existente continúa siendo la fuente para distinguir `MATCH`,
 - no regresión de estados terminales del lifecycle;
 - no `PROTECTION_CONFIRMED` sin evidencia válida;
 - no READY con evidencia ausente, contradictoria o expirada;
-- no bypass del entry point público del execution boundary.
+- no bypass del entry point público del execution boundary;
+- no autorización cuando `OrderIntent.correlation_id` y `EvidenceBundle.correlation_id` difieren;
+- no mutación accidental de `PositionProtection.state` mediante su API pública.
+
+## Limitaciones aceptadas por arquitectura
+
+### F1/F2
+
+Python no proporciona aislamiento absoluto contra código deliberadamente privilegiado dentro del mismo proceso. La garantía buscada es la protección del camino oficial de producción, no un sandbox contra código Python hostil.
+
+### F4
+
+`EvidenceRecord.sequence` y cualquier semántica de version todavía no tienen semántica operacional definida. Esta fase no genera, ordena ni valida sequence/version.
+
+### F5
+
+SQLite y un exchange externo no forman una transacción ACID atómica. Un efecto externo ambiguo sigue el modelo `UNKNOWN → no blind retry → reconciliation`.
+
+### F6
+
+La identidad persistente del fill proporciona deduplicación local, pero no equivale a recovery completo del fill ni hace atómica la persistencia del identity record con la mutación externa/lifecycle.
 
 ## Deliberadamente fuera de alcance
 

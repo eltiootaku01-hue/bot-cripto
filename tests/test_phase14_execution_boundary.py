@@ -287,3 +287,12 @@ def test_18_multiple_records_share_the_same_correlation_context(tmp_path):
     assert all(record.correlation_id == bundle.correlation_id for record in bundle.records)
     result = orch.execute(intent("corr-1"), bundle)
     assert result.allowed and adapter.submits == 1
+
+
+def test_19_protection_state_is_read_only_through_public_api():
+    protection = PositionProtection()
+    with pytest.raises(AttributeError):
+        protection.state = ProtectionState.PROTECTION_CONFIRMED
+    assert not protection.safe()
+    protection.submit()
+    assert protection.state is ProtectionState.PROTECTION_PENDING
