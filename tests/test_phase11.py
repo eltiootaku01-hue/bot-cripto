@@ -1,4 +1,5 @@
 from datetime import datetime,timezone,timedelta
+from decimal import Decimal
 from bot_obrero.clock import ClockCheck
 from bot_obrero.intrabar import OHLC,IntrabarState,classify,require_unambiguous
 from bot_obrero.murphy import MurphyGuard,TradingMode,GuardState,ProtectionState,execution_policy
@@ -15,7 +16,7 @@ def test_lookahead_rejected():
     assert False
 def test_partial_fill():
     o=Order("c1",1.0); o.apply_fill(.37,100)
-    assert o.filled_qty==.37 and o.remaining_qty==.63 and o.status is OrderStatus.PARTIALLY_FILLED
+    assert o.filled_qty==Decimal("0.37") and o.remaining_qty==Decimal("0.63") and o.status is OrderStatus.PARTIALLY_FILLED
 def test_idempotency_after_lost_response():
     l=IdempotencyLedger(); assert l.register("c1"); l.mark_result("c1",OrderStatus.FILLED); assert not l.register("c1")
 def test_ambiguous_order_freezes():
@@ -44,7 +45,7 @@ def test_intrabar_ambiguity():
     assert False
 def test_murphy_001_compound_failure():
     g=MurphyGuard(); o=Order("c1",1); o.apply_fill(.37,100); g.freeze()
-    assert o.remaining_qty==.63
+    assert o.remaining_qty==Decimal("0.63")
     assert reconcile(Snapshot(.37),None) is ReconciliationState.UNKNOWN_STATE
     assert not ClockCheck(T,T+timedelta(seconds=5),2).healthy
     assert classify_result(OrderEvidence("c1")).value=="ORDER_RESULT_UNKNOWN"

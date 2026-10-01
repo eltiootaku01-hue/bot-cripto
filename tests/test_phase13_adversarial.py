@@ -35,7 +35,7 @@ def test_unknown_result_cannot_retry_blindly():
 
 def test_lifecycle_invariant_is_enforced():
     with pytest.raises(ValueError): LifecycleOrder("x",Decimal("1"),Decimal(".4"),Decimal("0"))
-    o=LifecycleOrder("x",Decimal("1")); o.apply_fill(".4","100"); o.request_cancel(); o.cancel_unknown()
+    o=LifecycleOrder("x",Decimal("1")); o.acknowledge("e1"); o.apply_fill(".4","100"); o.request_cancel(); o.cancel_unknown()
     assert o.filled_qty+o.remaining_qty==o.requested_qty
 
 def test_restart_starts_frozen():
