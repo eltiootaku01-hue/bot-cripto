@@ -1,10 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "bot-obrero"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = []
+
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
+
+[tool.setuptools.packages.find]
+include = ["bot_obrero*"]
+exclude = ["research*", "tests*", "docs*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
