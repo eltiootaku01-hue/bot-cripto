@@ -31,6 +31,8 @@ Una evidencia es válida solamente si:
 - la decisión ya ocurrió cuando se evalúa;
 - no expiró.
 
+La validación reutiliza `EvidenceTimestamp` para conservar la defensa temporal existente.
+
 Antes de cualquier autorización efectiva, `ExecutionOrchestrator` exige además:
 
 `OrderIntent.correlation_id == EvidenceBundle.correlation_id`.
