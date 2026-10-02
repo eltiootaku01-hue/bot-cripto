@@ -131,7 +131,7 @@ def test_metadata_backed_live_path_produces_canonical_market_data_for_btcusdt():
 def test_metadata_backed_live_path_produces_canonical_market_data_for_ethusdt():
     adapter = adapter_for(
         exchange_payload(symbol_record("ETHUSDT", "ETH", "USDT")),
-        [market_row(OPEN_1, CLOSE_1, open_value="3000.0000")],
+        [market_row(OPEN_1, CLOSE_1, open_value="123.7500")],
     )
     result = adapter.fetch_market_data(symbol="ETHUSDT", interval="1m", limit=1)
 
