@@ -6,7 +6,6 @@ import pytest
 from bot_obrero.acquisition import InstrumentMapper, InstrumentMappingRule
 from bot_obrero.binance_instruments import (
     BinanceInstrumentResolution,
-    BinanceInstrumentResolution,
     BinanceMetadataBackedAdapter,
     BinanceSpotInstrumentMetadata,
     ExchangeInfoPayloadError,
