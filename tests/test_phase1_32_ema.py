@@ -200,7 +200,7 @@ def test_ema_decimal_precision_is_preserved():
 
     result = execute(observations, period=3)
 
-    expected = Decimal("100.20") * Decimal("0") + Decimal("100.30")
+    expected = Decimal("100.30")
     assert result.values["ema"] == expected
     assert isinstance(result.values["ema"], Decimal)
 
