@@ -39,7 +39,11 @@ class BinanceAdapterError(RuntimeError):
 
 
 class BinanceTransportError(BinanceAdapterError):
-    """Network or timeout failure before a usable HTTP response was received."""
+    """Network or timeout failure; final outcome is conservatively UNKNOWN."""
+
+    def __init__(self, message: str, *, outcome_unknown: bool = True) -> None:
+        super().__init__(message)
+        self.outcome_unknown = outcome_unknown
 
 
 class BinanceHTTPError(BinanceAdapterError):
