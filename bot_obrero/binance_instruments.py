@@ -28,6 +28,7 @@ from .binance_spot import (
     BinanceTransportError,
 )
 from .market_data import InstrumentIdentity, MarketData
+from .binance_resilience import BinanceRetryPolicy
 
 
 class ExchangeInfoTransportError(RuntimeError):
