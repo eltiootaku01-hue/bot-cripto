@@ -101,6 +101,8 @@ def test_historical_unknown_availability_is_not_inferred_from_received_or_observ
     assert item.observed_at == T
     assert item.received_at == T + timedelta(seconds=3)
     assert item.available_at is None
+    restored = MarketData.from_json(item.to_json())
+    assert restored.available_at is None
     with pytest.raises(MarketDataError, match="AVAILABLE_AT_UNKNOWN"):
         item.evidence_at(T + timedelta(seconds=10))
     with pytest.raises(MarketDataError, match="AVAILABLE_AT_UNKNOWN"):
@@ -170,6 +172,11 @@ def test_invalid_market_data_cannot_be_promoted_to_observation():
     unknown = market_data(quality=DataQuality.UNKNOWN)
     with pytest.raises(MarketDataError, match="MARKET_DATA_QUALITY_NOT_VALID"):
         to_market_observation(unknown)
+
+
+def test_missing_payload_does_not_create_a_synthetic_zero_candle():
+    with pytest.raises(MarketDataError, match="payload must be canonical Candle"):
+        market_data(payload=None)
 
 
 def test_market_data_and_candle_are_immutable():
