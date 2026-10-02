@@ -185,3 +185,65 @@ def test_market_data_and_candle_are_immutable():
         item.payload.close = Decimal("0")
     with pytest.raises((AttributeError, TypeError)):
         item.available_at = None
+
+
+def test_ohlcv_valid_values_with_different_decimal_scales():
+    item = candle(open="100.0", high="102.000", low="99", close="101.25", volume="0.0000100")
+    assert item.open == Decimal("100.0")
+    assert item.high == Decimal("102.000")
+    assert item.low == Decimal("99")
+    assert item.volume == Decimal("0.0000100")
+
+
+def test_partial_candle_can_be_structurally_valid():
+    item = candle(completeness=DataCompleteness.PARTIAL, candle_state=CandleState.OPEN)
+    assert item.completeness is DataCompleteness.PARTIAL
+    assert item.candle_state is CandleState.OPEN
+
+
+def test_closed_candle_can_be_non_final_and_structurally_valid():
+    item = candle(candle_state=CandleState.CLOSED, finality=CandleFinality.NOT_FINAL)
+    assert item.candle_state is CandleState.CLOSED
+    assert item.finality is CandleFinality.NOT_FINAL
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("high", "123.4499", "high must be >= open"),
+        ("high", "123.7499", "high must be >= close"),
+        ("high", "122.9999", "high must be >= low"),
+        ("low", "123.4501", "low must be <= open"),
+        ("low", "123.7501", "low must be <= close"),
+        ("volume", "-0.0001", "volume must be >= 0"),
+    ],
+)
+def test_structurally_impossible_ohlcv_is_rejected(field, value, message):
+    with pytest.raises(MarketDataError, match=message):
+        candle(**{field: value})
+
+
+def test_candle_data_type_is_explicitly_admitted():
+    from bot_obrero.market_data import CANDLE_DATA_TYPE
+
+    assert CANDLE_DATA_TYPE == "CANDLE"
+    assert market_data(data_type=CANDLE_DATA_TYPE).data_type == "CANDLE"
+
+
+@pytest.mark.parametrize("data_type", ["", " ", "TRADE", "candle", "OHLCV"])
+def test_empty_or_unsupported_data_type_is_rejected(data_type):
+    with pytest.raises(MarketDataError):
+        market_data(data_type=data_type)
+
+
+def test_candle_discriminator_rejects_incompatible_payload_type():
+    with pytest.raises(MarketDataError, match="payload must be canonical Candle"):
+        market_data(data_type="CANDLE", payload={"open": "1", "high": "2", "low": "1", "close": "2", "volume": "1"})
+
+
+def test_unknown_availability_never_becomes_phase16_temporal_evidence():
+    item = market_data(available_at=None)
+    with pytest.raises(MarketDataError, match="AVAILABLE_AT_UNKNOWN"):
+        item.evidence_at(T + timedelta(days=1))
+    with pytest.raises(MarketDataError, match="AVAILABLE_AT_UNKNOWN"):
+        to_market_observation(item)

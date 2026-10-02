@@ -14,6 +14,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 DEFAULT_MARKET_DATA_ROUNDING = ROUND_HALF_EVEN
+CANDLE_DATA_TYPE = "CANDLE"
 
 
 class MarketDataError(ValueError):
@@ -140,6 +141,24 @@ class Candle:
         _nonempty(self.timeframe, "timeframe")
         for name in ("open", "high", "low", "close", "volume"):
             object.__setattr__(self, name, _decimal(getattr(self, name), name))
+
+        # Structural OHLCV validation is independent from quality, completeness,
+        # candle_state and finality. PARTIAL/CLOSED/NOT_FINAL remain valid combinations.
+        if self.high < self.open:
+            raise MarketDataError("candle high must be >= open")
+        if self.high < self.close:
+            raise MarketDataError("candle high must be >= close")
+        if self.high < self.low:
+            raise MarketDataError("candle high must be >= low")
+        if self.low > self.open:
+            raise MarketDataError("candle low must be <= open")
+        if self.low > self.close:
+            raise MarketDataError("candle low must be <= close")
+        if self.low > self.high:
+            raise MarketDataError("candle low must be <= high")
+        if self.volume < 0:
+            raise MarketDataError("candle volume must be >= 0")
+
         for name, enum_type in (
             ("candle_state", CandleState),
             ("completeness", DataCompleteness),
@@ -189,6 +208,8 @@ class MarketData:
             raise MarketDataError("payload must be canonical Candle")
         _nonempty(self.market_data_id, "market_data_id")
         _nonempty(self.data_type, "data_type")
+        if self.data_type != CANDLE_DATA_TYPE:
+            raise MarketDataError(f"unsupported data_type: {self.data_type}")
         _aware(self.observed_at, "observed_at")
         _aware(self.received_at, "received_at")
         if self.available_at is not None:

@@ -48,3 +48,23 @@ Candle y MarketData son dataclasses inmutables; no existe API de mutación/corre
 ## Fuera de alcance
 
 No se implementan conectores, WebSocket, Binance/CCXT, datasets, DataSlice, replay, storage histórico, versionado formal, Risk, Financial State, Strategy, Backtesting, Paper Trading, OrderIntent ni Execution.
+
+## Nota de hardening — FASE 1.7.3
+
+### Validación estructural OHLCV
+
+El Candle canónico compara directamente valores Decimal y rechaza estructuras imposibles: `high >= open`, `high >= close`, `high >= low`, `low <= open`, `low <= close`, `low <= high` y `volume >= 0`. No convierte a float, redondea, cambia escala ni sustituye valores.
+
+Estas comprobaciones son independientes de completeness, candle_state y finality. Por tanto, una vela PARTIAL puede ser estructuralmente válida y una vela CLOSED puede conservar finality NOT_FINAL.
+
+### Discriminador data_type
+
+La única constante admitida en v1.0 es `CANDLE_DATA_TYPE = "CANDLE"`. MarketData rechaza discriminadores vacíos o distintos de CANDLE y exige que el payload sea una instancia del Candle canónico. No se define un catálogo de tipos futuros.
+
+### Pruebas y compatibilidad
+
+Se añadieron pruebas para relaciones OHLCV válidas e inválidas, distintas escalas decimales, velas PARTIAL y CLOSED/NOT_FINAL, discriminador admitido/no admitido y payload incompatible. Se mantienen las pruebas previas de FASE 1.7.2, FASE 1.6 y el modelo legacy.
+
+### Limitaciones pendientes
+
+No se incorporan otros tipos de MarketData, proveedores, ingestión, persistencia, correcciones ni versionado formal. La representación de payload admitida sigue siendo exclusivamente Candle/OHLCV.
