@@ -131,7 +131,7 @@ def test_strategy_contract_accepts_only_analysis_snapshot_and_config():
         build_strategic_artifact(object(), configuration, values={})
 
     with pytest.raises(StrategyContractError, match="configuration"):
-        build_strategic_artifact(snapshot, object())
+        build_strategic_artifact(snapshot, object(), values={})
 
 
 def test_configuration_is_immutable_and_freezes_nested_values():
