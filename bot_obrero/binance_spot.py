@@ -380,10 +380,13 @@ class BinanceSpotRestAdapter:
         symbol: str,
         interval: str,
         received_at: datetime,
+        allow_empty: bool = False,
     ) -> list[dict[str, Any]]:
         if not isinstance(payload, list):
             raise BinancePayloadError("Binance kline response root must be a JSON array")
         if not payload:
+            if allow_empty:
+                return []
             raise BinancePayloadError("Binance returned an empty kline response")
 
         records: list[dict[str, Any]] = []
@@ -461,6 +464,7 @@ class BinanceSpotRestAdapter:
         limit: int = 500,
         start_time: int | None = None,
         end_time: int | None = None,
+        allow_empty: bool = False,
     ) -> list[MarketData]:
         """Perform one public REST call and return canonical MarketData objects."""
         query = self.build_query(
@@ -479,6 +483,7 @@ class BinanceSpotRestAdapter:
             symbol=symbol,
             interval=interval,
             received_at=received_at,
+            allow_empty=allow_empty,
         )
 
         canonical_items: list[MarketData] = []
@@ -571,6 +576,7 @@ class BinanceSpotRestAdapter:
                 limit=page_limit,
                 start_time=cursor,
                 end_time=end_time,
+                allow_empty=True,
             )
             requests_made += 1
 
