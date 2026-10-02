@@ -224,7 +224,7 @@ def test_ema_accepts_exact_decimal_string_close():
         (["10"], 1, Decimal("10")),
         (["10", "20"], 2, Decimal("15")),
         (["10", "20", "30"], 3, Decimal("20")),
-        (["1", "2", "3", "4"], 2, Decimal("3.25")),
+        (["1", "2", "3", "4"], 2, Decimal("3.5")),
     ],
 )
 def test_ema_multiple_valid_periods(closes, period, expected):
