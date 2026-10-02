@@ -149,6 +149,7 @@ class AnalysisResult:
 class Hypothesis:
     symbol: str
     supporting_analysis_ids: tuple[str, ...]
+    strategic_artifact_id: str
     expected_direction: str
     expected_horizon: str
     invalidation_conditions: tuple[str, ...]
@@ -167,6 +168,7 @@ class Hypothesis:
         _aware(self.decision_timestamp, "decision_timestamp")
         if self.created_at > self.decision_timestamp:
             raise ContractError("created_at cannot follow decision_timestamp")
+        _nonempty(self.strategic_artifact_id, "strategic_artifact_id")
         if not self.supporting_analysis_ids:
             raise ContractError("Hypothesis requires supporting_analysis_ids")
         if any(not item for item in self.supporting_analysis_ids):
