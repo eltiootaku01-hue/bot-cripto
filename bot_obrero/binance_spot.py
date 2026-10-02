@@ -56,11 +56,15 @@ class BinanceHTTPError(BinanceAdapterError):
         *,
         retry_after_seconds: float | None = None,
         outcome_unknown: bool = False,
+        response_headers: Mapping[str, str] | None = None,
+        response_body: bytes | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.retry_after_seconds = retry_after_seconds
         self.outcome_unknown = outcome_unknown
+        self.response_headers = dict(response_headers or {})
+        self.response_body = response_body
 
 
 class BinanceRateLimitError(BinanceHTTPError):
@@ -347,6 +351,8 @@ class BinanceSpotRestAdapter:
                             f"Binance rate limit response: {code}: {message}; {context}",
                             retry_after_seconds=_retry_after_seconds(response_headers),
                             outcome_unknown=False,
+                            response_headers=response_headers,
+                            response_body=body,
                         )
                     raise BinanceAPIError(
                         code,
@@ -360,12 +366,16 @@ class BinanceSpotRestAdapter:
                     http_status,
                     f"Binance HTTP rate limit failure: {http_status}; {context}",
                     retry_after_seconds=retry_after,
+                    response_headers=response_headers,
+                    response_body=body,
                 )
             raise BinanceHTTPError(
                 http_status,
                 f"Binance HTTP failure: {http_status}; {context}",
                 retry_after_seconds=retry_after,
                 outcome_unknown=500 <= http_status <= 599,
+                response_headers=response_headers,
+                response_body=body,
             )
 
         payload = _decode_json(body, http_status=http_status)
