@@ -395,8 +395,10 @@ class BinanceSpotRestAdapter:
                     raise MaximumRequestsExceeded(str(exc)) from exc
 
         def should_retry(exc: Exception) -> bool:
-            if isinstance(exc, (BinanceTransportError, BinanceRateLimitError)):
+            if isinstance(exc, BinanceTransportError):
                 return True
+            if isinstance(exc, BinanceRateLimitError):
+                return exc.status_code == 429 or exc.retry_after_seconds is not None
             if isinstance(exc, BinanceHTTPError):
                 return 500 <= exc.status_code <= 599
             if isinstance(exc, BinanceAPIError):
