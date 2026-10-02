@@ -28,6 +28,14 @@ from .acquisition import (
     normalize_provider_record,
     parse_provider_payload,
 )
+from .acquisition_evidence import (
+    AcquisitionMode,
+    AcquisitionOperationEvidence,
+    AcquisitionOperationRecorder,
+    AcquisitionStatus,
+    error_evidence_from_exception,
+    new_operation_recorder,
+)
 from .availability import AvailabilityEvidence, resolve_availability
 from .binance_intervals import validate_binance_spot_interval
 from .market_data import MarketData
@@ -271,6 +279,7 @@ class BinanceSpotRestAdapter:
         clock: Clock | None = None,
         consumer_handoff_clock: Clock | None = None,
         retry_policy: BinanceRetryPolicy | None = None,
+        operation_clock: Clock | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig()
         self.instrument_mapper = instrument_mapper
@@ -278,6 +287,7 @@ class BinanceSpotRestAdapter:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._consumer_handoff_clock = consumer_handoff_clock
         self._retry_policy = retry_policy or BinanceRetryPolicy()
+        self._operation_clock = operation_clock or (lambda: datetime.now(timezone.utc))
 
     @property
     def endpoint_url(self) -> str:
@@ -396,6 +406,7 @@ class BinanceSpotRestAdapter:
         query: Mapping[str, str],
         *,
         request_budget: BinanceRequestBudget | None = None,
+        operation: AcquisitionOperationRecorder | None = None,
     ) -> Any:
         def before_attempt() -> None:
             if request_budget is not None:
@@ -403,6 +414,8 @@ class BinanceSpotRestAdapter:
                     request_budget.consume()
                 except RuntimeError as exc:
                     raise MaximumRequestsExceeded(str(exc)) from exc
+            if operation is not None:
+                operation.record_physical_request()
 
         def should_retry(exc: Exception) -> bool:
             if isinstance(exc, BinanceTransportError):
@@ -520,6 +533,8 @@ class BinanceSpotRestAdapter:
         end_time: int | None = None,
         allow_empty: bool = False,
         _request_budget: BinanceRequestBudget | None = None,
+        _operation: AcquisitionOperationRecorder | None = None,
+        _record_page: bool = True,
     ) -> list[MarketData]:
         """Perform one public REST call and return canonical MarketData objects."""
         query = self.build_query(
@@ -529,8 +544,15 @@ class BinanceSpotRestAdapter:
             start_time=start_time,
             end_time=end_time,
         )
-        payload = self._request(query, request_budget=_request_budget)
-        received_at = self._clock()
+        if _operation is not None:
+            _operation.begin_logical_request()
+        try:
+            payload = self._request(
+                query,
+                request_budget=_request_budget,
+                operation=_operation,
+            )
+            received_at = self._clock()
         if received_at.tzinfo is None or received_at.utcoffset() is None:
             raise ValueError("clock must return a timezone-aware datetime")
         provider_records = self._provider_records(
@@ -578,12 +600,72 @@ class BinanceSpotRestAdapter:
             received_at=received_at,
         )
         if available_at is None:
-            return canonical_items
+            result = canonical_items
+        else:
+            # MarketData is frozen; dataclasses.replace re-runs the canonical
+            # constructor validation while changing only the explicitly resolved
+            # availability timestamp.
+            result = [replace(item, available_at=available_at) for item in canonical_items]
 
-        # MarketData is frozen; dataclasses.replace re-runs the canonical
-        # constructor validation while changing only the explicitly resolved
-        # availability timestamp.
-        return [replace(item, available_at=available_at) for item in canonical_items]
+        if _operation is not None and _record_page:
+            _operation.record_successful_page()
+        return result
+        finally:
+            if _operation is not None:
+                _operation.end_logical_request()
+
+    def fetch_market_data_with_evidence(
+        self,
+        *,
+        symbol: str,
+        interval: str,
+        limit: int = 500,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        allow_empty: bool = False,
+    ) -> tuple[list[MarketData], AcquisitionOperationEvidence]:
+        """Fetch one logical page and return its immutable operation evidence."""
+
+        operation = new_operation_recorder(
+            mode=AcquisitionMode.LIVE,
+            provider=self.config.provider,
+            source_id=self.config.source_id,
+            venue=self.config.venue,
+            market=self.config.market,
+            symbol=symbol,
+            interval=interval,
+            requested_start=(
+                _ms_to_datetime(start_time, "start_time") if start_time is not None else None
+            ),
+            requested_end=(
+                _ms_to_datetime(end_time, "end_time") if end_time is not None else None
+            ),
+            limit=limit,
+            started_at=self._operation_clock(),
+        )
+        try:
+            result = self.fetch_market_data(
+                symbol=symbol,
+                interval=interval,
+                limit=limit,
+                start_time=start_time,
+                end_time=end_time,
+                allow_empty=allow_empty,
+                _operation=operation,
+            )
+        except Exception as exc:
+            evidence = operation.finish(
+                status=AcquisitionStatus.FAILED,
+                finished_at=self._operation_clock(),
+                error=error_evidence_from_exception(exc),
+            )
+            del evidence
+            raise
+        evidence = operation.finish(
+            status=AcquisitionStatus.SUCCESS,
+            finished_at=self._operation_clock(),
+        )
+        return result, evidence
 
     def fetch_historical_market_data(
         self,
@@ -595,13 +677,78 @@ class BinanceSpotRestAdapter:
         page_limit: int = 1000,
         max_requests: int = 1000,
     ) -> list[MarketData]:
-        """Fetch a bounded historical range using deterministic temporal pagination.
+        """Fetch a bounded historical range using deterministic temporal pagination."""
+        return self._fetch_historical_market_data(
+            symbol=symbol,
+            interval=interval,
+            start_time=start_time,
+            end_time=end_time,
+            page_limit=page_limit,
+            max_requests=max_requests,
+            operation=None,
+        )
 
-        Binance documents that kline requests are chronological, use open time as
-        the logical identity, and accept at most 1000 records per request. The
-        next request advances from the last returned candle's close time + 1 ms,
-        avoiding inclusive-range overlap without inventing a cursor.
-        """
+    def fetch_historical_market_data_with_evidence(
+        self,
+        *,
+        symbol: str,
+        interval: str,
+        start_time: int,
+        end_time: int,
+        page_limit: int = 1000,
+        max_requests: int = 1000,
+    ) -> tuple[list[MarketData], AcquisitionOperationEvidence]:
+        """Fetch historical data and return immutable operation evidence."""
+
+        operation = new_operation_recorder(
+            mode=AcquisitionMode.HISTORICAL,
+            provider=self.config.provider,
+            source_id=self.config.source_id,
+            venue=self.config.venue,
+            market=self.config.market,
+            symbol=symbol,
+            interval=interval,
+            requested_start=_ms_to_datetime(start_time, "start_time"),
+            requested_end=_ms_to_datetime(end_time, "end_time"),
+            limit=page_limit,
+            started_at=self._operation_clock(),
+        )
+        try:
+            result = self._fetch_historical_market_data(
+                symbol=symbol,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                page_limit=page_limit,
+                max_requests=max_requests,
+                operation=operation,
+            )
+        except Exception as exc:
+            evidence = operation.finish(
+                status=AcquisitionStatus.FAILED,
+                finished_at=self._operation_clock(),
+                error=error_evidence_from_exception(exc),
+            )
+            del evidence
+            raise
+        evidence = operation.finish(
+            status=AcquisitionStatus.SUCCESS,
+            finished_at=self._operation_clock(),
+        )
+        return result, evidence
+
+    def _fetch_historical_market_data(
+        self,
+        *,
+        symbol: str,
+        interval: str,
+        start_time: int,
+        end_time: int,
+        page_limit: int,
+        max_requests: int,
+        operation: AcquisitionOperationRecorder | None,
+    ) -> list[MarketData]:
+        """Shared historical implementation used by normal and evidence APIs."""
         self.build_query(
             symbol=symbol,
             interval=interval,
@@ -620,17 +767,27 @@ class BinanceSpotRestAdapter:
         seen_identity: set[tuple[str, str, datetime]] = set()
 
         while cursor <= end_time:
-            page = self.fetch_market_data(
-                symbol=symbol,
-                interval=interval,
-                limit=page_limit,
-                start_time=cursor,
-                end_time=end_time,
-                allow_empty=True,
-                _request_budget=request_budget,
-            )
+            if operation is not None:
+                operation.begin_logical_request()
+            try:
+                page = self.fetch_market_data(
+                    symbol=symbol,
+                    interval=interval,
+                    limit=page_limit,
+                    start_time=cursor,
+                    end_time=end_time,
+                    allow_empty=True,
+                    _request_budget=request_budget,
+                    _operation=operation,
+                    _record_page=False,
+                )
+            finally:
+                if operation is not None:
+                    operation.end_logical_request()
 
             if not page:
+                if operation is not None:
+                    operation.record_successful_page(cursor=cursor)
                 break
 
             previous_item = collected[-1] if collected else None
@@ -680,6 +837,12 @@ class BinanceSpotRestAdapter:
                 raise PaginationStalled(
                     f"historical pagination did not advance: cursor={cursor}, "
                     f"next_cursor={new_cursor}"
+                )
+
+            if operation is not None:
+                operation.record_successful_page(
+                    cursor=cursor,
+                    next_cursor=new_cursor,
                 )
 
             cursor = new_cursor
