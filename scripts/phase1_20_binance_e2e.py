@@ -35,6 +35,7 @@ class RequestCounter:
         self.exchange_info = 0
         self.klines = 0
         self.urls: list[str] = []
+        self.live_raw_timestamps: dict[str, tuple[int, int]] = {}
 
     @property
     def total(self) -> int:
@@ -48,10 +49,7 @@ def real_exchange_info_get(url, headers, timeout):
     counter.exchange_info += 1
     counter.urls.append(url)
     if counter.total > MAX_TOTAL_REQUESTS:
-        raise RuntimeError(
-            f"E2E request budget exceeded: max={MAX_TOTAL_REQUESTS}"
-        )
-    # Delegate to the production HTTP implementation.
+        raise RuntimeError(f"E2E request budget exceeded: max={MAX_TOTAL_REQUESTS}")
     return metadata_module._default_exchange_info_get(url, headers, timeout)
 
 
@@ -59,30 +57,27 @@ def real_klines_get(url, headers, timeout):
     counter.klines += 1
     counter.urls.append(url)
     if counter.total > MAX_TOTAL_REQUESTS:
-        raise RuntimeError(
-            f"E2E request budget exceeded: max={MAX_TOTAL_REQUESTS}"
-        )
-    # Delegate to the production HTTP implementation.
-    return spot_module._default_http_get(url, headers, timeout)
+        raise RuntimeError(f"E2E request budget exceeded: max={MAX_TOTAL_REQUESTS}")
+
+    status, response_headers, body = spot_module._default_http_get(
+        url, headers, timeout
+    )
+
+    # Evidence-only extraction from the exact response consumed by the production
+    # adapter. All provider parsing remains inside BinanceSpotRestAdapter.
+    if status >= 200 and status < 300:
+        payload = json.loads(body.decode("utf-8"))
+        if isinstance(payload, list) and payload and isinstance(payload[0], list):
+            row = payload[0]
+            if len(row) == 12 and isinstance(row[0], int) and isinstance(row[6], int):
+                counter.live_raw_timestamps[url] = (row[0], row[6])
+
+    return status, response_headers, body
 
 
 def assert_utc(value: datetime, name: str) -> None:
     assert value.tzinfo is timezone.utc, f"{name} is not timezone.utc: {value!r}"
     assert value.utcoffset() == timedelta(0), f"{name} is not UTC: {value!r}"
-
-
-def raw_open_close_from_response(body: bytes) -> tuple[int, int]:
-    # This is only an evidence check of the two documented Binance timestamp
-    # positions. Provider parsing remains exclusively in BinanceSpotRestAdapter.
-    payload = json.loads(body.decode("utf-8"))
-    assert isinstance(payload, list) and payload, "Binance kline response is empty"
-    row = payload[0]
-    assert isinstance(row, list) and len(row) == 12, "Unexpected Binance kline shape"
-    assert isinstance(row[0], int) and isinstance(row[6], int)
-    return row[0], row[6]
-
-
-last_live_raw: dict[str, tuple[int, int]] = {}
 
 
 def run_live(
@@ -104,7 +99,9 @@ def run_live(
     before = len(counter.urls)
     items = adapter.fetch_market_data(symbol=symbol, interval=interval, limit=1)
     assert len(items) == 1, f"{symbol}/{interval}: expected one MarketData item"
-    assert len(counter.urls) == before + 1, f"{symbol}/{interval}: expected one klines request"
+    assert len(counter.urls) == before + 1, (
+        f"{symbol}/{interval}: expected one klines request"
+    )
 
     item = items[0]
     assert item.instrument.instrument_id == instrument.instrument_id
@@ -130,11 +127,10 @@ def run_live(
     assert "timeZone" not in parsed
     assert "timezone" not in parsed
 
-    # The raw open/close timestamps come from the exact response consumed by
-    # the production HTTP path. Re-fetching would add an unnecessary request,
-    # so the wrapper records them for the single live request.
-    # The response body is not retained globally; use the live response evidence
-    # from the production conversion below instead.
+    raw_open, raw_close = counter.live_raw_timestamps[url]
+    assert _datetime_to_ms(item.payload.start) == raw_open
+    assert _datetime_to_ms(item.payload.end) == raw_close
+
     print(
         f"LIVE {symbol}/{interval}: "
         f"instrument={item.instrument.instrument_id} "
@@ -211,7 +207,10 @@ def main() -> int:
     assert starts == sorted(starts), "Historical candles are not chronological"
     identities = [item.candle_identity for item in historical]
     assert len(identities) == len(set(identities)), "Historical duplicate candle identity"
-    assert all(start_time <= _datetime_to_ms(item.payload.start) <= end_time for item in historical)
+    assert all(
+        start_time <= _datetime_to_ms(item.payload.start) <= end_time
+        for item in historical
+    )
     assert all(item.source.source_id == "binance-spot-rest" for item in historical)
     assert all(item.source.provider == "binance" for item in historical)
     assert all(item.source.venue == "BINANCE" for item in historical)
@@ -219,7 +218,9 @@ def main() -> int:
     assert all(item.payload.timeframe == "1m" for item in historical)
     assert all(item.payload.start.tzinfo is timezone.utc for item in historical)
     assert all(item.payload.end.tzinfo is timezone.utc for item in historical)
-    assert all("timeZone=" not in url and "timezone=" not in url for url in historical_urls)
+    assert all(
+        "timeZone=" not in url and "timezone=" not in url for url in historical_urls
+    )
 
     if len(historical_urls) >= 2:
         first_page_last = historical[HISTORICAL_PAGE_LIMIT - 1]
@@ -260,7 +261,10 @@ if __name__ == "__main__":
         spot_module.BinanceHTTPError,
         spot_module.BinanceRateLimitError,
     ) as exc:
-        print(f"NETWORK_OR_BINANCE_ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            f"NETWORK_OR_BINANCE_ERROR: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         print("RESULT: REQUIRES CEREBRO REVIEW", file=sys.stderr)
         raise SystemExit(2) from exc
     except Exception as exc:
