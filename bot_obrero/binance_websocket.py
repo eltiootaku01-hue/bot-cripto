@@ -106,6 +106,17 @@ def _ms_to_datetime(value: Any, field_name: str) -> datetime:
         ) from exc
 
 
+def _required_protocol_field(
+    mapping: Mapping[str, Any],
+    name: str,
+) -> Any:
+    if name not in mapping:
+        raise BinanceWebSocketProtocolError(
+            f"Binance WebSocket event missing required field: {name}"
+        )
+    return mapping[name]
+
+
 def _required_mapping_field(
     mapping: Mapping[str, Any],
     name: str,
@@ -207,15 +218,15 @@ def parse_binance_kline_event(
 
     root = _decode_message(message)
 
-    event_type = _required_mapping_field(root, "e")
+    event_type = _required_protocol_field(root, "e")
     if event_type != "kline":
         raise BinanceWebSocketProtocolError(
             f"unexpected Binance WebSocket event type: {event_type!r}"
         )
 
-    event_time_ms = _required_mapping_field(root, "E")
-    event_symbol = _required_mapping_field(root, "s")
-    kline = _required_mapping_field(root, "k")
+    event_time_ms = _required_protocol_field(root, "E")
+    event_symbol = _required_protocol_field(root, "s")
+    kline = _required_protocol_field(root, "k")
 
     event_time_ms = _required_nonnegative_int(event_time_ms, "E")
     event_symbol = _required_text(event_symbol, "s")
