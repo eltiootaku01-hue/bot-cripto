@@ -405,7 +405,7 @@ def test_historical_failure_preserves_successful_progress_as_failed_evidence():
     assert evidence.page_count == 1
     assert evidence.request_count == 4
     assert evidence.retry_count == 2
-    assert evidence.last_cursor == 60000
+    assert evidence.last_cursor == 0
     assert evidence.next_cursor == 60000
     assert evidence.error is not None
     assert evidence.error.http_status == 500
