@@ -128,7 +128,7 @@ def test_strategy_contract_accepts_only_analysis_snapshot_and_config():
     configuration = make_config()
 
     with pytest.raises(StrategyContractError, match="snapshot"):
-        build_strategic_artifact(object(), configuration)
+        build_strategic_artifact(object(), configuration, values={})
 
     with pytest.raises(StrategyContractError, match="configuration"):
         build_strategic_artifact(snapshot, object())
@@ -162,7 +162,13 @@ def test_configuration_is_immutable_and_freezes_nested_values():
 
 def test_malformed_configuration_is_rejected():
     with pytest.raises(StrategyContractError):
-        make_config(effective_parameters=None)
+        StrategyCalculationConfig(
+            strategy_type="neutral-test",
+            strategy_identity="strategy.test",
+            strategy_version="1.0.0",
+            effective_configuration={},
+            effective_parameters=None,
+        )
 
     with pytest.raises(StrategyContractError, match="strategy_type"):
         make_config(strategy_type="")
@@ -263,10 +269,9 @@ def test_strategy_output_is_not_an_execution_order_or_signal():
 
 
 def test_strategy_protocol_is_provider_neutral_and_minimal():
-    protocol_members = set(Strategy.__dict__) if hasattr(Strategy, "__dict__") else set()
-    assert "compute" in protocol_members
-    assert "strategy_identity" in protocol_members
-    assert "strategy_version" in protocol_members
+    assert "strategy_identity" in Strategy.__annotations__
+    assert "strategy_version" in Strategy.__annotations__
+    assert callable(getattr(Strategy, "compute", None))
 
 
 def test_strategy_contract_has_no_provider_or_execution_imports():
