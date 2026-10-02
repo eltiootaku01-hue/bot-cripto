@@ -146,18 +146,20 @@ class BinanceSpotInstrumentMetadata:
         *,
         config: BinanceSpotRestConfig | None = None,
         http_get: HTTPGetter = _default_exchange_info_get,
+        retry_policy: BinanceRetryPolicy | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig(endpoint="/api/v3/exchangeInfo")
         if self.config.endpoint != "/api/v3/exchangeInfo":
             raise ValueError("ExchangeInfo config endpoint must be /api/v3/exchangeInfo")
         self._http_get = http_get
+        self._retry_policy = retry_policy or BinanceRetryPolicy()
         self._cache: dict[str, BinanceInstrumentRecord] = {}
 
     @property
     def endpoint_url(self) -> str:
         return self.config.base_url.rstrip("/") + "/api/v3/exchangeInfo"
 
-    def _request(self, symbol: str) -> Any:
+    def _request_once(self, symbol: str) -> Any:
         encoded = urllib.parse.urlencode({"symbol": symbol})
         url = f"{self.endpoint_url}?{encoded}"
         try:
@@ -195,6 +197,29 @@ class BinanceSpotInstrumentMetadata:
             if isinstance(payload.get("code"), int) and isinstance(payload.get("msg"), str):
                 raise BinanceAPIError(payload["code"], payload["msg"], http_status=status)
         return payload
+
+    def _request(self, symbol: str) -> Any:
+        def should_retry(exc: Exception) -> bool:
+            if isinstance(exc, ExchangeInfoTransportError):
+                return True
+            if isinstance(exc, BinanceRateLimitError):
+                return True
+            if isinstance(exc, BinanceHTTPError):
+                return 500 <= exc.status_code <= 599
+            if isinstance(exc, BinanceAPIError):
+                return 500 <= exc.http_status <= 599
+            return False
+
+        def retry_after(exc: Exception) -> float | None:
+            if isinstance(exc, BinanceHTTPError):
+                return exc.retry_after_seconds
+            return None
+
+        return self._retry_policy.execute(
+            lambda: self._request_once(symbol),
+            should_retry=should_retry,
+            retry_after=retry_after,
+        )
 
     @staticmethod
     def _parse_symbol_record(raw: Any) -> BinanceInstrumentRecord:
