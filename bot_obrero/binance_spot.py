@@ -193,8 +193,12 @@ def _nonnegative_int(value: Any, field_name: str) -> int:
     return value
 
 
+Clock = Callable[[], datetime]
+
+
 class BinanceSpotRestAdapter:
     """One-shot public Binance Spot kline adapter."""
+
 
     def __init__(
         self,
@@ -202,10 +206,12 @@ class BinanceSpotRestAdapter:
         instrument_mapper: InstrumentMapper,
         config: BinanceSpotRestConfig | None = None,
         http_get: HTTPGetter = _default_http_get,
+        clock: Clock | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig()
         self.instrument_mapper = instrument_mapper
         self._http_get = http_get
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     @property
     def endpoint_url(self) -> str:
@@ -254,9 +260,17 @@ class BinanceSpotRestAdapter:
             headers,
             self.config.timeout_seconds,
         )
-        payload = _decode_json(body, http_status=http_status)
+        context = (
+            f"endpoint={self.endpoint_url} "
+            f"symbol={query.get('symbol')} interval={query.get('interval')}"
+        )
 
         if http_status < 200 or http_status >= 300:
+            try:
+                payload = _decode_json(body, http_status=http_status)
+            except BinancePayloadError:
+                payload = None
+
             if isinstance(payload, Mapping) and "code" in payload and "msg" in payload:
                 code = payload.get("code")
                 message = payload.get("msg")
@@ -264,13 +278,13 @@ class BinanceSpotRestAdapter:
                     if http_status in (429, 418):
                         raise BinanceRateLimitError(
                             http_status,
-                            f"Binance rate limit response: {code}: {message}",
+                            f"Binance rate limit response: {code}: {message}; {context}",
                             retry_after_seconds=_retry_after_seconds(response_headers),
                             outcome_unknown=False,
                         )
                     raise BinanceAPIError(
                         code,
-                        message,
+                        f"{message}; {context}",
                         http_status=http_status,
                     )
 
@@ -278,21 +292,26 @@ class BinanceSpotRestAdapter:
             if http_status in (429, 418):
                 raise BinanceRateLimitError(
                     http_status,
-                    f"Binance HTTP rate limit failure: {http_status}",
+                    f"Binance HTTP rate limit failure: {http_status}; {context}",
                     retry_after_seconds=retry_after,
                 )
             raise BinanceHTTPError(
                 http_status,
-                f"Binance HTTP failure: {http_status}",
+                f"Binance HTTP failure: {http_status}; {context}",
                 retry_after_seconds=retry_after,
                 outcome_unknown=500 <= http_status <= 599,
             )
 
+        payload = _decode_json(body, http_status=http_status)
         if isinstance(payload, Mapping) and "code" in payload and "msg" in payload:
             code = payload.get("code")
             message = payload.get("msg")
             if isinstance(code, int) and isinstance(message, str):
-                raise BinanceAPIError(code, message, http_status=http_status)
+                raise BinanceAPIError(
+                    code,
+                    f"{message}; {context}",
+                    http_status=http_status,
+                )
 
         return payload
 
@@ -394,7 +413,9 @@ class BinanceSpotRestAdapter:
             end_time=end_time,
         )
         payload = self._request(query)
-        received_at = datetime.now(timezone.utc)
+        received_at = self._clock()
+        if received_at.tzinfo is None or received_at.utcoffset() is None:
+            raise ValueError("clock must return a timezone-aware datetime")
         provider_records = self._provider_records(
             payload,
             symbol=symbol,
