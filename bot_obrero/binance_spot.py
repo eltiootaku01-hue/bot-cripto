@@ -29,7 +29,7 @@ from .acquisition import (
     parse_provider_payload,
 )
 from .availability import AvailabilityEvidence, resolve_availability
-from .binance_intervals import BinanceSpotInterval, validate_binance_spot_interval
+from .binance_intervals import validate_binance_spot_interval
 from .market_data import MarketData
 
 
