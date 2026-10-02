@@ -381,6 +381,40 @@ class BinanceSpotRestAdapter:
 
         return payload
 
+    def _request(
+        self,
+        query: Mapping[str, str],
+        *,
+        request_budget: BinanceRequestBudget | None = None,
+    ) -> Any:
+        def before_attempt() -> None:
+            if request_budget is not None:
+                try:
+                    request_budget.consume()
+                except RuntimeError as exc:
+                    raise MaximumRequestsExceeded(str(exc)) from exc
+
+        def should_retry(exc: Exception) -> bool:
+            if isinstance(exc, (BinanceTransportError, BinanceRateLimitError)):
+                return True
+            if isinstance(exc, BinanceHTTPError):
+                return 500 <= exc.status_code <= 599
+            if isinstance(exc, BinanceAPIError):
+                return 500 <= exc.http_status <= 599
+            return False
+
+        def retry_after(exc: Exception) -> float | None:
+            if isinstance(exc, BinanceHTTPError):
+                return exc.retry_after_seconds
+            return None
+
+        return self._retry_policy.execute(
+            lambda: self._request_once(query),
+            should_retry=should_retry,
+            retry_after=retry_after,
+            before_attempt=before_attempt,
+        )
+
     def _provider_records(
         self,
         payload: Any,
