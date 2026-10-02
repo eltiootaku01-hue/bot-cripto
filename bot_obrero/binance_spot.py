@@ -255,15 +255,20 @@ class BinanceSpotRestAdapter:
             "Accept": "application/json",
             "User-Agent": "bot-cripto-binance-spot-adapter/1.0",
         }
-        http_status, response_headers, body = self._http_get(
-            url,
-            headers,
-            self.config.timeout_seconds,
-        )
         context = (
             f"endpoint={self.endpoint_url} "
             f"symbol={query.get('symbol')} interval={query.get('interval')}"
         )
+        try:
+            http_status, response_headers, body = self._http_get(
+                url,
+                headers,
+                self.config.timeout_seconds,
+            )
+        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
+            raise BinanceTransportError(
+                f"Binance HTTP transport failure: {exc}; {context}"
+            ) from exc
 
         if http_status < 200 or http_status >= 300:
             try:
