@@ -13,6 +13,7 @@ from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping, Protocol
+from uuid import uuid4
 
 from .analysis_snapshot import AnalysisSnapshot
 
@@ -113,6 +114,7 @@ class StrategicArtifact:
     """Neutral strategy output carrying the complete calculation evidence."""
 
     snapshot_id: str
+    strategic_artifact_id: str
     symbol: str
     decision_timestamp: datetime
     observation_ids: tuple[str, ...]
@@ -125,6 +127,11 @@ class StrategicArtifact:
 
     def __post_init__(self) -> None:
         _require_nonempty_string(self.snapshot_id, "snapshot_id")
+        _require_nonempty_string(self.strategic_artifact_id, "strategic_artifact_id")
+        if self.strategic_artifact_id == self.snapshot_id:
+            raise StrategyContractError(
+                "strategic_artifact_id must not reuse snapshot_id"
+            )
         _require_nonempty_string(self.symbol, "symbol")
         _require_nonempty_string(self.strategy_type, "strategy_type")
         _require_nonempty_string(self.strategy_identity, "strategy_identity")
@@ -215,6 +222,7 @@ def build_strategic_artifact(
 
     return StrategicArtifact(
         snapshot_id=snapshot.snapshot_id,
+        strategic_artifact_id=uuid4().hex,
         symbol=snapshot.symbol,
         decision_timestamp=snapshot.decision_timestamp,
         observation_ids=tuple(snapshot.observation_ids),
