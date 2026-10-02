@@ -123,8 +123,8 @@ def test_rate_limit_without_valid_retry_after_uses_bounded_backoff(headers):
     assert delays == [0.5]
 
 
-@pytest.mark.parametrize("status", [418, 500])
-def test_retryable_http_statuses_are_bounded(status):
+@pytest.mark.parametrize("status", [500])
+def test_server_errors_are_bounded(status):
     calls = []
     def http_get(url, headers, timeout):
         calls.append(1)
@@ -133,6 +133,27 @@ def test_retryable_http_statuses_are_bounded(status):
         adapter(http_get, sleeper=lambda _: None, max_attempts=3)._request({"symbol": "BTCUSDT", "interval": "1m", "limit": "1"})
     assert len(calls) == 3
 
+
+def test_418_retries_only_with_explicit_retry_after():
+    calls = []
+    delays = []
+    def http_get(url, headers, timeout):
+        calls.append(1)
+        return 418, {"Retry-After": "4"}, b"{}"
+    with pytest.raises(BinanceRateLimitError):
+        adapter(http_get, sleeper=delays.append, max_attempts=3)._request({"symbol": "BTCUSDT", "interval": "1m", "limit": "1"})
+    assert len(calls) == 3
+    assert delays == [4.0, 4.0]
+
+
+def test_418_without_retry_after_is_not_retried():
+    calls = []
+    def http_get(url, headers, timeout):
+        calls.append(1)
+        return 418, {}, b"{}"
+    with pytest.raises(BinanceRateLimitError):
+        adapter(http_get, sleeper=lambda _: None, max_attempts=3)._request({"symbol": "BTCUSDT", "interval": "1m", "limit": "1"})
+    assert len(calls) == 1
 
 def test_500_marks_unknown_outcome():
     def http_get(url, headers, timeout):
