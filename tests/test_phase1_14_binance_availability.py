@@ -91,7 +91,7 @@ def test_binance_availability_defaults_to_unknown_without_explicit_handoff():
     assert item.received_at == RECEIVED
 
 
-def test_consumer_handoff_produces_explicit_availability_at_t5():
+def test_consumer_handoff_produces_explicit_availability_at_pre_return_boundary():
     items = adapter(
         ok_getter([valid_row()]),
         consumer_handoff_clock=lambda: HANDOFF,
@@ -104,6 +104,28 @@ def test_consumer_handoff_produces_explicit_availability_at_t5():
     assert items[0].received_at == RECEIVED
     assert items[0].available_at == HANDOFF
     assert items[0].available_at >= items[0].received_at
+
+
+
+def test_consumer_handoff_clock_is_observed_before_outer_caller_sees_return():
+    observed = {"returned": False}
+
+    def handoff_clock():
+        assert observed["returned"] is False
+        return HANDOFF
+
+    result = adapter(
+        ok_getter([valid_row()]),
+        consumer_handoff_clock=handoff_clock,
+    ).fetch_one(
+        symbol="BTCUSDT",
+        interval="1m",
+        limit=1,
+    )
+    observed["returned"] = True
+
+    assert observed["returned"] is True
+    assert result.available_at == HANDOFF
 
 
 def test_consumer_handoff_clock_must_be_timezone_aware():
