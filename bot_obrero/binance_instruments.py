@@ -24,6 +24,7 @@ from .binance_spot import (
     BinancePayloadError,
     BinanceRateLimitError,
     BinanceSpotRestAdapter,
+    _retry_after_seconds,
     BinanceSpotRestConfig,
     BinanceTransportError,
 )
@@ -39,8 +40,11 @@ class ExchangeInfoTransportError(RuntimeError):
         self.outcome_unknown = outcome_unknown
 
 
-class ExchangeInfoHTTPError(RuntimeError):
-    """HTTP failure while requesting ExchangeInfo."""
+class ExchangeInfoHTTPError(BinanceHTTPError):
+    """HTTP failure while requesting ExchangeInfo, preserving status and retry metadata."""
+
+    def __init__(self, status_code: int, message: str, *, retry_after_seconds: float | None = None, outcome_unknown: bool = False) -> None:
+        super().__init__(status_code, message, retry_after_seconds=retry_after_seconds, outcome_unknown=outcome_unknown)
 
 
 class ExchangeInfoPayloadError(RuntimeError):
@@ -185,9 +189,15 @@ class BinanceSpotInstrumentMetadata:
                     raise BinanceRateLimitError(
                         status,
                         f"Binance ExchangeInfo rate limit: {payload['code']}: {payload['msg']}",
+                        retry_after_seconds=_retry_after_seconds(headers),
                     )
                 raise BinanceAPIError(payload["code"], payload["msg"], http_status=status)
-            raise ExchangeInfoHTTPError(f"Binance ExchangeInfo HTTP failure: {status}")
+            raise ExchangeInfoHTTPError(
+                status,
+                f"Binance ExchangeInfo HTTP failure: {status}",
+                retry_after_seconds=_retry_after_seconds(headers),
+                outcome_unknown=500 <= status <= 599,
+            )
 
         try:
             payload = json.loads(body.decode("utf-8"))
