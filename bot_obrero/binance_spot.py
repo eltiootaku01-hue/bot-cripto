@@ -266,12 +266,14 @@ class BinanceSpotRestAdapter:
         http_get: HTTPGetter = _default_http_get,
         clock: Clock | None = None,
         consumer_handoff_clock: Clock | None = None,
+        retry_policy: BinanceRetryPolicy | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig()
         self.instrument_mapper = instrument_mapper
         self._http_get = http_get
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._consumer_handoff_clock = consumer_handoff_clock
+        self._retry_policy = retry_policy or BinanceRetryPolicy()
 
     @property
     def endpoint_url(self) -> str:
