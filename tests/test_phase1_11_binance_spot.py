@@ -159,6 +159,17 @@ def test_decimal_scale_is_preserved_without_float_conversion():
     assert item.payload.volume.as_tuple().exponent == -4
 
 
+def test_numeric_json_float_is_rejected_instead_of_converted():
+    row = valid_row()
+    row[1] = 123.45
+    with pytest.raises(BinancePayloadError, match="decimal string"):
+        adapter(ok_getter([row])).fetch_one(
+            symbol="BTCUSDT",
+            interval="1m",
+            limit=1,
+        )
+
+
 def test_available_at_is_none_and_never_inferred_from_observed_or_received():
     item = adapter(ok_getter([valid_row()])).fetch_one(
         symbol="BTCUSDT",
