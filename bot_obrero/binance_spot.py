@@ -202,12 +202,15 @@ class BinanceSpotRestAdapter:
 
     Availability is conservative by default. A consumer handoff is only
     recorded when an explicit, injected handoff clock is configured. The
-    configured clock represents the boundary at which the direct caller of
-    fetch_market_data() receives the completed MarketData result.
+    configured clock records the adapter's pre-return availability boundary:
+    the instant after canonical validation and immediately before the adapter
+    returns the completed MarketData result to its caller. It is not an
+    observation of the later instant at which the caller receives the return
+    value.
     """
 
-    CONSUMER_SCOPE = "direct caller receiving BinanceSpotRestAdapter.fetch_market_data() return value"
-    AVAILABILITY_EVIDENCE_REFERENCE = "binance-spot-rest.fetch_market_data:return-handoff"
+    CONSUMER_SCOPE = "BinanceSpotRestAdapter.fetch_market_data pre-return availability boundary"
+    AVAILABILITY_EVIDENCE_REFERENCE = "binance-spot-rest.fetch_market_data:pre-return-boundary"
 
 
     def __init__(
@@ -456,11 +459,14 @@ class BinanceSpotRestAdapter:
             # availability boundary is crossed.
             canonical_items.append(canonicalize_market_data(normalized.value))
 
-        # FASE 1.14: absence of an explicitly configured consumer boundary
+        # FASE 1.14: absence of an explicitly configured pre-return boundary
         # remains UNKNOWN. No received_at/observed_at/close_time fallback exists.
         if self._consumer_handoff_clock is None:
             evidence = AvailabilityEvidence.unknown()
         else:
+            # This callback is evaluated inside the adapter, before return.
+            # It measures the explicit pre-return availability boundary, not
+            # the later instant observed by the caller after return.
             handoff_at = self._consumer_handoff_clock()
             evidence = AvailabilityEvidence.consumer_handoff(
                 received_at=received_at,
