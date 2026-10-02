@@ -578,7 +578,7 @@ class BinanceSpotRestAdapter:
                 break
 
             previous_item = collected[-1] if collected else None
-            for item in page:
+            for position, item in enumerate(page):
                 item_start_ms = _datetime_to_ms(item.payload.start)
                 if item_start_ms < start_time or item_start_ms > end_time:
                     raise UnexpectedPageOrder(
@@ -597,6 +597,11 @@ class BinanceSpotRestAdapter:
                 if previous_item is not None:
                     expected_start = previous_item.payload.end + timedelta(milliseconds=1)
                     actual_start = item.payload.start
+                    if position == 0 and actual_start < expected_start:
+                        raise PaginationStalled(
+                            "historical pagination moved backwards or failed to advance: "
+                            f"cursor={cursor}, page_start={item_start_ms}"
+                        )
                     if actual_start < expected_start:
                         raise UnexpectedPageOrder(
                             "historical klines are not strictly chronological"
