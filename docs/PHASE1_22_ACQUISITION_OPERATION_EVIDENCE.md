@@ -103,7 +103,7 @@ No se mantiene un segundo contador de evidencia separado del flujo real de attem
 
 La evidencia histórica registra `requested_start`, `requested_end`, `page_count`, `request_count`, `retry_count`, `last_cursor` y `next_cursor`.
 
-El cursor representa progreso de adquisición y nunca identidad de candle.
+`last_cursor` es el cursor usado por la última página histórica completada con éxito. `next_cursor` es el cursor que la paginación calcularía para la siguiente página a partir de ese progreso. El cursor representa progreso de adquisición y nunca identidad de candle.
 
 No se escribe en `MarketData.candle_identity` ni en `source_sequence`.
 
