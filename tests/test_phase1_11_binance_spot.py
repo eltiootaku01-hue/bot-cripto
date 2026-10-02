@@ -11,6 +11,7 @@ from bot_obrero.acquisition import (
     InstrumentMappingNotFound,
     InstrumentMappingRule,
 )
+from bot_obrero.binance_resilience import BinanceRetryPolicy
 from bot_obrero.binance_spot import (
     BinanceAPIError,
     BinanceHTTPError,
@@ -84,12 +85,14 @@ def adapter(
     *,
     clock=lambda: RECEIVED_CLOSED,
     mapper=None,
+    retry_policy=None,
 ):
     return BinanceSpotRestAdapter(
         instrument_mapper=mapper or mapping(),
         config=BinanceSpotRestConfig(timeout_seconds=3),
         http_get=getter,
         clock=clock,
+        retry_policy=retry_policy,
     )
 
 
@@ -326,24 +329,41 @@ def test_waf_or_generic_http_4xx_is_explicitly_rejected(status):
 def test_5xx_is_explicit_and_marks_outcome_unknown(status):
     def getter(url, headers, timeout):
         return status, {"Content-Type": "text/plain"}, b"upstream failure"
+    no_retry_policy = BinanceRetryPolicy(max_attempts=1, sleeper=lambda _: None)
     with pytest.raises(BinanceHTTPError) as exc_info:
-        adapter(getter).fetch_one(symbol="BTCUSDT", interval="1m", limit=1)
+        adapter(getter, retry_policy=no_retry_policy).fetch_one(
+            symbol="BTCUSDT", interval="1m", limit=1
+        )
     assert exc_info.value.status_code == status
     assert exc_info.value.outcome_unknown is True
 
 
 @pytest.mark.parametrize("status", [429, 418])
-def test_rate_limit_errors_expose_retry_after_and_do_not_auto_retry(status):
+def test_rate_limit_errors_expose_retry_after_and_auto_retry_when_allowed(status):
     calls = 0
+    delays = []
+
     def getter(url, headers, timeout):
         nonlocal calls
         calls += 1
         return status, {"Retry-After": "7"}, b"not-json"
+
+    policy = BinanceRetryPolicy(
+        max_attempts=3,
+        backoff_base_seconds=0.5,
+        max_backoff_seconds=2.0,
+        sleeper=delays.append,
+    )
     with pytest.raises(BinanceRateLimitError) as exc_info:
-        adapter(getter).fetch_one(symbol="BTCUSDT", interval="1m", limit=1)
+        adapter(getter, retry_policy=policy).fetch_one(
+            symbol="BTCUSDT",
+            interval="1m",
+            limit=1,
+        )
     assert exc_info.value.status_code == status
     assert exc_info.value.retry_after_seconds == 7.0
-    assert calls == 1
+    assert calls == 3
+    assert delays == [7.0, 7.0]
 
 
 def test_binance_api_error_payload_is_distinguished_from_generic_http_failure():
@@ -362,8 +382,11 @@ def test_binance_api_error_payload_is_distinguished_from_generic_http_failure():
 def test_http_timeout_is_distinguished_as_transport_failure():
     def getter(url, headers, timeout):
         raise TimeoutError("timed out")
+    no_retry_policy = BinanceRetryPolicy(max_attempts=1, sleeper=lambda _: None)
     with pytest.raises(BinanceTransportError):
-        adapter(getter).fetch_one(symbol="BTCUSDT", interval="1m", limit=1)
+        adapter(getter, retry_policy=no_retry_policy).fetch_one(
+            symbol="BTCUSDT", interval="1m", limit=1
+        )
 
 
 def test_api_error_object_on_http_200_is_not_accepted_as_market_data():
