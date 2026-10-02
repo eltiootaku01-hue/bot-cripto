@@ -21,6 +21,7 @@ from .market_data import (
     InstrumentIdentity,
     MarketData,
     MarketDataError,
+    CANDLE_DATA_TYPE,
     SourceIdentity,
 )
 
@@ -382,7 +383,7 @@ def canonicalize_market_data(value: NormalizedMarketDataInput) -> MarketData:
         return MarketData(
             instrument=value.instrument,
             source=value.source,
-            data_type="CANDLE",
+            data_type=CANDLE_DATA_TYPE,
             observed_at=value.observed_at,
             received_at=value.received_at,
             available_at=value.available_at,

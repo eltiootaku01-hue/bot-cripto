@@ -142,7 +142,7 @@ def test_source_identity_keeps_source_provider_and_venue_separate():
 
 def test_source_id_is_never_synthesized_from_provider():
     with pytest.raises((ValueError, TypeError)):
-        normalize(source_id="") if False else build_source_identity(
+        build_source_identity(
             source_id="", provider="fixture-provider", venue="fixture-venue"
         )
 
@@ -272,7 +272,7 @@ def test_canonicalization_creates_canonical_market_data():
     assert item.source_sequence == 7
 
 
-def test_full_pipeline_ends_at_market_data_and_not_observation():
+def test_full_pipeline_ends_at_market_data_and_later_promotion_stays_separate():
     item = provider_payload_to_market_data(
         payload(quality="VALID"),
         received_at=RECEIVED,
@@ -281,11 +281,9 @@ def test_full_pipeline_ends_at_market_data_and_not_observation():
     )
     assert isinstance(item, MarketData)
     assert item.quality is DataQuality.VALID
-    with pytest.raises(Exception):
-        # available_at is known and quality is VALID, so this call should create
-        # the later Phase 1.6 object; the acquisition layer itself does not create it.
-        observation = to_market_observation(item)
-        assert observation.provenance.reference == item.market_data_id
+    observation = to_market_observation(item)
+    assert observation.provenance.reference == item.market_data_id
+    assert observation.observation_id != item.market_data_id
 
 
 def test_available_at_unknown_cannot_create_temporal_evidence():
@@ -352,3 +350,21 @@ def test_partial_and_closed_not_final_cross_without_semantic_upgrade():
     assert item.payload.candle_state is CandleState.CLOSED
     assert item.payload.completeness is DataCompleteness.PARTIAL
     assert item.payload.finality is CandleFinality.NOT_FINAL
+
+
+def test_invalid_decimal_text_is_rejected_at_normalization():
+    with pytest.raises(NormalizationError, match="open"):
+        normalize(open="not-a-decimal")
+
+
+def test_invalid_available_at_is_rejected_without_fallback():
+    with pytest.raises(NormalizationError, match="available_at"):
+        normalize(available_at="not-a-timestamp")
+
+
+def test_negative_volume_is_rejected_by_canonical_validation():
+    normalized = normalize(volume="-0.0001")
+    from bot_obrero.acquisition import canonicalize_market_data
+
+    with pytest.raises(CanonicalValidationError, match="volume must be >= 0"):
+        canonicalize_market_data(normalized.value)
