@@ -553,63 +553,66 @@ class BinanceSpotRestAdapter:
                 operation=_operation,
             )
             received_at = self._clock()
-        if received_at.tzinfo is None or received_at.utcoffset() is None:
-            raise ValueError("clock must return a timezone-aware datetime")
-        provider_records = self._provider_records(
-            payload,
-            symbol=symbol,
-            interval=interval,
-            received_at=received_at,
-            allow_empty=allow_empty,
-        )
-
-        canonical_items: list[MarketData] = []
-        for raw in provider_records:
-            parsed = parse_provider_payload(raw).record
-            try:
-                normalized = normalize_provider_record(
-                    parsed,
-                    received_at=received_at,
-                    source_id=self.config.source_id,
-                    instrument_mapper=self.instrument_mapper,
-                )
-            except NormalizationError:
-                raise
-            # Canonical validation completes before the explicit consumer
-            # availability boundary is crossed.
-            canonical_items.append(canonicalize_market_data(normalized.value))
-
-        # FASE 1.14: absence of an explicitly configured pre-return boundary
-        # remains UNKNOWN. No received_at/observed_at/close_time fallback exists.
-        if self._consumer_handoff_clock is None:
-            evidence = AvailabilityEvidence.unknown()
-        else:
-            # This callback is evaluated inside the adapter, before return.
-            # It measures the explicit pre-return availability boundary, not
-            # the later instant observed by the caller after return.
-            handoff_at = self._consumer_handoff_clock()
-            evidence = AvailabilityEvidence.consumer_handoff(
+            if received_at.tzinfo is None or received_at.utcoffset() is None:
+                raise ValueError("clock must return a timezone-aware datetime")
+            provider_records = self._provider_records(
+                payload,
+                symbol=symbol,
+                interval=interval,
                 received_at=received_at,
-                available_at=handoff_at,
-                evidence_reference=self.AVAILABILITY_EVIDENCE_REFERENCE,
-                consumer_scope=self.CONSUMER_SCOPE,
+                allow_empty=allow_empty,
             )
 
-        available_at = resolve_availability(
-            evidence,
-            received_at=received_at,
-        )
-        if available_at is None:
-            result = canonical_items
-        else:
-            # MarketData is frozen; dataclasses.replace re-runs the canonical
-            # constructor validation while changing only the explicitly resolved
-            # availability timestamp.
-            result = [replace(item, available_at=available_at) for item in canonical_items]
+            canonical_items: list[MarketData] = []
+            for raw in provider_records:
+                parsed = parse_provider_payload(raw).record
+                try:
+                    normalized = normalize_provider_record(
+                        parsed,
+                        received_at=received_at,
+                        source_id=self.config.source_id,
+                        instrument_mapper=self.instrument_mapper,
+                    )
+                except NormalizationError:
+                    raise
+                # Canonical validation completes before the explicit consumer
+                # availability boundary is crossed.
+                canonical_items.append(canonicalize_market_data(normalized.value))
 
-        if _operation is not None and _record_page:
-            _operation.record_successful_page()
-        return result
+            # FASE 1.14: absence of an explicitly configured pre-return boundary
+            # remains UNKNOWN. No received_at/observed_at/close_time fallback exists.
+            if self._consumer_handoff_clock is None:
+                evidence = AvailabilityEvidence.unknown()
+            else:
+                # This callback is evaluated inside the adapter, before return.
+                # It measures the explicit pre-return availability boundary, not
+                # the later instant observed by the caller after return.
+                handoff_at = self._consumer_handoff_clock()
+                evidence = AvailabilityEvidence.consumer_handoff(
+                    received_at=received_at,
+                    available_at=handoff_at,
+                    evidence_reference=self.AVAILABILITY_EVIDENCE_REFERENCE,
+                    consumer_scope=self.CONSUMER_SCOPE,
+                )
+
+            available_at = resolve_availability(
+                evidence,
+                received_at=received_at,
+            )
+            if available_at is None:
+                result = canonical_items
+            else:
+                # MarketData is frozen; dataclasses.replace re-runs the canonical
+                # constructor validation while changing only the explicitly resolved
+                # availability timestamp.
+                result = [
+                    replace(item, available_at=available_at)
+                    for item in canonical_items
+                ]
+
+            if _operation is not None and _record_page:
+                _operation.record_successful_page()
+            return result
         finally:
             if _operation is not None:
                 _operation.end_logical_request()
@@ -767,23 +770,17 @@ class BinanceSpotRestAdapter:
         seen_identity: set[tuple[str, str, datetime]] = set()
 
         while cursor <= end_time:
-            if operation is not None:
-                operation.begin_logical_request()
-            try:
-                page = self.fetch_market_data(
-                    symbol=symbol,
-                    interval=interval,
-                    limit=page_limit,
-                    start_time=cursor,
-                    end_time=end_time,
-                    allow_empty=True,
-                    _request_budget=request_budget,
-                    _operation=operation,
-                    _record_page=False,
-                )
-            finally:
-                if operation is not None:
-                    operation.end_logical_request()
+            page = self.fetch_market_data(
+                symbol=symbol,
+                interval=interval,
+                limit=page_limit,
+                start_time=cursor,
+                end_time=end_time,
+                allow_empty=True,
+                _request_budget=request_budget,
+                _operation=operation,
+                _record_page=False,
+            )
 
             if not page:
                 if operation is not None:
