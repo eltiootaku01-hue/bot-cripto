@@ -1,0 +1,23 @@
+name: phase1.20-binance-e2e
+
+on:
+  workflow_dispatch:
+
+jobs:
+  binance-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project test dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Run real Binance E2E
+        run: python scripts/phase1_20_binance_e2e.py
