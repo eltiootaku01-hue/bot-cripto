@@ -29,6 +29,7 @@ from .acquisition import (
     parse_provider_payload,
 )
 from .availability import AvailabilityEvidence, resolve_availability
+from .binance_intervals import BinanceSpotInterval, validate_binance_spot_interval
 from .market_data import MarketData
 
 
@@ -281,8 +282,7 @@ class BinanceSpotRestAdapter:
     ) -> dict[str, str]:
         if not isinstance(symbol, str) or not symbol.strip():
             raise ValueError("symbol must be a non-empty string")
-        if not isinstance(interval, str) or not interval.strip():
-            raise ValueError("interval must be a non-empty string")
+        validated_interval = validate_binance_spot_interval(interval)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ValueError("limit must be an integer from 1 to 1000")
         for name, value in (("startTime", start_time), ("endTime", end_time)):
@@ -292,7 +292,7 @@ class BinanceSpotRestAdapter:
                 raise ValueError(f"{name} must be a non-negative integer millisecond timestamp")
         query = {
             "symbol": symbol,
-            "interval": interval,
+            "interval": validated_interval.value,
             "limit": str(limit),
         }
         if start_time is not None:
