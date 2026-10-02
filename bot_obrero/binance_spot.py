@@ -603,16 +603,11 @@ class BinanceSpotRestAdapter:
             raise ValueError("max_requests must be an integer >= 1")
 
         cursor = start_time
-        requests_made = 0
+        request_budget = BinanceRequestBudget(max_requests=max_requests)
         collected: list[MarketData] = []
         seen_identity: set[tuple[str, str, datetime]] = set()
 
         while cursor <= end_time:
-            if requests_made >= max_requests:
-                raise MaximumRequestsExceeded(
-                    f"historical acquisition exceeded max_requests={max_requests}"
-                )
-
             page = self.fetch_market_data(
                 symbol=symbol,
                 interval=interval,
@@ -620,8 +615,8 @@ class BinanceSpotRestAdapter:
                 start_time=cursor,
                 end_time=end_time,
                 allow_empty=True,
+                _request_budget=request_budget,
             )
-            requests_made += 1
 
             if not page:
                 break
