@@ -14,10 +14,20 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Mapping
 
 from .acquisition import InstrumentMapper, InstrumentMappingRule
+from .acquisition_evidence import (
+    AcquisitionMode,
+    AcquisitionOperationEvidence,
+    AcquisitionOperationRecorder,
+    AcquisitionStatus,
+    attach_evidence_to_exception,
+    error_evidence_from_exception,
+    new_operation_recorder,
+)
 from .binance_spot import (
     BinanceAPIError,
     BinanceHTTPError,
@@ -151,12 +161,14 @@ class BinanceSpotInstrumentMetadata:
         config: BinanceSpotRestConfig | None = None,
         http_get: HTTPGetter = _default_exchange_info_get,
         retry_policy: BinanceRetryPolicy | None = None,
+        operation_clock: Callable[..., Any] | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig(endpoint="/api/v3/exchangeInfo")
         if self.config.endpoint != "/api/v3/exchangeInfo":
             raise ValueError("ExchangeInfo config endpoint must be /api/v3/exchangeInfo")
         self._http_get = http_get
         self._retry_policy = retry_policy or BinanceRetryPolicy()
+        self._operation_clock = operation_clock or (lambda: datetime.now(timezone.utc))
         self._cache: dict[str, BinanceInstrumentRecord] = {}
 
     @property
@@ -208,7 +220,16 @@ class BinanceSpotInstrumentMetadata:
                 raise BinanceAPIError(payload["code"], payload["msg"], http_status=status)
         return payload
 
-    def _request(self, symbol: str) -> Any:
+    def _request(
+        self,
+        symbol: str,
+        *,
+        operation: AcquisitionOperationRecorder | None = None,
+    ) -> Any:
+        def before_attempt() -> None:
+            if operation is not None:
+                operation.record_physical_request()
+
         def should_retry(exc: Exception) -> bool:
             if isinstance(exc, ExchangeInfoTransportError):
                 return True
@@ -229,6 +250,7 @@ class BinanceSpotInstrumentMetadata:
             lambda: self._request_once(symbol),
             should_retry=should_retry,
             retry_after=retry_after,
+            before_attempt=before_attempt,
         )
 
     @staticmethod
@@ -267,13 +289,66 @@ class BinanceSpotInstrumentMetadata:
         )
 
     def fetch(self, symbol: str, *, refresh: bool = False) -> BinanceInstrumentRecord:
+        return self._fetch(symbol, refresh=refresh, operation=None)
+
+    def fetch_with_evidence(
+        self,
+        symbol: str,
+        *,
+        refresh: bool = False,
+    ) -> tuple[BinanceInstrumentRecord, AcquisitionOperationEvidence]:
+        """Fetch instrument metadata and expose bounded operational evidence."""
+
+        operation = new_operation_recorder(
+            mode=AcquisitionMode.LIVE,
+            provider=self.config.provider,
+            source_id=self.config.source_id,
+            venue=self.config.venue,
+            market=self.config.market,
+            symbol=symbol,
+            interval=None,
+            requested_start=None,
+            requested_end=None,
+            limit=None,
+            started_at=self._operation_clock(),
+        )
+        try:
+            record = self._fetch(symbol, refresh=refresh, operation=operation)
+        except Exception as exc:
+            evidence = operation.finish(
+                status=AcquisitionStatus.FAILED,
+                finished_at=self._operation_clock(),
+                error=error_evidence_from_exception(exc),
+            )
+            attach_evidence_to_exception(exc, evidence)
+            raise
+        evidence = operation.finish(
+            status=AcquisitionStatus.SUCCESS,
+            finished_at=self._operation_clock(),
+        )
+        return record, evidence
+
+    def _fetch(
+        self,
+        symbol: str,
+        *,
+        refresh: bool,
+        operation: AcquisitionOperationRecorder | None,
+    ) -> BinanceInstrumentRecord:
         if not isinstance(symbol, str) or not symbol.strip():
             raise InstrumentMetadataInvalid("symbol must be a non-empty string")
         key = symbol.strip()
         if not refresh and key in self._cache:
             return self._cache[key]
 
-        payload = self._request(key)
+        if operation is not None:
+            operation.begin_logical_request()
+        try:
+            payload = self._request(key, operation=operation)
+        finally:
+            if operation is not None:
+                operation.end_logical_request()
+
         if not isinstance(payload, Mapping):
             raise ExchangeInfoPayloadError("ExchangeInfo root must be an object")
         symbols = payload.get("symbols")
@@ -291,6 +366,7 @@ class BinanceSpotInstrumentMetadata:
         record = exact[0]
         self._cache[key] = record
         return record
+
 
     def resolve(self, symbol: str, *, refresh: bool = False) -> BinanceInstrumentResolution:
         try:
