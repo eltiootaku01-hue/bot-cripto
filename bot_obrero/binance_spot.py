@@ -605,7 +605,7 @@ class BinanceSpotRestAdapter:
                     actual_start = item.payload.start
                     if position == 0 and actual_start < expected_start:
                         raise PaginationStalled(
-                            "historical pagination moved backwards or failed to advance: "
+                            "historical pagination did not advance: "
                             f"cursor={cursor}, page_start={item_start_ms}"
                         )
                     if actual_start < expected_start:
