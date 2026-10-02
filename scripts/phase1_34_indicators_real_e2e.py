@@ -20,7 +20,6 @@ from bot_obrero.analysis_engine import (
 from bot_obrero.analysis_rsi import RSIAlgorithm
 from bot_obrero.binance_instruments import (
     BinanceMetadataBackedAdapter,
-    BinanceMetadataBackedAdapter,
     BinanceSpotInstrumentMetadata,
 )
 from bot_obrero.binance_spot import BinanceSpotRestConfig, _datetime_to_ms
