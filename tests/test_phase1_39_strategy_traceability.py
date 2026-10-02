@@ -24,7 +24,7 @@ from bot_obrero.strategy_contracts import (
 )
 
 DECISION = datetime(2026, 10, 2, 20, 0, tzinfo=timezone.utc)
-CREATED = DECISION + timedelta(seconds=1)
+CREATED = DECISION
 GENERATED = DECISION + timedelta(seconds=2)
 EXPIRES = DECISION + timedelta(minutes=5)
 OBSERVATION_IDS = ("obs-1", "obs-2")
