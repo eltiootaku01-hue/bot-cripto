@@ -31,6 +31,7 @@ from .acquisition import (
 from .availability import AvailabilityEvidence, resolve_availability
 from .binance_intervals import validate_binance_spot_interval
 from .market_data import MarketData
+from .binance_resilience import BinanceRequestBudget, BinanceRetryPolicy
 
 
 class BinanceAdapterError(RuntimeError):
@@ -38,7 +39,11 @@ class BinanceAdapterError(RuntimeError):
 
 
 class BinanceTransportError(BinanceAdapterError):
-    """Network or timeout failure before a usable HTTP response was received."""
+    """Network or timeout failure; final outcome is conservatively UNKNOWN."""
+
+    def __init__(self, message: str, *, outcome_unknown: bool = True) -> None:
+        super().__init__(message)
+        self.outcome_unknown = outcome_unknown
 
 
 class BinanceHTTPError(BinanceAdapterError):
@@ -51,11 +56,15 @@ class BinanceHTTPError(BinanceAdapterError):
         *,
         retry_after_seconds: float | None = None,
         outcome_unknown: bool = False,
+        response_headers: Mapping[str, str] | None = None,
+        response_body: bytes | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.retry_after_seconds = retry_after_seconds
         self.outcome_unknown = outcome_unknown
+        self.response_headers = dict(response_headers or {})
+        self.response_body = response_body
 
 
 class BinanceRateLimitError(BinanceHTTPError):
@@ -76,6 +85,7 @@ class BinanceAPIError(BinanceAdapterError):
         self.code = code
         self.message = message
         self.http_status = http_status
+        self.outcome_unknown = 500 <= http_status <= 599
 
 
 class BinancePayloadError(BinanceAdapterError):
@@ -260,12 +270,14 @@ class BinanceSpotRestAdapter:
         http_get: HTTPGetter = _default_http_get,
         clock: Clock | None = None,
         consumer_handoff_clock: Clock | None = None,
+        retry_policy: BinanceRetryPolicy | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig()
         self.instrument_mapper = instrument_mapper
         self._http_get = http_get
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._consumer_handoff_clock = consumer_handoff_clock
+        self._retry_policy = retry_policy or BinanceRetryPolicy()
 
     @property
     def endpoint_url(self) -> str:
@@ -301,7 +313,7 @@ class BinanceSpotRestAdapter:
             query["endTime"] = str(end_time)
         return query
 
-    def _request(self, query: Mapping[str, str]) -> Any:
+    def _request_once(self, query: Mapping[str, str]) -> Any:
         encoded = urllib.parse.urlencode(query)
         url = f"{self.endpoint_url}?{encoded}"
         headers = {
@@ -339,6 +351,8 @@ class BinanceSpotRestAdapter:
                             f"Binance rate limit response: {code}: {message}; {context}",
                             retry_after_seconds=_retry_after_seconds(response_headers),
                             outcome_unknown=False,
+                            response_headers=response_headers,
+                            response_body=body,
                         )
                     raise BinanceAPIError(
                         code,
@@ -352,12 +366,16 @@ class BinanceSpotRestAdapter:
                     http_status,
                     f"Binance HTTP rate limit failure: {http_status}; {context}",
                     retry_after_seconds=retry_after,
+                    response_headers=response_headers,
+                    response_body=body,
                 )
             raise BinanceHTTPError(
                 http_status,
                 f"Binance HTTP failure: {http_status}; {context}",
                 retry_after_seconds=retry_after,
                 outcome_unknown=500 <= http_status <= 599,
+                response_headers=response_headers,
+                response_body=body,
             )
 
         payload = _decode_json(body, http_status=http_status)
@@ -372,6 +390,42 @@ class BinanceSpotRestAdapter:
                 )
 
         return payload
+
+    def _request(
+        self,
+        query: Mapping[str, str],
+        *,
+        request_budget: BinanceRequestBudget | None = None,
+    ) -> Any:
+        def before_attempt() -> None:
+            if request_budget is not None:
+                try:
+                    request_budget.consume()
+                except RuntimeError as exc:
+                    raise MaximumRequestsExceeded(str(exc)) from exc
+
+        def should_retry(exc: Exception) -> bool:
+            if isinstance(exc, BinanceTransportError):
+                return True
+            if isinstance(exc, BinanceRateLimitError):
+                return exc.status_code == 429 or exc.retry_after_seconds is not None
+            if isinstance(exc, BinanceHTTPError):
+                return 500 <= exc.status_code <= 599
+            if isinstance(exc, BinanceAPIError):
+                return 500 <= exc.http_status <= 599
+            return False
+
+        def retry_after(exc: Exception) -> float | None:
+            if isinstance(exc, BinanceHTTPError):
+                return exc.retry_after_seconds
+            return None
+
+        return self._retry_policy.execute(
+            lambda: self._request_once(query),
+            should_retry=should_retry,
+            retry_after=retry_after,
+            before_attempt=before_attempt,
+        )
 
     def _provider_records(
         self,
@@ -465,6 +519,7 @@ class BinanceSpotRestAdapter:
         start_time: int | None = None,
         end_time: int | None = None,
         allow_empty: bool = False,
+        _request_budget: BinanceRequestBudget | None = None,
     ) -> list[MarketData]:
         """Perform one public REST call and return canonical MarketData objects."""
         query = self.build_query(
@@ -474,7 +529,7 @@ class BinanceSpotRestAdapter:
             start_time=start_time,
             end_time=end_time,
         )
-        payload = self._request(query)
+        payload = self._request(query, request_budget=_request_budget)
         received_at = self._clock()
         if received_at.tzinfo is None or received_at.utcoffset() is None:
             raise ValueError("clock must return a timezone-aware datetime")
@@ -560,16 +615,11 @@ class BinanceSpotRestAdapter:
             raise ValueError("max_requests must be an integer >= 1")
 
         cursor = start_time
-        requests_made = 0
+        request_budget = BinanceRequestBudget(max_requests=max_requests)
         collected: list[MarketData] = []
         seen_identity: set[tuple[str, str, datetime]] = set()
 
         while cursor <= end_time:
-            if requests_made >= max_requests:
-                raise MaximumRequestsExceeded(
-                    f"historical acquisition exceeded max_requests={max_requests}"
-                )
-
             page = self.fetch_market_data(
                 symbol=symbol,
                 interval=interval,
@@ -577,8 +627,8 @@ class BinanceSpotRestAdapter:
                 start_time=cursor,
                 end_time=end_time,
                 allow_empty=True,
+                _request_budget=request_budget,
             )
-            requests_made += 1
 
             if not page:
                 break

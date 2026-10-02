@@ -24,18 +24,27 @@ from .binance_spot import (
     BinancePayloadError,
     BinanceRateLimitError,
     BinanceSpotRestAdapter,
+    _retry_after_seconds,
     BinanceSpotRestConfig,
     BinanceTransportError,
 )
 from .market_data import InstrumentIdentity, MarketData
+from .binance_resilience import BinanceRetryPolicy
 
 
 class ExchangeInfoTransportError(RuntimeError):
-    """Network/transport failure while requesting ExchangeInfo."""
+    """Network/transport failure while requesting ExchangeInfo; outcome is UNKNOWN."""
+
+    def __init__(self, message: str, *, outcome_unknown: bool = True) -> None:
+        super().__init__(message)
+        self.outcome_unknown = outcome_unknown
 
 
-class ExchangeInfoHTTPError(RuntimeError):
-    """HTTP failure while requesting ExchangeInfo."""
+class ExchangeInfoHTTPError(BinanceHTTPError):
+    """HTTP failure while requesting ExchangeInfo, preserving status and retry metadata."""
+
+    def __init__(self, status_code: int, message: str, *, retry_after_seconds: float | None = None, outcome_unknown: bool = False) -> None:
+        super().__init__(status_code, message, retry_after_seconds=retry_after_seconds, outcome_unknown=outcome_unknown)
 
 
 class ExchangeInfoPayloadError(RuntimeError):
@@ -141,18 +150,20 @@ class BinanceSpotInstrumentMetadata:
         *,
         config: BinanceSpotRestConfig | None = None,
         http_get: HTTPGetter = _default_exchange_info_get,
+        retry_policy: BinanceRetryPolicy | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig(endpoint="/api/v3/exchangeInfo")
         if self.config.endpoint != "/api/v3/exchangeInfo":
             raise ValueError("ExchangeInfo config endpoint must be /api/v3/exchangeInfo")
         self._http_get = http_get
+        self._retry_policy = retry_policy or BinanceRetryPolicy()
         self._cache: dict[str, BinanceInstrumentRecord] = {}
 
     @property
     def endpoint_url(self) -> str:
         return self.config.base_url.rstrip("/") + "/api/v3/exchangeInfo"
 
-    def _request(self, symbol: str) -> Any:
+    def _request_once(self, symbol: str) -> Any:
         encoded = urllib.parse.urlencode({"symbol": symbol})
         url = f"{self.endpoint_url}?{encoded}"
         try:
@@ -178,9 +189,15 @@ class BinanceSpotInstrumentMetadata:
                     raise BinanceRateLimitError(
                         status,
                         f"Binance ExchangeInfo rate limit: {payload['code']}: {payload['msg']}",
+                        retry_after_seconds=_retry_after_seconds(headers),
                     )
                 raise BinanceAPIError(payload["code"], payload["msg"], http_status=status)
-            raise ExchangeInfoHTTPError(f"Binance ExchangeInfo HTTP failure: {status}")
+            raise ExchangeInfoHTTPError(
+                status,
+                f"Binance ExchangeInfo HTTP failure: {status}",
+                retry_after_seconds=_retry_after_seconds(headers),
+                outcome_unknown=500 <= status <= 599,
+            )
 
         try:
             payload = json.loads(body.decode("utf-8"))
@@ -190,6 +207,29 @@ class BinanceSpotInstrumentMetadata:
             if isinstance(payload.get("code"), int) and isinstance(payload.get("msg"), str):
                 raise BinanceAPIError(payload["code"], payload["msg"], http_status=status)
         return payload
+
+    def _request(self, symbol: str) -> Any:
+        def should_retry(exc: Exception) -> bool:
+            if isinstance(exc, ExchangeInfoTransportError):
+                return True
+            if isinstance(exc, BinanceRateLimitError):
+                return exc.status_code == 429 or exc.retry_after_seconds is not None
+            if isinstance(exc, BinanceHTTPError):
+                return 500 <= exc.status_code <= 599
+            if isinstance(exc, BinanceAPIError):
+                return 500 <= exc.http_status <= 599
+            return False
+
+        def retry_after(exc: Exception) -> float | None:
+            if isinstance(exc, BinanceHTTPError):
+                return exc.retry_after_seconds
+            return None
+
+        return self._retry_policy.execute(
+            lambda: self._request_once(symbol),
+            should_retry=should_retry,
+            retry_after=retry_after,
+        )
 
     @staticmethod
     def _parse_symbol_record(raw: Any) -> BinanceInstrumentRecord:
@@ -314,12 +354,14 @@ class BinanceMetadataBackedAdapter:
         http_get: HTTPGetter | None = None,
         clock: Callable[..., Any] | None = None,
         consumer_handoff_clock: Callable[..., Any] | None = None,
+        retry_policy: BinanceRetryPolicy | None = None,
     ) -> None:
         self.metadata = metadata
         self.config = config or BinanceSpotRestConfig()
         self._http_get = http_get
         self._clock = clock
         self._consumer_handoff_clock = consumer_handoff_clock
+        self._retry_policy = retry_policy or BinanceRetryPolicy()
 
     def resolve_instrument(self, symbol: str, *, refresh: bool = False) -> InstrumentIdentity:
         """Resolve one active Binance Spot symbol from ExchangeInfo for acquisition."""
@@ -351,6 +393,7 @@ class BinanceMetadataBackedAdapter:
             kwargs["clock"] = self._clock
         if self._consumer_handoff_clock is not None:
             kwargs["consumer_handoff_clock"] = self._consumer_handoff_clock
+        kwargs["retry_policy"] = self._retry_policy
         return BinanceSpotRestAdapter(**kwargs)
 
     def fetch_market_data(self, **kwargs: Any) -> list[MarketData]:
