@@ -113,6 +113,8 @@ def test_valid_snapshot_and_config_produce_neutral_artifact():
 
     assert isinstance(artifact, StrategicArtifact)
     assert artifact.snapshot_id == snapshot.snapshot_id
+    assert artifact.strategic_artifact_id
+    assert artifact.strategic_artifact_id != snapshot.snapshot_id
     assert artifact.symbol == snapshot.symbol
     assert artifact.decision_timestamp == snapshot.decision_timestamp
     assert artifact.observation_ids == snapshot.observation_ids
@@ -222,6 +224,8 @@ def test_traceability_is_preserved_without_numeric_only_projection():
     )
 
     assert artifact.snapshot_id == "traceable-snapshot"
+    assert artifact.strategic_artifact_id
+    assert artifact.strategic_artifact_id != artifact.snapshot_id
     assert artifact.decision_timestamp == DECISION
     assert artifact.observation_ids == OBSERVATION_IDS
     assert artifact.strategy_identity == "strategy.test"
@@ -238,8 +242,8 @@ def test_deterministic_strategy_returns_same_logical_output_for_same_input():
     first = DeterministicStrategy().compute(snapshot, configuration)
     second = DeterministicStrategy().compute(snapshot, configuration)
 
-    assert first == second
     assert first.snapshot_id == second.snapshot_id
+    assert first.strategic_artifact_id != second.strategic_artifact_id
     assert first.decision_timestamp == second.decision_timestamp
     assert first.observation_ids == second.observation_ids
     assert first.values == second.values
