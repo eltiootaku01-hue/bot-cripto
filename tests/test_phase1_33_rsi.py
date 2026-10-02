@@ -365,7 +365,7 @@ def test_all_window_consumes_entire_engine_selection():
     )
 
     assert result.observation_ids == tuple(item.observation_id for item in observations)
-    assert result.values["rsi"] == Decimal("66.66666666666666666666666666666667")
+    assert result.values["rsi"] == Decimal("66.66666666666666666666666667")
 
 
 def test_last_n_window_is_selected_by_engine_then_consumed_exactly():
@@ -447,7 +447,7 @@ def test_canonical_marketdata_reaches_rsi_through_real_conversion():
         algorithm=RSIAlgorithm(),
     )
 
-    assert result.values["rsi"] == Decimal("66.66666666666666666666666666666667")
+    assert result.values["rsi"] == Decimal("66.66666666666666666666666667")
     assert result.values["period"] == 3
     assert result.observation_ids == tuple(item.observation_id for item in observations)
     assert result.provenance.metadata["algorithm_identity"] == RSI_ALGORITHM_IDENTITY
@@ -487,7 +487,7 @@ def test_rsi_does_not_mutate_observations_values_or_provenance():
         for item in observations
     )
 
-    assert result.values["rsi"] == Decimal("66.66666666666666666666666666666667")
+    assert result.values["rsi"] == Decimal("66.66666666666666666666666667")
     assert after == snapshot
 
 
