@@ -8,7 +8,7 @@ completed without embedding operational metadata into MarketData.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -72,6 +72,15 @@ class AcquisitionErrorEvidence:
             raise AcquisitionEvidenceError("error.provider_error_code must not be bool")
         if self.outcome_unknown is not None and not isinstance(self.outcome_unknown, bool):
             raise AcquisitionEvidenceError("error.outcome_unknown must be bool or None")
+
+
+def attach_evidence_to_exception(
+    exc: Exception,
+    evidence: "AcquisitionOperationEvidence",
+) -> Exception:
+    """Attach finalized operation evidence without replacing the original error."""
+    setattr(exc, "acquisition_evidence", evidence)
+    return exc
 
 
 def error_evidence_from_exception(
@@ -290,6 +299,7 @@ __all__ = [
     "AcquisitionOperationEvidence",
     "AcquisitionOperationRecorder",
     "AcquisitionStatus",
+    "attach_evidence_to_exception",
     "error_evidence_from_exception",
     "new_operation_recorder",
 ]
