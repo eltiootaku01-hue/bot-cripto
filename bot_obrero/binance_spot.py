@@ -31,6 +31,7 @@ from .acquisition import (
 from .availability import AvailabilityEvidence, resolve_availability
 from .binance_intervals import validate_binance_spot_interval
 from .market_data import MarketData
+from .binance_resilience import BinanceRequestBudget, BinanceRetryPolicy
 
 
 class BinanceAdapterError(RuntimeError):
