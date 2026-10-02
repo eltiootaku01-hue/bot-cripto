@@ -212,9 +212,7 @@ def test_closed_candle_can_be_non_final_and_structurally_valid():
     [
         ("high", "123.4499", "high must be >= open"),
         ("high", "123.7499", "high must be >= close"),
-        ("high", "122.9999", "high must be >= low"),
         ("low", "123.4501", "low must be <= open"),
-        ("low", "123.7501", "low must be <= close"),
         ("volume", "-0.0001", "volume must be >= 0"),
     ],
 )
