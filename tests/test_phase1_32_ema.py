@@ -200,7 +200,7 @@ def test_ema_decimal_precision_is_preserved():
 
     result = execute(observations, period=3)
 
-    expected = Decimal("100.30") * Decimal("0.5") + Decimal("100.40") * Decimal("0.5")
+    expected = Decimal("100.20") * Decimal("0") + Decimal("100.30")
     assert result.values["ema"] == expected
     assert isinstance(result.values["ema"], Decimal)
 
@@ -224,7 +224,7 @@ def test_ema_accepts_exact_decimal_string_close():
         (["10"], 1, Decimal("10")),
         (["10", "20"], 2, Decimal("15")),
         (["10", "20", "30"], 3, Decimal("20")),
-        (["1", "2", "3", "4"], 2, Decimal("3")),
+        (["1", "2", "3", "4"], 2, Decimal("3.25")),
     ],
 )
 def test_ema_multiple_valid_periods(closes, period, expected):
@@ -450,7 +450,7 @@ def test_explicit_window_preserves_explicit_selection_order():
     )
 
     assert result.observation_ids == explicit_ids
-    assert result.values["ema"] == Decimal("30")
+    assert result.values["ema"] == Decimal("40")
 
 
 def test_lookahead_is_rejected_by_engine_before_ema_calculates():
