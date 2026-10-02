@@ -6,12 +6,13 @@ persist data, create MarketObservation instances, or infer provenance.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
+from .availability import AvailabilityEvidence, resolve_availability
 from .market_data import (
     Candle,
     CandleFinality,
@@ -362,6 +363,24 @@ def normalize_provider_record(
     return NormalizationResult(value=value)
 
 
+def apply_availability_evidence(
+    normalized: NormalizedMarketDataInput,
+    evidence: AvailabilityEvidence,
+) -> NormalizationResult:
+    """Apply an explicit availability decision before crossing the canonical boundary."""
+    if not isinstance(normalized, NormalizedMarketDataInput):
+        raise TypeError("normalized must be NormalizedMarketDataInput")
+    if not isinstance(evidence, AvailabilityEvidence):
+        raise TypeError("evidence must be AvailabilityEvidence")
+    available_at = resolve_availability(
+        evidence,
+        received_at=normalized.received_at,
+    )
+    return NormalizationResult(
+        value=replace(normalized, available_at=available_at)
+    )
+
+
 def canonicalize_market_data(value: NormalizedMarketDataInput) -> MarketData:
     """Cross the canonical boundary exactly once; canonical module owns validation."""
     if not isinstance(value, NormalizedMarketDataInput):
@@ -396,6 +415,29 @@ def canonicalize_market_data(value: NormalizedMarketDataInput) -> MarketData:
         raise CanonicalValidationError(
             "canonical validation rejected provider data: " + str(exc)
         ) from exc
+
+
+def provider_payload_to_market_data_with_availability(
+    payload: Mapping[str, Any],
+    *,
+    received_at: datetime,
+    source_id: str,
+    instrument_mapper: InstrumentMapper,
+    availability_evidence: AvailabilityEvidence,
+) -> MarketData:
+    """Run parsing, normalization, explicit availability, and canonicalization."""
+    parsed = parse_provider_payload(payload)
+    normalized = normalize_provider_record(
+        parsed.record,
+        received_at=received_at,
+        source_id=source_id,
+        instrument_mapper=instrument_mapper,
+    )
+    available = apply_availability_evidence(
+        normalized.value,
+        availability_evidence,
+    )
+    return canonicalize_market_data(available.value)
 
 
 def provider_payload_to_market_data(
