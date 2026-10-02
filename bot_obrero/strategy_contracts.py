@@ -195,7 +195,7 @@ class Strategy(Protocol):
         snapshot: AnalysisSnapshot,
         configuration: StrategyCalculationConfig,
     ) -> StrategicArtifact:
-        """Produce a deterministic neutral strategic artifact."""
+        """Produce a neutral strategic artifact with deterministic logical fields."""
         ...
 
 
