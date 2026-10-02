@@ -24,6 +24,7 @@ from .acquisition_evidence import (
     AcquisitionOperationEvidence,
     AcquisitionOperationRecorder,
     AcquisitionStatus,
+    attach_evidence_to_exception,
     error_evidence_from_exception,
     new_operation_recorder,
 )
@@ -319,7 +320,7 @@ class BinanceSpotInstrumentMetadata:
                 finished_at=self._operation_clock(),
                 error=error_evidence_from_exception(exc),
             )
-            del evidence
+            attach_evidence_to_exception(exc, evidence)
             raise
         evidence = operation.finish(
             status=AcquisitionStatus.SUCCESS,
