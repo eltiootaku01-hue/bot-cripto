@@ -168,6 +168,10 @@ The manual integration check is:
 
 It performs one public `exchangeInfo?symbol=BTCUSDT` request and is intentionally excluded from CI.
 
+## Final verification
+
+This phase is considered implementation-complete only after the repository CI workflow passes against the final tree.
+
 ## Compatibility
 
 No changes were made to:
