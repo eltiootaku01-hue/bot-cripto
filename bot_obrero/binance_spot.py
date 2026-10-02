@@ -15,7 +15,7 @@ import socket
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
@@ -28,6 +28,7 @@ from .acquisition import (
     normalize_provider_record,
     parse_provider_payload,
 )
+from .availability import AvailabilityEvidence, resolve_availability
 from .market_data import MarketData
 
 
@@ -197,7 +198,16 @@ Clock = Callable[[], datetime]
 
 
 class BinanceSpotRestAdapter:
-    """One-shot public Binance Spot kline adapter."""
+    """One-shot public Binance Spot kline adapter.
+
+    Availability is conservative by default. A consumer handoff is only
+    recorded when an explicit, injected handoff clock is configured. The
+    configured clock represents the boundary at which the direct caller of
+    fetch_market_data() receives the completed MarketData result.
+    """
+
+    CONSUMER_SCOPE = "direct caller receiving BinanceSpotRestAdapter.fetch_market_data() return value"
+    AVAILABILITY_EVIDENCE_REFERENCE = "binance-spot-rest.fetch_market_data:return-handoff"
 
 
     def __init__(
@@ -207,11 +217,13 @@ class BinanceSpotRestAdapter:
         config: BinanceSpotRestConfig | None = None,
         http_get: HTTPGetter = _default_http_get,
         clock: Clock | None = None,
+        consumer_handoff_clock: Clock | None = None,
     ) -> None:
         self.config = config or BinanceSpotRestConfig()
         self.instrument_mapper = instrument_mapper
         self._http_get = http_get
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._consumer_handoff_clock = consumer_handoff_clock
 
     @property
     def endpoint_url(self) -> str:
@@ -440,8 +452,34 @@ class BinanceSpotRestAdapter:
                 )
             except NormalizationError:
                 raise
+            # Canonical validation completes before the explicit consumer
+            # availability boundary is crossed.
             canonical_items.append(canonicalize_market_data(normalized.value))
-        return canonical_items
+
+        # FASE 1.14: absence of an explicitly configured consumer boundary
+        # remains UNKNOWN. No received_at/observed_at/close_time fallback exists.
+        if self._consumer_handoff_clock is None:
+            evidence = AvailabilityEvidence.unknown()
+        else:
+            handoff_at = self._consumer_handoff_clock()
+            evidence = AvailabilityEvidence.consumer_handoff(
+                received_at=received_at,
+                available_at=handoff_at,
+                evidence_reference=self.AVAILABILITY_EVIDENCE_REFERENCE,
+                consumer_scope=self.CONSUMER_SCOPE,
+            )
+
+        available_at = resolve_availability(
+            evidence,
+            received_at=received_at,
+        )
+        if available_at is None:
+            return canonical_items
+
+        # MarketData is frozen; dataclasses.replace re-runs the canonical
+        # constructor validation while changing only the explicitly resolved
+        # availability timestamp.
+        return [replace(item, available_at=available_at) for item in canonical_items]
 
     def fetch_one(
         self,
