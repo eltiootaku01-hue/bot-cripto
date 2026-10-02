@@ -46,6 +46,7 @@ def hypothesis(result, *, decision=T + timedelta(seconds=2)):
     return Hypothesis(
         symbol="BTCUSDT",
         supporting_analysis_ids=(result.analysis_id,),
+        strategic_artifact_id="artifact-test-001",
         expected_direction="UNSPECIFIED",
         expected_horizon="UNSPECIFIED",
         invalidation_conditions=("manual-review",),
@@ -95,6 +96,7 @@ def test_hypothesis_traces_analysis_and_supports_expiry():
     h = Hypothesis(
         symbol="BTCUSDT",
         supporting_analysis_ids=(result.analysis_id,),
+        strategic_artifact_id="artifact-test-001",
         expected_direction="UNSPECIFIED",
         expected_horizon="UNSPECIFIED",
         invalidation_conditions=("manual-review",),
