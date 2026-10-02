@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
 
@@ -79,6 +79,30 @@ class BinanceAPIError(BinanceAdapterError):
 
 class BinancePayloadError(BinanceAdapterError):
     """The HTTP response did not match Binance's documented kline shape."""
+
+
+class InvalidHistoricalRange(BinanceAdapterError):
+    """The requested historical time range is invalid."""
+
+
+class PaginationStalled(BinanceAdapterError):
+    """Historical pagination failed to advance beyond the current cursor."""
+
+
+class UnexpectedPageOrder(BinanceAdapterError):
+    """A historical page violated chronological order."""
+
+
+class DuplicateKline(BinanceAdapterError):
+    """The historical acquisition returned the same logical kline more than once."""
+
+
+class HistoricalGapDetected(BinanceAdapterError):
+    """A gap was detected between consecutive returned klines."""
+
+
+class MaximumRequestsExceeded(BinanceAdapterError):
+    """The historical acquisition would exceed its configured request bound."""
 
 
 @dataclass(frozen=True)
@@ -186,6 +210,20 @@ def _decimal_string(value: Any, field_name: str) -> Decimal:
     if not result.is_finite():
         raise BinancePayloadError(f"{field_name} must be finite")
     return result
+
+
+def _datetime_to_ms(value: datetime) -> int:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("timestamp must be timezone-aware")
+    value_utc = value.astimezone(timezone.utc)
+    return (
+        (value_utc.toordinal() - datetime(1970, 1, 1, tzinfo=timezone.utc).toordinal())
+        * 86_400_000
+        + value_utc.hour * 3_600_000
+        + value_utc.minute * 60_000
+        + value_utc.second * 1_000
+        + value_utc.microsecond // 1_000
+    )
 
 
 def _nonnegative_int(value: Any, field_name: str) -> int:
@@ -487,6 +525,109 @@ class BinanceSpotRestAdapter:
         # availability timestamp.
         return [replace(item, available_at=available_at) for item in canonical_items]
 
+    def fetch_historical_market_data(
+        self,
+        *,
+        symbol: str,
+        interval: str,
+        start_time: int,
+        end_time: int,
+        page_limit: int = 1000,
+        max_requests: int = 1000,
+    ) -> list[MarketData]:
+        """Fetch a bounded historical range using deterministic temporal pagination.
+
+        Binance documents that kline requests are chronological, use open time as
+        the logical identity, and accept at most 1000 records per request. The
+        next request advances from the last returned candle's close time + 1 ms,
+        avoiding inclusive-range overlap without inventing a cursor.
+        """
+        self.build_query(
+            symbol=symbol,
+            interval=interval,
+            limit=page_limit,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        if start_time > end_time:
+            raise InvalidHistoricalRange("start_time must be <= end_time")
+        if isinstance(max_requests, bool) or not isinstance(max_requests, int) or max_requests < 1:
+            raise ValueError("max_requests must be an integer >= 1")
+
+        cursor = start_time
+        requests_made = 0
+        collected: list[MarketData] = []
+        seen_identity: set[tuple[str, str, datetime]] = set()
+
+        while cursor <= end_time:
+            if requests_made >= max_requests:
+                raise MaximumRequestsExceeded(
+                    f"historical acquisition exceeded max_requests={max_requests}"
+                )
+
+            page = self.fetch_market_data(
+                symbol=symbol,
+                interval=interval,
+                limit=page_limit,
+                start_time=cursor,
+                end_time=end_time,
+            )
+            requests_made += 1
+
+            if not page:
+                break
+
+            previous_item = collected[-1] if collected else None
+            for item in page:
+                item_start_ms = _datetime_to_ms(item.payload.start)
+                if item_start_ms < start_time or item_start_ms > end_time:
+                    raise UnexpectedPageOrder(
+                        "historical page returned a kline outside the requested range"
+                    )
+
+                identity = item.candle_identity
+                if identity in seen_identity:
+                    raise DuplicateKline(
+                        "duplicate historical kline: "
+                        f"instrument_id={identity[0]} "
+                        f"timeframe={identity[1]} "
+                        f"start={identity[2].isoformat()}"
+                    )
+
+                if previous_item is not None:
+                    expected_start = previous_item.payload.end + timedelta(milliseconds=1)
+                    actual_start = item.payload.start
+                    if actual_start < expected_start:
+                        raise UnexpectedPageOrder(
+                            "historical klines are not strictly chronological"
+                        )
+                    if actual_start > expected_start:
+                        raise HistoricalGapDetected(
+                            "historical kline gap detected between "
+                            f"{previous_item.payload.start.isoformat()} and "
+                            f"{actual_start.isoformat()}"
+                        )
+
+                seen_identity.add(identity)
+                collected.append(item)
+                previous_item = item
+
+            last_item = page[-1]
+            new_cursor = _datetime_to_ms(last_item.payload.end) + 1
+
+            if new_cursor <= cursor:
+                raise PaginationStalled(
+                    f"historical pagination did not advance: cursor={cursor}, "
+                    f"next_cursor={new_cursor}"
+                )
+
+            cursor = new_cursor
+            if cursor > end_time or len(page) < page_limit:
+                break
+
+        return collected
+
+
     def fetch_one(
         self,
         *,
@@ -520,4 +661,10 @@ __all__ = [
     "BinanceSpotRestAdapter",
     "BinanceSpotRestConfig",
     "BinanceTransportError",
+    "DuplicateKline",
+    "HistoricalGapDetected",
+    "InvalidHistoricalRange",
+    "MaximumRequestsExceeded",
+    "PaginationStalled",
+    "UnexpectedPageOrder",
 ]
