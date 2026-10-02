@@ -96,7 +96,7 @@ def test_duplicate_provider_symbol_is_ambiguous():
     )
     with pytest.raises(InstrumentMappingAmbiguous, match="multiple"):
         metadata.fetch("BTCUSDT")
-    assert metadata.resolve("BTCUSDT").outcome is BinanceInstrumentResolution.AMBIGUOUS
+    assert metadata.resolve("BTCUSDT").outcome.value == "AMBIGUOUS"
 
 
 def test_resolution_uses_explicit_base_and_quote_fields():
@@ -108,7 +108,7 @@ def test_resolution_uses_explicit_base_and_quote_fields():
         ),
     )
     result = metadata.resolve("FOOUSD")
-    assert result.outcome is BinanceInstrumentResolution.FOUND
+    assert result.outcome.value == "FOUND"
     assert result.instrument == InstrumentIdentity(
         "binance:SPOT:FOOUSD",
         "XBASE/XQUOTE",
