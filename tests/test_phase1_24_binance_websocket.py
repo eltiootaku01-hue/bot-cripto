@@ -262,7 +262,7 @@ def test_missing_required_event_fields_are_rejected(field):
     payload = json.loads(kline_message())
     payload.pop(field)
     ws, _ = adapter(FakeConnection([json.dumps(payload)]))
-    with pytest.raises(BinanceWebSocketPayloadError if field != "e" else BinanceWebSocketProtocolError):
+    with pytest.raises(BinanceWebSocketPayloadError):
         ws.listen(symbol="BTCUSDT", interval="1m")
 
 
