@@ -432,8 +432,8 @@ def test_websocket_output_is_compatible_with_market_data_consumption():
 
     accepted = evaluate_market_data_consumption(
         item,
-        HANDOFF,
-        MarketDataConsumptionPolicy.REQUIRE_AVAILABLE,
+        decision_timestamp=HANDOFF,
+        policy=MarketDataConsumptionPolicy.REQUIRE_AVAILABLE,
     )
     assert accepted.status is MarketDataConsumptionStatus.ACCEPTED
 
@@ -444,8 +444,8 @@ def test_unknown_availability_remains_unknown_for_consumption():
 
     result = evaluate_market_data_consumption(
         item,
-        RECEIVED_2,
-        MarketDataConsumptionPolicy.ALLOW_UNKNOWN,
+        decision_timestamp=RECEIVED_2,
+        policy=MarketDataConsumptionPolicy.ALLOW_UNKNOWN,
     )
     assert result.status is MarketDataConsumptionStatus.UNKNOWN
     assert result.reason == "AVAILABLE_AT_UNKNOWN"
