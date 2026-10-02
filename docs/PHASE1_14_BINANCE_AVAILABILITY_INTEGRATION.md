@@ -18,16 +18,19 @@ La frontera de disponibilidad del método:
 
 `BinanceSpotRestAdapter.fetch_market_data()`
 
-es la entrega explícita de la lista completa de `MarketData` ya construida al **llamador directo del método**.
+es una **frontera pre-return dentro del adapter**.
+
+El `consumer_handoff_clock` no observa literalmente el instante en que el caller recibe el valor retornado. El callback se ejecuta dentro de `fetch_market_data()`, después de completar la construcción y validación canónica de todos los `MarketData` y antes del `return`.
+
+Por tanto, la frontera representa:
+
+> el instante medido dentro del adapter en el que el resultado canónico está completamente preparado y el adapter está a punto de entregarlo mediante el retorno de la función.
 
 El `consumer_scope` utilizado por `AvailabilityEvidence` es:
 
-`direct caller receiving BinanceSpotRestAdapter.fetch_market_data() return value`
+`BinanceSpotRestAdapter.fetch_market_data pre-return availability boundary`
 
-Esto significa:
-
-- en una llamada directa, el consumidor es el código que recibe el resultado de `fetch_market_data()`;
-- si otra abstracción, como `fetch_one()`, llama a `fetch_market_data()`, esa abstracción es el llamador directo y, por tanto, el consumidor de esa frontera concreta.
+La semántica no afirma que el timestamp sea el instante posterior observable por el caller. Entre el timestamp y la observación externa del retorno existe necesariamente la operación de retorno de la función.
 
 No se crea una cola, evento, worker ni una capa de eventos nueva.
 
@@ -91,7 +94,7 @@ T4 = MarketData canónico construido y validado
 
 La prueba de FASE 1.14 demuestra además que el reloj de handoff **no se ejecuta** cuando la validación canónica falla.
 
-### T5 — consumer handoff
+### T5 — pre-return availability boundary
 
 Después de que toda la lista ha sido canonicalizada, y justo antes de devolverla, el adapter consulta el:
 
@@ -102,6 +105,8 @@ Cuando está configurado:
 ```
 T5 = consumer_handoff_clock()
 ```
+
+T5 **no** es una observación literal del momento en que el caller recibe el objeto. Es la última frontera temporal que el adapter mide explícitamente antes del `return`.
 
 Ese timestamp se convierte en `available_at` mediante:
 
@@ -145,8 +150,8 @@ Cuando se configura un reloj de handoff:
 AvailabilityEvidence.consumer_handoff(
     received_at=received_at,
     available_at=T5,
-    evidence_reference="binance-spot-rest.fetch_market_data:return-handoff",
-    consumer_scope="direct caller receiving BinanceSpotRestAdapter.fetch_market_data() return value",
+    evidence_reference="binance-spot-rest.fetch_market_data:pre-return-boundary",
+    consumer_scope="BinanceSpotRestAdapter.fetch_market_data pre-return availability boundary",
 )
 ```
 
@@ -434,6 +439,9 @@ No se implementa:
 FASE 1.14 integra la disponibilidad explícita con Binance Spot REST sin convertir `received_at` en disponibilidad de forma implícita.
 
 El default es conservador:
+
+La documentación y el código deben interpretarse conjuntamente: `consumer_handoff_clock` marca una frontera **pre-return** observable dentro del adapter y no el instante exacto de recepción por el caller.
+
 
 ```
 available_at = None
