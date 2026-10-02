@@ -114,6 +114,8 @@ class WindowSpecification:
             raise WindowContractError("EXPLICIT accepts only observation_ids")
         if self.observation_ids is None:
             raise WindowContractError("EXPLICIT requires observation_ids")
+        if isinstance(self.observation_ids, str):
+            raise WindowContractError("EXPLICIT observation_ids must be a sequence, not a string")
         ids = tuple(self.observation_ids)
         if not ids:
             raise WindowContractError("EXPLICIT requires at least one observation_id")
@@ -324,11 +326,15 @@ class AnalysisEngine:
 
         validated = _validate_observations(observations)
         _validate_order(validated)
-        _validate_temporal_availability(validated, decision_timestamp)
 
+        # A window may intentionally exclude observations that were not
+        # available at the decision timestamp. Temporal validation therefore
+        # applies to selected observations only.
+        _require_aware(decision_timestamp, "decision_timestamp")
         selected = _select_window(validated, configuration.window)
         if not selected:
             raise WindowContractError("analysis window selected no observations")
+        _validate_temporal_availability(selected, decision_timestamp)
 
         try:
             compute = algorithm.compute

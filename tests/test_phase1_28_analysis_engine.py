@@ -1,6 +1,6 @@
+from datetime import datetime, timedelta, timezone
 import ast
 import importlib
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -240,6 +240,20 @@ def test_last_n_selects_last_items_without_fetching_more():
     )
     assert result.observation_ids == ("obs-1", "obs-2")
     assert tuple(item.observation_id for item in algorithm.received) == ("obs-1", "obs-2")
+
+
+def test_last_n_can_exclude_unavailable_observations():
+    observations = [
+        make_observation(offset=0, available_offset=10),
+        make_observation(offset=1, available_offset=2),
+        make_observation(offset=2, available_offset=2),
+    ]
+    result, _ = run(
+        observations,
+        decision_timestamp=T + timedelta(minutes=3),
+        window=WindowSpecification.last_n(2),
+    )
+    assert result.observation_ids == ("obs-1", "obs-2")
 
 
 def test_time_range_is_start_inclusive_and_end_exclusive():
