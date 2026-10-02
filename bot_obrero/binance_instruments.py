@@ -213,7 +213,7 @@ class BinanceSpotInstrumentMetadata:
             if isinstance(exc, ExchangeInfoTransportError):
                 return True
             if isinstance(exc, BinanceRateLimitError):
-                return True
+                return exc.status_code == 429 or exc.retry_after_seconds is not None
             if isinstance(exc, BinanceHTTPError):
                 return 500 <= exc.status_code <= 599
             if isinstance(exc, BinanceAPIError):
