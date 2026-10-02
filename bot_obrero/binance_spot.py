@@ -81,6 +81,7 @@ class BinanceAPIError(BinanceAdapterError):
         self.code = code
         self.message = message
         self.http_status = http_status
+        self.outcome_unknown = 500 <= http_status <= 599
 
 
 class BinancePayloadError(BinanceAdapterError):
