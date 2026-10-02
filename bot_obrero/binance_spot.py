@@ -309,7 +309,7 @@ class BinanceSpotRestAdapter:
             query["endTime"] = str(end_time)
         return query
 
-    def _request(self, query: Mapping[str, str]) -> Any:
+    def _request_once(self, query: Mapping[str, str]) -> Any:
         encoded = urllib.parse.urlencode(query)
         url = f"{self.endpoint_url}?{encoded}"
         headers = {
