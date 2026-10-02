@@ -180,7 +180,7 @@ def test_pagination_stalled_when_provider_returns_an_older_unseen_page():
             symbol="BTCUSDT",
             interval="1m",
             start_time=OPEN_1,
-            end_time=OPEN_2,
+            end_time=OPEN_3,
             page_limit=1,
         )
 
