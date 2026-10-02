@@ -507,6 +507,7 @@ class BinanceSpotRestAdapter:
         start_time: int | None = None,
         end_time: int | None = None,
         allow_empty: bool = False,
+        _request_budget: BinanceRequestBudget | None = None,
     ) -> list[MarketData]:
         """Perform one public REST call and return canonical MarketData objects."""
         query = self.build_query(
@@ -516,7 +517,7 @@ class BinanceSpotRestAdapter:
             start_time=start_time,
             end_time=end_time,
         )
-        payload = self._request(query)
+        payload = self._request(query, request_budget=_request_budget)
         received_at = self._clock()
         if received_at.tzinfo is None or received_at.utcoffset() is None:
             raise ValueError("clock must return a timezone-aware datetime")
