@@ -321,8 +321,12 @@ class BinanceMetadataBackedAdapter:
         self._clock = clock
         self._consumer_handoff_clock = consumer_handoff_clock
 
+    def resolve_instrument(self, symbol: str, *, refresh: bool = false) -> InstrumentIdentity:
+        """Resolve one active Binance Spot symbol from ExchangeInfo for acquisition."""
+        return self.metadata.resolve_active(symbol, refresh=refresh)
+
     def _mapper_for(self, symbol: str) -> InstrumentMapper:
-        instrument = self.metadata.resolve_active(symbol)
+        instrument = self.resolve_instrument(symbol)
         metadata = self.metadata.fetch(symbol)
         return InstrumentMapper(
             [
