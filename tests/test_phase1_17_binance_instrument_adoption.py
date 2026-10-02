@@ -9,9 +9,9 @@ from bot_obrero.binance_instruments import (
     BinanceSpotInstrumentMetadata,
     ExchangeInfoHTTPError,
     ExchangeInfoPayloadError,
+    ExchangeInfoTransportError,
     InstrumentInactive,
     InstrumentMappingAmbiguous,
-    InstrumentMetadataInvalid,
     InstrumentNotFound,
 )
 from bot_obrero.binance_spot import BinanceSpotRestConfig
@@ -291,7 +291,7 @@ def test_transport_error_is_exposed():
         raise TimeoutError("simulated transport failure")
 
     metadata = BinanceSpotInstrumentMetadata(http_get=getter)
-    with pytest.raises(Exception, match="transport"):
+    with pytest.raises(ExchangeInfoTransportError, match="transport"):
         metadata.fetch("BTCUSDT")
 
 
