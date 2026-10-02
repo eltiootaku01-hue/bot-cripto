@@ -354,12 +354,14 @@ class BinanceMetadataBackedAdapter:
         http_get: HTTPGetter | None = None,
         clock: Callable[..., Any] | None = None,
         consumer_handoff_clock: Callable[..., Any] | None = None,
+        retry_policy: BinanceRetryPolicy | None = None,
     ) -> None:
         self.metadata = metadata
         self.config = config or BinanceSpotRestConfig()
         self._http_get = http_get
         self._clock = clock
         self._consumer_handoff_clock = consumer_handoff_clock
+        self._retry_policy = retry_policy or BinanceRetryPolicy()
 
     def resolve_instrument(self, symbol: str, *, refresh: bool = False) -> InstrumentIdentity:
         """Resolve one active Binance Spot symbol from ExchangeInfo for acquisition."""
@@ -391,6 +393,7 @@ class BinanceMetadataBackedAdapter:
             kwargs["clock"] = self._clock
         if self._consumer_handoff_clock is not None:
             kwargs["consumer_handoff_clock"] = self._consumer_handoff_clock
+        kwargs["retry_policy"] = self._retry_policy
         return BinanceSpotRestAdapter(**kwargs)
 
     def fetch_market_data(self, **kwargs: Any) -> list[MarketData]:
