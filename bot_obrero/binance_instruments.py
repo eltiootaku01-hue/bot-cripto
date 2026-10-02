@@ -32,7 +32,11 @@ from .binance_resilience import BinanceRetryPolicy
 
 
 class ExchangeInfoTransportError(RuntimeError):
-    """Network/transport failure while requesting ExchangeInfo."""
+    """Network/transport failure while requesting ExchangeInfo; outcome is UNKNOWN."""
+
+    def __init__(self, message: str, *, outcome_unknown: bool = True) -> None:
+        super().__init__(message)
+        self.outcome_unknown = outcome_unknown
 
 
 class ExchangeInfoHTTPError(RuntimeError):
