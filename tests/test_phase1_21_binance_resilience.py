@@ -155,6 +155,15 @@ def test_418_without_retry_after_is_not_retried():
         adapter(http_get, sleeper=lambda _: None, max_attempts=3)._request({"symbol": "BTCUSDT", "interval": "1m", "limit": "1"})
     assert len(calls) == 1
 
+def test_http_error_preserves_status_headers_and_body():
+    def http_get(url, headers, timeout):
+        return 500, {"X-Test": "value"}, b"server failure"
+    with pytest.raises(BinanceHTTPError) as exc:
+        adapter(http_get, sleeper=lambda _: None, max_attempts=1)._request({"symbol": "BTCUSDT", "interval": "1m", "limit": "1"})
+    assert exc.value.status_code == 500
+    assert exc.value.response_headers["X-Test"] == "value"
+    assert exc.value.response_body == b"server failure"
+
 def test_500_marks_unknown_outcome():
     def http_get(url, headers, timeout):
         return 500, {}, b"{}"
