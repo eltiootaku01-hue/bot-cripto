@@ -32,8 +32,10 @@ def make_observation(
     provenance: Provenance = OBSERVED,
     close: str = "100",
     timeframe: str = "1m",
+    received_offset: int | None = None,
 ) -> MarketObservation:
     obs_id = f"obs-{offset}" if observation_id is None else observation_id
+    received = available_offset if received_offset is None else received_offset
     return MarketObservation(
         symbol=symbol,
         observation_timestamp=T + timedelta(minutes=offset),
@@ -42,7 +44,7 @@ def make_observation(
         values={
             "close": close,
             "timeframe": timeframe,
-            "received_at": (T + timedelta(minutes=available_offset)).isoformat(),
+            "received_at": (T + timedelta(minutes=received)).isoformat(),
         },
         provenance=provenance,
         venue=venue,
@@ -129,8 +131,17 @@ def test_duplicate_observation_ids_are_rejected():
 
 
 def test_non_observed_provenance_is_rejected():
+    observation = object.__new__(MarketObservation)
+    object.__setattr__(observation, "symbol", "BTCUSDT")
+    object.__setattr__(observation, "observation_timestamp", T)
+    object.__setattr__(observation, "available_timestamp", T)
+    object.__setattr__(observation, "observation_type", "CANDLE")
+    object.__setattr__(observation, "values", {})
+    object.__setattr__(observation, "provenance", DERIVED)
+    object.__setattr__(observation, "venue", "BINANCE")
+    object.__setattr__(observation, "observation_id", "forged")
     with pytest.raises(InputContractError, match="OBSERVED"):
-        run([make_observation(provenance=DERIVED)])
+        run([observation])
 
 
 def test_mixed_symbols_are_rejected():
@@ -367,7 +378,11 @@ def test_available_after_decision_is_rejected():
 
 
 def test_received_at_cannot_substitute_for_availability():
-    observation = make_observation(offset=0, available_offset=5)
+    observation = make_observation(
+        offset=0,
+        available_offset=5,
+        received_offset=2,
+    )
     assert observation.values["received_at"] < (T + timedelta(minutes=3)).isoformat()
     with pytest.raises(TemporalContractError, match="look-ahead"):
         run([observation], decision_timestamp=T + timedelta(minutes=3))
