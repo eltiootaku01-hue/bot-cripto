@@ -34,7 +34,7 @@ OPEN_TIME_MS = 1790942400000
 CLOSE_TIME_MS = OPEN_TIME_MS + 59_999
 RECEIVED_CLOSED = datetime(2026, 10, 2, 12, 1, tzinfo=timezone.utc)
 RECEIVED_OPEN = datetime(2026, 10, 2, 12, 0, 30, tzinfo=timezone.utc)
-INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT")
+INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
 
 
 def valid_row(
@@ -270,7 +270,7 @@ def test_ambiguous_mapping_is_rejected():
         provider_symbol="BTCUSDT",
         provider_market="SPOT",
         provider_venue="BINANCE",
-        instrument=InstrumentIdentity("other", "BTC/USDT", "SPOT"),
+        instrument=InstrumentIdentity("other", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT"),
     )
     with pytest.raises(InstrumentMappingAmbiguous):
         adapter(ok_getter([valid_row()]), mapper=mapping(
