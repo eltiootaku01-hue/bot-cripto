@@ -12,9 +12,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
+from .analysis_contracts import ArtifactNature, Hypothesis, Provenance
 from .analysis_snapshot import AnalysisSnapshot
 
 
@@ -118,6 +119,7 @@ class StrategicArtifact:
     symbol: str
     decision_timestamp: datetime
     observation_ids: tuple[str, ...]
+    supporting_analysis_ids: tuple[str, ...]
     strategy_type: str
     strategy_identity: str
     strategy_version: str
@@ -160,7 +162,21 @@ class StrategicArtifact:
                 "observation_ids must contain non-empty strings"
             )
 
+        supporting_analysis_ids = tuple(self.supporting_analysis_ids)
+        if not supporting_analysis_ids:
+            raise StrategyContractError(
+                "supporting_analysis_ids must be a non-empty sequence"
+            )
+        if any(
+            not isinstance(item, str) or not item.strip()
+            for item in supporting_analysis_ids
+        ):
+            raise StrategyContractError(
+                "supporting_analysis_ids must contain non-empty strings"
+            )
+
         object.__setattr__(self, "observation_ids", observation_ids)
+        object.__setattr__(self, "supporting_analysis_ids", supporting_analysis_ids)
         object.__setattr__(
             self,
             "effective_configuration",
@@ -226,6 +242,9 @@ def build_strategic_artifact(
         symbol=snapshot.symbol,
         decision_timestamp=snapshot.decision_timestamp,
         observation_ids=tuple(snapshot.observation_ids),
+        supporting_analysis_ids=tuple(
+            result.analysis_id for result in snapshot.results
+        ),
         strategy_type=configuration.strategy_type,
         strategy_identity=configuration.strategy_identity,
         strategy_version=configuration.strategy_version,
@@ -235,10 +254,64 @@ def build_strategic_artifact(
     )
 
 
+def build_hypothesis(
+    strategic_artifact: StrategicArtifact,
+    *,
+    expected_direction: str,
+    expected_horizon: str,
+    invalidation_conditions: Sequence[str],
+    created_at: datetime,
+    provenance: Provenance,
+    expires_at: datetime | None = None,
+    status: str = "UNRESOLVED",
+) -> Hypothesis:
+    """Construct a Hypothesis by inheriting evidence from one StrategicArtifact."""
+
+    if not isinstance(strategic_artifact, StrategicArtifact):
+        raise StrategyContractError(
+            "strategic_artifact must be a StrategicArtifact"
+        )
+
+    _require_nonempty_string(expected_direction, "expected_direction")
+    _require_nonempty_string(expected_horizon, "expected_horizon")
+
+    if isinstance(invalidation_conditions, (str, bytes)) or not isinstance(
+        invalidation_conditions, Sequence
+    ):
+        raise StrategyContractError(
+            "invalidation_conditions must be a sequence of strings"
+        )
+    invalidation_conditions_tuple = tuple(invalidation_conditions)
+    if any(not isinstance(item, str) for item in invalidation_conditions_tuple):
+        raise StrategyContractError(
+            "invalidation_conditions must contain only strings"
+        )
+
+    if not isinstance(provenance, Provenance):
+        raise StrategyContractError("provenance must be a Provenance")
+    if provenance.nature is not ArtifactNature.DERIVED:
+        raise StrategyContractError("provenance must be DERIVED")
+
+    return Hypothesis(
+        symbol=strategic_artifact.symbol,
+        supporting_analysis_ids=strategic_artifact.supporting_analysis_ids,
+        strategic_artifact_id=strategic_artifact.strategic_artifact_id,
+        expected_direction=expected_direction,
+        expected_horizon=expected_horizon,
+        invalidation_conditions=invalidation_conditions_tuple,
+        created_at=created_at,
+        decision_timestamp=strategic_artifact.decision_timestamp,
+        provenance=provenance,
+        expires_at=expires_at,
+        status=status,
+    )
+
+
 __all__ = [
     "Strategy",
     "StrategyCalculationConfig",
     "StrategyContractError",
     "StrategicArtifact",
     "build_strategic_artifact",
+    "build_hypothesis",
 ]

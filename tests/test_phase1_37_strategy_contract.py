@@ -118,6 +118,9 @@ def test_valid_snapshot_and_config_produce_neutral_artifact():
     assert artifact.symbol == snapshot.symbol
     assert artifact.decision_timestamp == snapshot.decision_timestamp
     assert artifact.observation_ids == snapshot.observation_ids
+    assert artifact.supporting_analysis_ids == tuple(
+        result.analysis_id for result in snapshot.results
+    )
     assert artifact.strategy_identity == "strategy.test"
     assert artifact.strategy_version == "1.0.0"
     assert artifact.effective_configuration["source"] == "fixed"
@@ -201,6 +204,9 @@ def test_strategy_output_is_immutable_and_does_not_mutate_snapshot():
     with pytest.raises(TypeError):
         artifact.values["new"] = Decimal("4")
 
+    with pytest.raises(FrozenInstanceError):
+        artifact.supporting_analysis_ids = ("other-analysis",)
+
     assert (
         snapshot.snapshot_id,
         snapshot.symbol,
@@ -233,6 +239,10 @@ def test_traceability_is_preserved_without_numeric_only_projection():
     assert artifact.effective_configuration == {"mode": "test"}
     assert artifact.effective_parameters == {"period": 5}
     assert artifact.values["score"] == Decimal("12.5")
+    assert artifact.supporting_analysis_ids == tuple(
+        result.analysis_id for result in snapshot.results
+    )
+    assert artifact.snapshot_id not in artifact.supporting_analysis_ids
 
 
 def test_deterministic_strategy_returns_same_logical_output_for_same_input():

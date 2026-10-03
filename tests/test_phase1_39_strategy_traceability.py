@@ -53,6 +53,34 @@ def make_snapshot(snapshot_id: str = "snapshot-trace-001") -> AnalysisSnapshot:
     return AnalysisSnapshot.from_results([result], snapshot_id=snapshot_id)
 
 
+def make_multi_result_snapshot(snapshot_id: str = "snapshot-multi-001") -> AnalysisSnapshot:
+    results = tuple(
+        AnalysisResult(
+            symbol="BTC/USDT",
+            observation_ids=OBSERVATION_IDS,
+            analysis_type=analysis_type,
+            values={"value": Decimal("101")},
+            calculated_at=DECISION + timedelta(seconds=1),
+            decision_timestamp=DECISION,
+            provenance=Provenance(
+                source="analysis-engine",
+                nature=ArtifactNature.DERIVED,
+                metadata={
+                    "analysis_type": analysis_type,
+                    "algorithm_identity": analysis_type,
+                    "algorithm_version": "1.0.0",
+                },
+            ),
+        )
+        for analysis_type in (
+            "indicator.ema",
+            "indicator.rsi",
+            "indicator.sma",
+        )
+    )
+    return AnalysisSnapshot.from_results(results, snapshot_id=snapshot_id)
+
+
 def make_config() -> StrategyCalculationConfig:
     return StrategyCalculationConfig(
         strategy_type="neutral-test",
@@ -77,7 +105,7 @@ def make_artifact(
 def make_hypothesis(artifact: StrategicArtifact) -> Hypothesis:
     return Hypothesis(
         symbol=artifact.symbol,
-        supporting_analysis_ids=("analysis-001",),
+        supporting_analysis_ids=artifact.supporting_analysis_ids,
         strategic_artifact_id=artifact.strategic_artifact_id,
         expected_direction="UNSPECIFIED",
         expected_horizon="UNSPECIFIED",
@@ -104,6 +132,24 @@ def test_strategic_artifact_id_is_generated_independently_for_each_artifact():
     assert first.strategic_artifact_id != second.strategic_artifact_id
 
 
+def test_strategic_artifact_carries_exact_analysis_ids_from_snapshot_results():
+    snapshot = make_multi_result_snapshot()
+
+    artifact = build_strategic_artifact(
+        snapshot,
+        make_config(),
+        values={"score": Decimal("12.5")},
+    )
+
+    expected = tuple(result.analysis_id for result in snapshot.results)
+    assert artifact.supporting_analysis_ids == expected
+    assert artifact.supporting_analysis_ids == tuple(
+        result.analysis_id for result in snapshot.results
+    )
+    assert artifact.snapshot_id not in artifact.supporting_analysis_ids
+    assert isinstance(artifact.supporting_analysis_ids, tuple)
+
+
 def test_strategic_artifact_rejects_snapshot_id_reuse():
     snapshot = make_snapshot(snapshot_id="same-id")
     with pytest.raises(StrategyContractError, match="must not reuse snapshot_id"):
@@ -113,6 +159,7 @@ def test_strategic_artifact_rejects_snapshot_id_reuse():
             symbol=snapshot.symbol,
             decision_timestamp=DECISION,
             observation_ids=snapshot.observation_ids,
+            supporting_analysis_ids=("analysis-direct",),
             strategy_type="neutral-test",
             strategy_identity="strategy.test",
             strategy_version="1.0.0",
@@ -143,7 +190,7 @@ def test_hypothesis_traces_exactly_one_strategic_artifact():
 
     assert hypothesis.strategic_artifact_id == artifact.strategic_artifact_id
     assert hypothesis.strategic_artifact_id != artifact.snapshot_id
-    assert hypothesis.supporting_analysis_ids == ("analysis-001",)
+    assert hypothesis.supporting_analysis_ids == artifact.supporting_analysis_ids
 
 
 def test_full_signal_chain_is_reconstructible_without_duplicate_ids():
@@ -210,6 +257,16 @@ def test_traceability_preserves_temporal_fields():
     assert signal.generated_at == GENERATED
     assert signal.decision_timestamp == GENERATED
     assert signal.expires_at == EXPIRES
+
+
+def test_supporting_analysis_ids_are_immutable():
+    artifact = make_artifact()
+
+    with pytest.raises(FrozenInstanceError):
+        artifact.supporting_analysis_ids = ("other-analysis",)
+
+    with pytest.raises(TypeError):
+        artifact.supporting_analysis_ids[0] = "other-analysis"
 
 
 def test_traceability_artifacts_are_immutable():
