@@ -12,9 +12,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
+from .analysis_contracts import ArtifactNature, Hypothesis, Provenance
 from .analysis_snapshot import AnalysisSnapshot
 
 
@@ -250,6 +251,59 @@ def build_strategic_artifact(
         effective_configuration=configuration.effective_configuration,
         effective_parameters=configuration.effective_parameters,
         values=values,
+    )
+
+
+def build_hypothesis(
+    strategic_artifact: StrategicArtifact,
+    *,
+    expected_direction: str,
+    expected_horizon: str,
+    invalidation_conditions: Sequence[str],
+    created_at: datetime,
+    provenance: Provenance,
+    expires_at: datetime | None = None,
+    status: str = "UNRESOLVED",
+) -> Hypothesis:
+    """Construct a Hypothesis by inheriting evidence from one StrategicArtifact."""
+
+    if not isinstance(strategic_artifact, StrategicArtifact):
+        raise StrategyContractError(
+            "strategic_artifact must be a StrategicArtifact"
+        )
+
+    _require_nonempty_string(expected_direction, "expected_direction")
+    _require_nonempty_string(expected_horizon, "expected_horizon")
+
+    if isinstance(invalidation_conditions, (str, bytes)) or not isinstance(
+        invalidation_conditions, Sequence
+    ):
+        raise StrategyContractError(
+            "invalidation_conditions must be a sequence of strings"
+        )
+    invalidation_conditions_tuple = tuple(invalidation_conditions)
+    if any(not isinstance(item, str) for item in invalidation_conditions_tuple):
+        raise StrategyContractError(
+            "invalidation_conditions must contain only strings"
+        )
+
+    if not isinstance(provenance, Provenance):
+        raise StrategyContractError("provenance must be a Provenance")
+    if provenance.nature is not ArtifactNature.DERIVED:
+        raise StrategyContractError("provenance must be DERIVED")
+
+    return Hypothesis(
+        symbol=strategic_artifact.symbol,
+        supporting_analysis_ids=strategic_artifact.supporting_analysis_ids,
+        strategic_artifact_id=strategic_artifact.strategic_artifact_id,
+        expected_direction=expected_direction,
+        expected_horizon=expected_horizon,
+        invalidation_conditions=invalidation_conditions_tuple,
+        created_at=created_at,
+        decision_timestamp=strategic_artifact.decision_timestamp,
+        provenance=provenance,
+        expires_at=expires_at,
+        status=status,
     )
 
 
