@@ -14,17 +14,17 @@ Branch principal:
 
 HEAD verificado:
 
-`28fc3a919395883fe0afbb188ccf4d52d97ebde3`
+`c325056673cb005a4f931fefd0f7a55b983cdf81`
 
 Commit:
 
-`Merge pull request #25 from eltiootaku01-hue/phase1.45-risk-contracts`
+`Merge pull request #27 from eltiootaku01-hue/architecture/problema-de-huesos`
 
 ---
 
-# FASE ACTUAL
+# FASE 1.45
 
-## FASE 1.45 — CONTRATOS CANÓNICOS DE ESTADO FINANCIERO + RISK DECISION
+## CONTRATOS CANÓNICOS DE ESTADO FINANCIERO + RISK DECISION
 
 Estado:
 
@@ -47,9 +47,7 @@ Contracts introduced:
 - RiskEvidenceRef
 - Completeness
 
----
-
-# EVIDENCIA DE FASE 1.45
+### Evidencia de FASE 1.45
 
 Branch de implementación:
 
@@ -90,28 +88,117 @@ No se introdujo en esta fase:
 
 ---
 
+# DOCUMENTACIÓN DE CONTINUIDAD PERSISTENTE
+
+Después de FASE 1.45 se integraron dos bloques documentales:
+
+### PR #26 — continuidad operativa
+
+Estado:
+
+**MERGED / CLOSED**
+
+Merge commit:
+
+`5de3a0a1fff31c2a977a240997f9424398a35699`
+
+Documentos:
+
+- `cerebro/README.md`
+- `cerebro/PROJECT_STATE.md`
+- `obrero/README.md`
+
+Alcance:
+
+**Solo documentación. No se modificó código de producción, tests ni contratos.**
+
+### PR #27 — mapa de reparación arquitectónica
+
+Estado:
+
+**MERGED / CLOSED**
+
+Merge commit:
+
+`c325056673cb005a4f931fefd0f7a55b983cdf81`
+
+Documentos:
+
+- `problema-de-huesos/README.md`
+- `problema-de-huesos/REMEDIATION_PLAN.md`
+- `problema-de-huesos/PHASE_1_46_AUDIT.md`
+
+Alcance:
+
+**Solo documentación arquitectónica. No se modificó código de producción, tests ni contratos existentes.**
+
+Estos documentos son memoria y diseño arquitectónico persistente; no deben declararse como código funcional implementado.
+
+---
+
 # FRONTERA ARQUITECTÓNICA ACTUAL
 
-La cadena anterior quedó:
+La cadena funcional existente continúa:
 
-**AnalysisSnapshot → Strategy → StrategicArtifact → Hypothesis → Signal**
+**MarketData → Analysis → Strategy → Signal**
 
-FASE 1.45 agrega contratos financieros/risk, pero NO conecta todavía el Signal con una evaluación de riesgo operativa.
+FASE 1.45 aporta contratos financieros/risk, pero no implementa el Risk Engine ni conecta todavía Signal con una evaluación financiera operativa.
 
-La frontera siguiente debe auditar primero:
+La auditoría persistente de la frontera Risk identifica como orden de reparación:
 
-**Signal → Risk evaluation → RiskDecision → OrderIntent**
+**HUESO 00 — Risk Evaluation Boundary Design**
 
-Antes de implementar esa conexión, el Cerebro debe verificar nuevamente:
+Estado:
 
-- fuente canónica de account state;
-- posiciones;
-- exposure;
-- límites;
-- temporalidad/frescura;
-- semantics de UNKNOWN;
-- correlation_id;
-- relación entre RiskDecision y futura autorización de OrderIntent.
+**DESIGNED / NOT IMPLEMENTED**
+
+Esta frontera debe cerrar primero las reglas y límites de la evaluación financiera antes de avanzar a la implementación final del Risk Engine.
+
+La secuencia conceptual resultante es:
+
+**Signal → TradeProposal → Financial / Operational Context → Risk Engine → RiskDecision → Typed OrderIntent → Final Admission → Execution**
+
+El siguiente trabajo operativo, después de esta sincronización documental, es:
+
+**HUESO 01 — TradeProposal**
+
+Estado:
+
+**CONTRACT GAP — BLOCKING / NOT IMPLEMENTED**
+
+TradeProposal debe permanecer separado de Signal y no debe ser ejecutable.
+
+---
+
+# ESTADO ACTUAL DE COMPONENTES FUTUROS
+
+Los siguientes componentes no deben presentarse como implementados:
+
+### Risk Engine
+
+**NOT IMPLEMENTED**
+
+### TradeProposal
+
+**NOT IMPLEMENTED**
+
+### RiskEvaluationContext
+
+**DESIGNED / NOT IMPLEMENTED**
+
+### ReservationState
+
+**DESIGNED / NOT IMPLEMENTED**
+
+### FinancialEvidence
+
+**DESIGNED / NOT IMPLEMENTED**
+
+### Final Admission
+
+**DESIGNED / NOT IMPLEMENTED**
+
+Estos estados describen diseño o ausencia de implementación; no constituyen evidencia de código funcional existente.
 
 ---
 
@@ -127,7 +214,27 @@ Estos componentes existentes no deben declararse canónicos solo por convenienci
 - StrategyAssumptions;
 - RiskGuard.
 
-Su significado exacto debe seguir siendo el observado en el código.
+Su significado exacto debe seguir siendo el observado en el código real.
+
+---
+
+# GAPS BLOQUEANTES REGISTRADOS
+
+La carpeta `problema-de-huesos/` mantiene como bloqueantes, entre otros:
+
+- TradeProposal;
+- In-flight / Reserved State;
+- Strategy Read Model / sizing boundary;
+- Final Admission;
+- UNKNOWN / retry semantics;
+- Fill Identity;
+- External Activity.
+
+Mientras existan gaps BLOQUEANTES sin resolver:
+
+**NO avanzar a la implementación final del Risk Engine ni a ejecución financiera real.**
+
+La lista persistente de reparación debe leerse antes de continuar una nueva frontera funcional importante.
 
 ---
 
@@ -137,16 +244,28 @@ Este archivo es una **memoria de estado**, no una fuente superior al repositorio
 
 Si GitHub muestra un estado diferente:
 
-**GitHub gana.**
+**GitHub gana al documento.**
 
-Marcar el archivo como desactualizado y reconstruir evidencia antes de continuar.
+Si el contenido de este archivo queda desactualizado, debe corregirse mediante evidencia del repositorio antes de continuar.
+
+Etiquetas de verdad utilizadas cuando corresponda:
+
+- OBSERVED
+- TESTED
+- INFERRED
+- UNKNOWN
+- BLOCKED
 
 ---
 
 # ESTADO DE CONFIANZA
 
 - HEAD de main: **OBSERVED**
-- FASE 1.45 merged: **OBSERVED**
-- 782 tests: **TESTED**
-- Risk Engine aún no implementado al cierre de FASE 1.45: **OBSERVED**
-- Próxima frontera exacta: **INFERRED / REQUIRES AUDIT BEFORE IMPLEMENTATION**
+- FASE 1.45 merged/closed: **OBSERVED**
+- 782 tests en FASE 1.45: **TESTED**
+- PR #26 merged/closed: **OBSERVED**
+- PR #27 merged/closed: **OBSERVED**
+- Documentos persistentes de continuidad presentes en main: **OBSERVED**
+- Risk Engine implementado: **NOT IMPLEMENTED**
+- HUESO 01 / TradeProposal implementado: **NOT IMPLEMENTED**
+- Próxima frontera operativa: **INFERRED / REQUIRES CEREBRO REVIEW BEFORE IMPLEMENTATION**
