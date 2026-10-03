@@ -27,7 +27,7 @@ OPEN_3 = OPEN_2 + STEP
 OPEN_4 = OPEN_3 + STEP
 R1 = datetime(2026, 10, 2, 12, 1, tzinfo=timezone.utc)
 R2 = datetime(2026, 10, 2, 12, 1, 1, tzinfo=timezone.utc)
-INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT")
+INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
 
 
 def row(open_time, *, close_value="123.7500", volume="0.0100", open_value="123.4500"):
