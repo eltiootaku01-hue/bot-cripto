@@ -313,4 +313,5 @@ __all__ = [
     "StrategyContractError",
     "StrategicArtifact",
     "build_strategic_artifact",
+    "build_hypothesis",
 ]
