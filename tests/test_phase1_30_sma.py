@@ -116,8 +116,10 @@ def make_market_data(
         market_data_id=f"md-{index}",
         instrument=InstrumentIdentity(
             instrument_id="instrument-btcusdt-test",
-            symbol="BTCUSDT",
+            symbol="BTC/USDT",
             market="SYNTHETIC",
+            base_asset="BTC",
+            quote_asset="USDT",
         ),
         source=SourceIdentity(
             source_id="fixture-source",
