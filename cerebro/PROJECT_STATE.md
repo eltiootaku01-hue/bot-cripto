@@ -14,11 +14,11 @@ Branch principal:
 
 HEAD verificado:
 
-`c325056673cb005a4f931fefd0f7a55b983cdf81`
+`036ec717364ddeff3a0bb0703acf27eea968dd5a`
 
 Commit:
 
-`Merge pull request #27 from eltiootaku01-hue/architecture/problema-de-huesos`
+`Merge pull request #28 from eltiootaku01-hue/docs/sync-project-state`
 
 ---
 
