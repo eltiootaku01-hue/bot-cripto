@@ -32,7 +32,12 @@ def make_signal(*, symbol: str = "BTC/USDT", direction: str = "BUY") -> Signal:
     )
 
 
-def make_market_proposal(*, signal: Signal | None = None, side: TradeSide = TradeSide.BUY):
+def make_market_proposal(
+    *,
+    signal: Signal | None = None,
+    side: TradeSide = TradeSide.BUY,
+    max_quote_spend: Decimal | None,
+):
     source_signal = make_signal() if signal is None else signal
     return build_trade_proposal(
         signal=source_signal,
@@ -41,6 +46,7 @@ def make_market_proposal(*, signal: Signal | None = None, side: TradeSide = Trad
         requested_price=None,
         price_policy=PricePolicy.MARKET_REFERENCE,
         order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
         strategy_identity="strategy.example",
         strategy_version="1.0.0",
     )
@@ -60,6 +66,7 @@ def make_limit_proposal(
         requested_price=requested_price,
         price_policy=PricePolicy.FIXED,
         order_type=TradeOrderType.LIMIT,
+        max_quote_spend=None,
         strategy_identity="strategy.example",
         strategy_version="1.0.0",
     )
@@ -73,6 +80,7 @@ def test_trade_proposal_field_contract_is_exact():
         "side",
         "requested_quantity",
         "requested_price",
+        "max_quote_spend",
         "price_policy",
         "order_type",
         "strategy_identity",
@@ -84,7 +92,7 @@ def test_trade_proposal_field_contract_is_exact():
 
 def test_identity_fields_are_generated_and_distinct():
     signal = make_signal()
-    first = make_market_proposal(signal=signal)
+    first = make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
     second = make_market_proposal(signal=signal)
 
     assert isinstance(first.proposal_id, str)
@@ -101,7 +109,7 @@ def test_identity_fields_are_generated_and_distinct():
 
 
 def test_immutability_rejects_mutation():
-    proposal = make_market_proposal()
+    proposal = make_market_proposal(max_quote_spend=Decimal("1"))
 
     with pytest.raises(FrozenInstanceError):
         proposal.side = TradeSide.SELL
@@ -111,6 +119,9 @@ def test_immutability_rejects_mutation():
 
     with pytest.raises(FrozenInstanceError):
         proposal.requested_price = Decimal("100")
+
+    with pytest.raises(FrozenInstanceError):
+        proposal.max_quote_spend = Decimal("2")
 
     with pytest.raises(FrozenInstanceError):
         proposal.correlation_id = "new-correlation"
@@ -133,6 +144,7 @@ def test_helper_rejects_non_signal_inputs():
             requested_price=None,
             price_policy=PricePolicy.MARKET_REFERENCE,
             order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
             strategy_identity="strategy.example",
             strategy_version="1.0.0",
         )
@@ -152,6 +164,7 @@ def make_market_proposal_with_quantity(value):
         requested_price=None,
         price_policy=PricePolicy.MARKET_REFERENCE,
         order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
         strategy_identity="strategy.example",
         strategy_version="1.0.0",
     )
@@ -166,6 +179,7 @@ def test_valid_decimal_quantities_are_accepted(value):
         requested_price=None,
         price_policy=PricePolicy.MARKET_REFERENCE,
         order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
         strategy_identity="strategy.example",
         strategy_version="1.0.0",
     )
@@ -260,6 +274,7 @@ def test_decision_timestamp_must_not_precede_signal(decision_timestamp):
         requested_price=None,
         price_policy=PricePolicy.MARKET_REFERENCE,
         order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
         strategy_identity="strategy.example",
         strategy_version="1.0.0",
         decision_timestamp=decision_timestamp,
@@ -274,6 +289,7 @@ def test_decision_timestamp_must_not_precede_signal(decision_timestamp):
             requested_price=None,
             price_policy=PricePolicy.MARKET_REFERENCE,
             order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
             strategy_identity="strategy.example",
             strategy_version="1.0.0",
             decision_timestamp=BASE - timedelta(microseconds=1),
@@ -289,6 +305,7 @@ def test_naive_decision_timestamp_is_rejected():
             requested_price=None,
             price_policy=PricePolicy.MARKET_REFERENCE,
             order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
             strategy_identity="strategy.example",
             strategy_version="1.0.0",
             decision_timestamp=datetime(2026, 10, 3, 12, 0),
@@ -302,6 +319,7 @@ def test_strategy_metadata_must_be_non_empty(field_name, value):
         "side": TradeSide.BUY,
         "requested_quantity": Decimal("0.001"),
         "requested_price": None,
+        "max_quote_spend": Decimal("1"),
         "price_policy": PricePolicy.MARKET_REFERENCE,
         "order_type": TradeOrderType.MARKET,
         "strategy_identity": "strategy.example",
@@ -323,6 +341,7 @@ def test_side_must_be_trade_side_enum(value):
             requested_price=None,
             price_policy=PricePolicy.MARKET_REFERENCE,
             order_type=TradeOrderType.MARKET,
+        max_quote_spend=Decimal("1"),
             strategy_identity="strategy.example",
             strategy_version="1.0.0",
         )
@@ -330,7 +349,11 @@ def test_side_must_be_trade_side_enum(value):
 
 def test_signal_direction_is_not_reinterpreted():
     signal = make_signal(direction="BUY")
-    proposal = make_market_proposal(signal=signal, side=TradeSide.SELL)
+    proposal = make_market_proposal(
+        signal=signal,
+        side=TradeSide.SELL,
+        max_quote_spend=None,
+    )
 
     assert signal.direction == "BUY"
     assert proposal.side is TradeSide.SELL
@@ -431,6 +454,8 @@ def test_module_does_not_reference_execution_or_risk_layers():
         "execution",
         "account",
         "risk",
+        "reservation",
+        "financialevidence",
     )
     forbidden_names = (
         "executionboundary",
@@ -451,5 +476,122 @@ def test_helper_requires_explicit_economic_fields():
     proposal = make_limit_proposal()
     assert proposal.requested_quantity == Decimal("0.001")
     assert proposal.requested_price == Decimal("100.25")
+    assert proposal.max_quote_spend is None
     assert proposal.price_policy is PricePolicy.FIXED
     assert proposal.order_type is TradeOrderType.LIMIT
+
+
+
+@pytest.mark.parametrize("value", [Decimal("1"), Decimal("0.001")])
+def test_buy_market_valid_max_quote_spend_values_are_accepted(value):
+    proposal = build_trade_proposal(
+        signal=make_signal(),
+        side=TradeSide.BUY,
+        requested_quantity=Decimal("0.001"),
+        requested_price=None,
+        max_quote_spend=value,
+        price_policy=PricePolicy.MARKET_REFERENCE,
+        order_type=TradeOrderType.MARKET,
+        strategy_identity="strategy.example",
+        strategy_version="1.0.0",
+    )
+
+    assert type(proposal.max_quote_spend) is Decimal
+    assert proposal.max_quote_spend == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        Decimal("0"),
+        Decimal("-0.001"),
+        1,
+        1.0,
+        True,
+        False,
+        Decimal("NaN"),
+        Decimal("Infinity"),
+        Decimal("-Infinity"),
+    ],
+)
+def test_buy_market_invalid_max_quote_spend_values_are_rejected(value):
+    with pytest.raises(ContractError, match="max_quote_spend"):
+        build_trade_proposal(
+            signal=make_signal(),
+            side=TradeSide.BUY,
+            requested_quantity=Decimal("0.001"),
+            requested_price=None,
+            max_quote_spend=value,
+            price_policy=PricePolicy.MARKET_REFERENCE,
+            order_type=TradeOrderType.MARKET,
+            strategy_identity="strategy.example",
+            strategy_version="1.0.0",
+        )
+
+
+@pytest.mark.parametrize(
+    ("side", "order_type", "price_policy", "requested_price", "value"),
+    [
+        (
+            TradeSide.BUY,
+            TradeOrderType.LIMIT,
+            PricePolicy.FIXED,
+            Decimal("100.25"),
+            Decimal("10"),
+        ),
+        (
+            TradeSide.SELL,
+            TradeOrderType.MARKET,
+            PricePolicy.MARKET_REFERENCE,
+            None,
+            Decimal("10"),
+        ),
+        (
+            TradeSide.SELL,
+            TradeOrderType.LIMIT,
+            PricePolicy.FIXED,
+            Decimal("100.25"),
+            Decimal("10"),
+        ),
+    ],
+)
+def test_max_quote_spend_is_forbidden_outside_buy_market(
+    side, order_type, price_policy, requested_price, value
+):
+    with pytest.raises(ContractError, match="max_quote_spend"):
+        build_trade_proposal(
+            signal=make_signal(),
+            side=side,
+            requested_quantity=Decimal("0.001"),
+            requested_price=requested_price,
+            max_quote_spend=value,
+            price_policy=price_policy,
+            order_type=order_type,
+            strategy_identity="strategy.example",
+            strategy_version="1.0.0",
+        )
+
+
+def test_buy_market_max_quote_spend_is_required_and_not_inferred():
+    with pytest.raises(ContractError, match="max_quote_spend"):
+        build_trade_proposal(
+            signal=make_signal(),
+            side=TradeSide.BUY,
+            requested_quantity=Decimal("0.001"),
+            requested_price=None,
+            max_quote_spend=None,
+            price_policy=PricePolicy.MARKET_REFERENCE,
+            order_type=TradeOrderType.MARKET,
+            strategy_identity="strategy.example",
+            strategy_version="1.0.0",
+        )
+
+
+def test_trade_proposal_economic_fields_remain_distinct():
+    proposal = make_market_proposal(max_quote_spend=Decimal("25"))
+
+    assert proposal.requested_quantity == Decimal("0.001")
+    assert proposal.requested_price is None
+    assert proposal.max_quote_spend == Decimal("25")
+    assert proposal.requested_quantity != proposal.max_quote_spend
