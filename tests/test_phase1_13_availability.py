@@ -31,7 +31,7 @@ HANDOFF = T0 + timedelta(seconds=3)
 DECISION_BEFORE = T0 + timedelta(seconds=1)
 DECISION_AT = HANDOFF
 DECISION_AFTER = HANDOFF + timedelta(seconds=1)
-INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT")
+INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
 
 MAPPER = InstrumentMapper(
     [

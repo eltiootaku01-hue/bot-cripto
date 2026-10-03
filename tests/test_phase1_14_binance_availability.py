@@ -21,7 +21,7 @@ BEFORE_RECEIVED = RECEIVED - timedelta(seconds=1)
 DECISION_BEFORE = HANDOFF - timedelta(microseconds=1)
 DECISION_AT = HANDOFF
 DECISION_AFTER = HANDOFF + timedelta(microseconds=1)
-INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT")
+INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
 
 
 def valid_row(

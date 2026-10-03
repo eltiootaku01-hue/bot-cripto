@@ -394,6 +394,8 @@ class BinanceSpotInstrumentMetadata:
             instrument_id=f"binance:SPOT:{metadata.provider_symbol}",
             symbol=f"{metadata.base_asset}/{metadata.quote_asset}",
             market="SPOT",
+            base_asset=metadata.base_asset,
+            quote_asset=metadata.quote_asset,
         )
         return BinanceInstrumentResolution(
             InstrumentResolution.FOUND,

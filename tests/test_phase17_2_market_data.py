@@ -19,7 +19,7 @@ from bot_obrero.market_data import (
 )
 
 T = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
-INSTRUMENT = InstrumentIdentity("btc-spot", "BTCUSDT", "SPOT")
+INSTRUMENT = InstrumentIdentity("btc-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
 SOURCE = SourceIdentity("feed-1", "provider-a", "venue-a")
 
 

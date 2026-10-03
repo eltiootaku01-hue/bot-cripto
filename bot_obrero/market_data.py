@@ -91,10 +91,18 @@ def _parse_datetime(value: str | None, name: str, *, optional: bool = False) -> 
 
 @dataclass(frozen=True)
 class InstrumentIdentity:
+    """Provider-neutral canonical identity for one market instrument.
+
+    For CRYPTO_SPOT, base_asset and quote_asset are mandatory explicit economic
+    terms. They are never inferred from a provider symbol.
+    """
+
     instrument_id: str
     symbol: str
     market: str
     instrument_type: InstrumentType = InstrumentType.CRYPTO_SPOT
+    base_asset: str | None = None
+    quote_asset: str | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.instrument_id, "instrument_id")
@@ -104,6 +112,23 @@ class InstrumentIdentity:
             object.__setattr__(self, "instrument_type", InstrumentType(self.instrument_type))
         except ValueError as exc:
             raise MarketDataError("instrument_type is not supported by v1.0") from exc
+
+        if self.instrument_type is InstrumentType.CRYPTO_SPOT:
+            base_asset = _nonempty(self.base_asset, "base_asset")
+            quote_asset = _nonempty(self.quote_asset, "quote_asset")
+            if base_asset == quote_asset:
+                raise MarketDataError("base_asset and quote_asset must be distinct")
+            expected_symbol = f"{base_asset}/{quote_asset}"
+            if self.symbol != expected_symbol:
+                raise MarketDataError(
+                    "symbol must match explicit base_asset/quote_asset terms"
+                )
+            object.__setattr__(self, "base_asset", base_asset)
+            object.__setattr__(self, "quote_asset", quote_asset)
+        elif self.base_asset is not None or self.quote_asset is not None:
+            raise MarketDataError(
+                "base_asset and quote_asset are only supported for CRYPTO_SPOT in v1.0"
+            )
 
 
 @dataclass(frozen=True)
@@ -258,6 +283,8 @@ class MarketData:
                 "symbol": self.instrument.symbol,
                 "market": self.instrument.market,
                 "instrument_type": self.instrument.instrument_type.value,
+                "base_asset": self.instrument.base_asset,
+                "quote_asset": self.instrument.quote_asset,
             },
             "source": {
                 "source_id": self.source.source_id,

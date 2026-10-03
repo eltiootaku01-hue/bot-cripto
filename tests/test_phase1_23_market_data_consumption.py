@@ -40,7 +40,7 @@ DECISION_AFTER = datetime(2026, 10, 2, 12, 0, 3, tzinfo=UTC)
 
 def make_market_data(*, available_at: datetime | None = AVAILABLE) -> MarketData:
     return MarketData(
-        instrument=InstrumentIdentity("binance:SPOT:BTCUSDT", "BTC/USDT", "SPOT"),
+        instrument=InstrumentIdentity("binance:SPOT:BTCUSDT", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT"),
         source=SourceIdentity("binance-spot-rest", "binance", "BINANCE"),
         data_type="CANDLE",
         observed_at=OBSERVED,

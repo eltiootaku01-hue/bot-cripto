@@ -76,7 +76,7 @@ def test_resolution_uses_explicit_base_and_quote_fields():
     metadata = BinanceSpotInstrumentMetadata(http_get=metadata_getter(exchange_payload(symbol_record(symbol="FOOUSD", base="XBASE", quote="XQUOTE"))))
     result = metadata.resolve("FOOUSD")
     assert result.outcome.value == "FOUND"
-    assert result.instrument == InstrumentIdentity("binance:SPOT:FOOUSD", "XBASE/XQUOTE", "SPOT")
+    assert result.instrument == InstrumentIdentity("binance:SPOT:FOOUSD", "XBASE/XQUOTE", "SPOT", base_asset="XBASE", quote_asset="XQUOTE")
 
 
 def test_spot_and_venue_are_provider_specific_and_separate_from_source():
@@ -140,7 +140,7 @@ def test_metadata_backed_adapter_reuses_canonical_market_data_path():
 
 
 def test_legacy_manual_mapper_remains_compatible():
-    mapper = InstrumentMapper([InstrumentMappingRule(provider="binance", provider_symbol="BTCUSDT", provider_market="SPOT", provider_venue="BINANCE", instrument=InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT"))])
+    mapper = InstrumentMapper([InstrumentMappingRule(provider="binance", provider_symbol="BTCUSDT", provider_market="SPOT", provider_venue="BINANCE", instrument=InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT"))])
     from bot_obrero.acquisition import ProviderRecord
     record = ProviderRecord(provider_symbol="BTCUSDT", provider="binance", provider_market="SPOT", provider_venue="BINANCE", observed_at=datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc), available_at=None, candle_start=datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc), candle_end=datetime(2026, 10, 2, 12, 1, tzinfo=timezone.utc), timeframe="1m", open="1", high="2", low="1", close="2", volume="1")
     assert mapper.resolve(record).instrument_id == "btc-usdt-spot"

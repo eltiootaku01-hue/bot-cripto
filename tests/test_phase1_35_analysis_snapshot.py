@@ -105,6 +105,8 @@ def make_market_data(index: int, close: str) -> MarketData:
             instrument_id="instrument-btcusdt-test",
             symbol="BTC/USDT",
             market="SYNTHETIC",
+            base_asset="BTC",
+            quote_asset="USDT",
         ),
         source=SourceIdentity(
             source_id="fixture-source",
