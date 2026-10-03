@@ -46,7 +46,7 @@ def make_market_proposal(
         requested_price=None,
         price_policy=PricePolicy.MARKET_REFERENCE,
         order_type=TradeOrderType.MARKET,
-        max_quote_spend=Decimal("1"),
+        max_quote_spend=max_quote_spend,
         strategy_identity="strategy.example",
         strategy_version="1.0.0",
     )
