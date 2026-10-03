@@ -59,6 +59,7 @@ class TradeProposal:
     side: TradeSide
     requested_quantity: Decimal
     requested_price: Decimal | None
+    max_quote_spend: Decimal | None
     price_policy: PricePolicy
     order_type: TradeOrderType
     strategy_identity: str
@@ -78,6 +79,13 @@ class TradeProposal:
 
         if self.requested_price is not None:
             _decimal_positive(self.requested_price, "requested_price")
+
+        if self.side is TradeSide.BUY and self.order_type is TradeOrderType.MARKET:
+            _decimal_positive(self.max_quote_spend, "max_quote_spend")
+        elif self.max_quote_spend is not None:
+            raise ContractError(
+                "max_quote_spend is only allowed for BUY MARKET orders"
+            )
 
         if not isinstance(self.price_policy, PricePolicy):
             raise ContractError("price_policy must be PricePolicy")
@@ -120,6 +128,7 @@ def build_trade_proposal(
     side: TradeSide,
     requested_quantity: Decimal,
     requested_price: Decimal | None,
+    max_quote_spend: Decimal | None,
     price_policy: PricePolicy,
     order_type: TradeOrderType,
     strategy_identity: str,
@@ -147,6 +156,7 @@ def build_trade_proposal(
         side=side,
         requested_quantity=requested_quantity,
         requested_price=requested_price,
+        max_quote_spend=max_quote_spend,
         price_policy=price_policy,
         order_type=order_type,
         strategy_identity=strategy_identity,
