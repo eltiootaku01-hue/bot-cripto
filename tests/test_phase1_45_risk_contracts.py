@@ -28,8 +28,17 @@ OBSERVED = Provenance("synthetic-test", ArtifactNature.OBSERVED)
 DERIVED = Provenance("synthetic-test", ArtifactNature.DERIVED)
 
 
+def _financial_input(value):
+    return Decimal(value) if isinstance(value, str) else value
+
+
 def balance(asset="USDT", total="100", available="80", locked="20"):
-    return BalanceSnapshot(asset=asset, total=Decimal(total), available=Decimal(available), locked=Decimal(locked))
+    return BalanceSnapshot(
+        asset=asset,
+        total=_financial_input(total),
+        available=_financial_input(available),
+        locked=_financial_input(locked),
+    )
 
 
 def account_state(*balances):
