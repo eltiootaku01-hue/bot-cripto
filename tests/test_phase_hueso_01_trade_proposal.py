@@ -406,21 +406,45 @@ def test_direct_constructor_remains_non_executable_and_has_no_provider_fields():
 
 
 def test_module_does_not_reference_execution_or_risk_layers():
-    source = __import__("pathlib").Path("bot_obrero/trade_proposal.py").read_text(encoding="utf-8")
+    import ast
+    from pathlib import Path
 
-    forbidden = (
+    source = Path("bot_obrero/trade_proposal.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    imported_modules: list[str] = []
+    referenced_names: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.extend(alias.name.lower() for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported_modules.append((node.module or "").lower())
+            imported_modules.extend(alias.name.lower() for alias in node.names)
+        elif isinstance(node, ast.Name):
+            referenced_names.append(node.id.lower())
+        elif isinstance(node, ast.Attribute):
+            referenced_names.append(node.attr.lower())
+
+    forbidden_modules = (
         "binance",
-        "ExecutionBoundary",
-        "OrderIntent",
-        "RiskEngine",
-        "RiskDecision",
-        "ReservationState",
-        "FinancialEvidence",
+        "execution",
+        "account",
+        "risk",
+    )
+    forbidden_names = (
+        "executionboundary",
+        "orderintent",
+        "riskengine",
+        "riskdecision",
+        "reservationstate",
+        "financialevidence",
     )
 
-    lowered = source.lower()
-    for fragment in forbidden:
-        assert fragment.lower() not in lowered
+    for fragment in forbidden_modules:
+        assert all(fragment not in module for module in imported_modules)
+    for fragment in forbidden_names:
+        assert fragment not in referenced_names
 
 
 def test_helper_requires_explicit_economic_fields():
