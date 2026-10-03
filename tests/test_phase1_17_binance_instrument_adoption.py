@@ -92,8 +92,8 @@ def test_btcusdt_and_ethusdt_resolve_from_explicit_exchangeinfo_fields():
     btc = metadata.resolve_active("BTCUSDT")
     eth = metadata.resolve_active("ETHUSDT")
 
-    assert btc == InstrumentIdentity("binance:SPOT:BTCUSDT", "BTC/USDT", "SPOT")
-    assert eth == InstrumentIdentity("binance:SPOT:ETHUSDT", "ETH/USDT", "SPOT")
+    assert btc == InstrumentIdentity("binance:SPOT:BTCUSDT", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
+    assert eth == InstrumentIdentity("binance:SPOT:ETHUSDT", "ETH/USDT", "SPOT", base_asset="ETH", quote_asset="USDT")
     assert btc.instrument_id != eth.instrument_id
 
 
@@ -201,7 +201,7 @@ def test_metadata_backed_path_without_handoff_keeps_availability_unknown():
 
 
 def test_manual_legacy_mapper_remains_explicitly_usable():
-    instrument = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT")
+    instrument = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
     mapper = InstrumentMapper(
         [
             InstrumentMappingRule(
@@ -324,4 +324,4 @@ def test_public_resolve_instrument_is_the_metadata_backed_acquisition_boundary()
     payload = exchange_payload(symbol_record("BTCUSDT", "BTC", "USDT"))
     adapter = adapter_for(payload, [market_row(OPEN_1, CLOSE_1)])
     instrument = adapter.resolve_instrument("BTCUSDT")
-    assert instrument == InstrumentIdentity("binance:SPOT:BTCUSDT", "BTC/USDT", "SPOT")
+    assert instrument == InstrumentIdentity("binance:SPOT:BTCUSDT", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
