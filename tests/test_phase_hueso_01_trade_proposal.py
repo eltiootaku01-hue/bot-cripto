@@ -93,7 +93,7 @@ def test_trade_proposal_field_contract_is_exact():
 def test_identity_fields_are_generated_and_distinct():
     signal = make_signal()
     first = make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
-    second = make_market_proposal(signal=signal)
+    second = make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
 
     assert isinstance(first.proposal_id, str)
     assert first.proposal_id
@@ -129,7 +129,7 @@ def test_immutability_rejects_mutation():
 
 def test_signal_relationship_inherits_exact_signal_id_and_symbol():
     signal = make_signal(symbol="BTC/USDT")
-    proposal = make_market_proposal(signal=signal)
+    proposal = make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
 
     assert proposal.signal_id == signal.signal_id
     assert proposal.symbol == signal.symbol
@@ -193,7 +193,7 @@ def test_valid_decimal_quantities_are_accepted(value):
 )
 def test_market_price_policy_values_are_supported(value):
     if value is None:
-        proposal = make_market_proposal()
+        proposal = make_market_proposal(max_quote_spend=Decimal("1"))
         assert proposal.requested_price is None
     else:
         proposal = make_limit_proposal(requested_price=value)
@@ -211,18 +211,19 @@ def test_invalid_present_prices_are_rejected(value):
 
 
 @pytest.mark.parametrize(
-    "order_type,price_policy,price",
+    "order_type,price_policy,price,max_quote_spend",
     [
-        (TradeOrderType.MARKET, PricePolicy.MARKET_REFERENCE, None),
-        (TradeOrderType.LIMIT, PricePolicy.FIXED, Decimal("100.25")),
+        (TradeOrderType.MARKET, PricePolicy.MARKET_REFERENCE, None, Decimal("1")),
+        (TradeOrderType.LIMIT, PricePolicy.FIXED, Decimal("100.25"), None),
     ],
 )
-def test_valid_order_price_combinations(order_type, price_policy, price):
+def test_valid_order_price_combinations(order_type, price_policy, price, max_quote_spend):
     proposal = build_trade_proposal(
         signal=make_signal(),
         side=TradeSide.BUY,
         requested_quantity=Decimal("0.001"),
         requested_price=price,
+        max_quote_spend=max_quote_spend,
         price_policy=price_policy,
         order_type=order_type,
         strategy_identity="strategy.example",
@@ -252,6 +253,9 @@ def test_invalid_order_price_combinations_are_rejected(
             side=TradeSide.BUY,
             requested_quantity=Decimal("0.001"),
             requested_price=price,
+            max_quote_spend=(
+                Decimal("1") if order_type is TradeOrderType.MARKET else None
+            ),
             price_policy=price_policy,
             order_type=order_type,
             strategy_identity="strategy.example",
@@ -361,8 +365,8 @@ def test_signal_direction_is_not_reinterpreted():
 
 def test_two_proposals_from_one_signal_have_independent_correlation_ids():
     signal = make_signal()
-    first = make_market_proposal(signal=signal)
-    second = make_market_proposal(signal=signal)
+    first = make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
+    second = make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
 
     assert first.signal_id == second.signal_id
     assert first.correlation_id != second.correlation_id
@@ -371,7 +375,7 @@ def test_two_proposals_from_one_signal_have_independent_correlation_ids():
 
 def test_default_decision_timestamp_is_signal_timestamp_without_clock_use():
     signal = make_signal()
-    proposal = make_market_proposal(signal=signal)
+    proposal = make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
 
     assert proposal.decision_timestamp == signal.decision_timestamp
 
@@ -391,7 +395,7 @@ def test_signal_is_not_modified_by_builder():
         signal.signal_id,
     )
 
-    make_market_proposal(signal=signal)
+    make_market_proposal(signal=signal, max_quote_spend=Decimal("1"))
 
     after = (
         signal.symbol,
@@ -419,7 +423,7 @@ def test_enums_are_provider_neutral_string_enums():
 
 
 def test_direct_constructor_remains_non_executable_and_has_no_provider_fields():
-    proposal = make_market_proposal()
+    proposal = make_market_proposal(max_quote_spend=Decimal("1"))
     assert not hasattr(proposal, "provider")
     assert not hasattr(proposal, "venue")
     assert not hasattr(proposal, "account_id")
