@@ -30,7 +30,7 @@ from bot_obrero.market_data import (
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc)
 CANDLE_END = T0 + timedelta(minutes=1)
 RECEIVED = T0 + timedelta(minutes=3)
-INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT")
+INSTRUMENT = InstrumentIdentity("btc-usdt-spot", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT")
 MAPPER = InstrumentMapper(
     [
         InstrumentMappingRule(
@@ -108,7 +108,7 @@ def test_ambiguous_mapping_is_rejected():
                 "BTCUSDT",
                 "SPOT",
                 "fixture-venue",
-                InstrumentIdentity("other", "BTC/USDT", "SPOT"),
+                InstrumentIdentity("other", "BTC/USDT", "SPOT", base_asset="BTC", quote_asset="USDT"),
             ),
         ]
     )
