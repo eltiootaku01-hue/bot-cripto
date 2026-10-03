@@ -41,6 +41,8 @@ def mapper() -> InstrumentMapper:
                 instrument_id="binance:SPOT:BTCUSDT",
                 symbol="BTC/USDT",
                 market="SPOT",
+                base_asset="BTC",
+                quote_asset="USDT",
             ),
         )
     ])
