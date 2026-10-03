@@ -178,7 +178,7 @@ def test_empty_direction_or_horizon_is_rejected(field):
     }
     kwargs[field] = "   "
 
-    with pytest.raises(ContractError):
+    with pytest.raises(StrategyContractError):
         build(artifact, **kwargs)
 
 
