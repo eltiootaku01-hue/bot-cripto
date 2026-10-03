@@ -12,13 +12,38 @@ Branch principal:
 
 `main`
 
-HEAD verificado:
+CURRENT MAIN HEAD:
+
+`VERIFY DIRECTLY FROM GITHUB`
+
+LAST VERIFIED MAIN BASE:
 
 `036ec717364ddeff3a0bb0703acf27eea968dd5a`
 
-Commit:
+LAST CONTINUITY MERGE:
 
-`Merge pull request #28 from eltiootaku01-hue/docs/sync-project-state`
+PR #29
+
+MERGE COMMIT:
+
+`050c0d260500d2ddde3810b997b75597518a4830`
+
+---
+
+# CONTINUIDAD DEL HEAD
+
+El HEAD actual de `main` NO se almacena como un valor permanente en este archivo.
+
+Antes de iniciar cualquier nueva fase:
+
+1. consultar GitHub;
+2. verificar el HEAD real de `main`;
+3. comparar contra la continuidad conocida;
+4. reconstruir evidencia si existe divergencia.
+
+GitHub gana al documento.
+
+Este archivo mantiene únicamente referencias históricas y de continuidad; no intenta autorreferenciar el commit que contiene su propia actualización.
 
 ---
 
@@ -260,7 +285,9 @@ Etiquetas de verdad utilizadas cuando corresponda:
 
 # ESTADO DE CONFIANZA
 
-- HEAD de main: **OBSERVED**
+- HEAD de main: **VERIFY DIRECTLY FROM GITHUB**
+- LAST VERIFIED MAIN BASE: **OBSERVED**
+- LAST CONTINUITY MERGE PR #29: **OBSERVED**
 - FASE 1.45 merged/closed: **OBSERVED**
 - 782 tests en FASE 1.45: **TESTED**
 - PR #26 merged/closed: **OBSERVED**
