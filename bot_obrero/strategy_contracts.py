@@ -1,8 +1,9 @@
-"""Minimal provider-neutral Strategy contract.
+"""Minimal provider-neutral Strategy and Hypothesis→Signal contracts.
 
 This module defines only the contractual frontier between an immutable
-AnalysisSnapshot and a future strategy implementation. It does not implement
-trading logic, signals, orders, risk, execution, registries, or factories.
+AnalysisSnapshot and strategy artifacts, hypotheses, and their minimal Signal
+producer. It does not implement trading logic, orders, risk, execution,
+registries, or factories.
 """
 
 from __future__ import annotations
@@ -15,7 +16,13 @@ from types import MappingProxyType
 from typing import Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
-from .analysis_contracts import ArtifactNature, Hypothesis, Provenance
+from .analysis_contracts import (
+    ArtifactNature,
+    Hypothesis,
+    Provenance,
+    Signal,
+    SignalValidity,
+)
 from .analysis_snapshot import AnalysisSnapshot
 
 
@@ -307,6 +314,43 @@ def build_hypothesis(
     )
 
 
+def build_signal(
+    hypothesis: Hypothesis,
+    *,
+    generated_at: datetime,
+    validity: SignalValidity,
+    provenance: Provenance,
+    evidence: Mapping[str, Any] | None = None,
+) -> Signal:
+    """Construct a minimal Signal from one immutable Hypothesis."""
+
+    if not isinstance(hypothesis, Hypothesis):
+        raise StrategyContractError("hypothesis must be a Hypothesis")
+
+    if not isinstance(validity, SignalValidity):
+        raise StrategyContractError("validity must be a SignalValidity")
+
+    if not isinstance(provenance, Provenance):
+        raise StrategyContractError("provenance must be a Provenance")
+    if provenance.nature is not ArtifactNature.DERIVED:
+        raise StrategyContractError("provenance must be DERIVED")
+
+    if evidence is not None and not isinstance(evidence, Mapping):
+        raise StrategyContractError("evidence must be a mapping or None")
+
+    return Signal(
+        symbol=hypothesis.symbol,
+        hypothesis_id=hypothesis.hypothesis_id,
+        direction=hypothesis.expected_direction,
+        generated_at=generated_at,
+        decision_timestamp=hypothesis.decision_timestamp,
+        provenance=provenance,
+        evidence={} if evidence is None else evidence,
+        expires_at=hypothesis.expires_at,
+        validity=validity,
+    )
+
+
 __all__ = [
     "Strategy",
     "StrategyCalculationConfig",
@@ -314,4 +358,5 @@ __all__ = [
     "StrategicArtifact",
     "build_strategic_artifact",
     "build_hypothesis",
+    "build_signal",
 ]
