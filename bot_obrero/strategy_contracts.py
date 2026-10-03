@@ -118,6 +118,7 @@ class StrategicArtifact:
     symbol: str
     decision_timestamp: datetime
     observation_ids: tuple[str, ...]
+    supporting_analysis_ids: tuple[str, ...]
     strategy_type: str
     strategy_identity: str
     strategy_version: str
@@ -160,7 +161,21 @@ class StrategicArtifact:
                 "observation_ids must contain non-empty strings"
             )
 
+        supporting_analysis_ids = tuple(self.supporting_analysis_ids)
+        if not supporting_analysis_ids:
+            raise StrategyContractError(
+                "supporting_analysis_ids must be a non-empty sequence"
+            )
+        if any(
+            not isinstance(item, str) or not item.strip()
+            for item in supporting_analysis_ids
+        ):
+            raise StrategyContractError(
+                "supporting_analysis_ids must contain non-empty strings"
+            )
+
         object.__setattr__(self, "observation_ids", observation_ids)
+        object.__setattr__(self, "supporting_analysis_ids", supporting_analysis_ids)
         object.__setattr__(
             self,
             "effective_configuration",
@@ -226,6 +241,9 @@ def build_strategic_artifact(
         symbol=snapshot.symbol,
         decision_timestamp=snapshot.decision_timestamp,
         observation_ids=tuple(snapshot.observation_ids),
+        supporting_analysis_ids=tuple(
+            result.analysis_id for result in snapshot.results
+        ),
         strategy_type=configuration.strategy_type,
         strategy_identity=configuration.strategy_identity,
         strategy_version=configuration.strategy_version,
