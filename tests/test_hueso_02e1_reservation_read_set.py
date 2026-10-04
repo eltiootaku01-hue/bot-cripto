@@ -420,7 +420,7 @@ def test_read_set_is_ephemeral_and_no_new_sqlite_table_is_created(tmp_path):
     table_names = {
         row[0]
         for row in store._connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
     }
 
