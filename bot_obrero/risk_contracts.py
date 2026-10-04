@@ -224,7 +224,16 @@ class RiskEvidenceRef:
 
 @dataclass(frozen=True)
 class RiskDecision:
+    """Immutable risk evaluation identity bound explicitly to a proposal.
+
+    This contract carries proposal_id, signal_id, and correlation_id, but it
+    cannot prove their equality against a concrete TradeProposal because it
+    does not receive that object. No repository producer currently evaluates
+    both objects together, so Proposal -> Risk propagation remains unimplemented.
+    """
+
     risk_decision_id: str
+    proposal_id: str
     signal_id: str
     outcome: RiskDecisionOutcome
     reason: str
@@ -234,15 +243,24 @@ class RiskDecision:
 
     def __post_init__(self) -> None:
         _nonempty(self.risk_decision_id, "risk_decision_id")
+        _nonempty(self.proposal_id, "proposal_id")
         _nonempty(self.signal_id, "signal_id")
+        if self.proposal_id in (self.risk_decision_id, self.signal_id):
+            raise ValueError(
+                "proposal_id must differ from risk_decision_id and signal_id"
+            )
         if not isinstance(self.outcome, RiskDecisionOutcome):
             raise ValueError("outcome must be RiskDecisionOutcome")
         _nonempty(self.reason, "reason")
         _aware(self.decision_timestamp, "decision_timestamp")
         _nonempty(self.correlation_id, "correlation_id")
-        if self.correlation_id in (self.risk_decision_id, self.signal_id):
+        if self.correlation_id in (
+            self.risk_decision_id,
+            self.proposal_id,
+            self.signal_id,
+        ):
             raise ValueError(
-                "correlation_id must differ from risk_decision_id and signal_id"
+                "correlation_id must differ from risk_decision_id, proposal_id, and signal_id"
             )
         evidence = tuple(self.risk_evidence)
         if not all(isinstance(item, RiskEvidenceRef) for item in evidence):

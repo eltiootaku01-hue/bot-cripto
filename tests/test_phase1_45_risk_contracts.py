@@ -92,9 +92,16 @@ def risk_limit(risk_limit_id="limit-1"):
     )
 
 
-def risk_decision(*, outcome=RiskDecisionOutcome.UNKNOWN):
+def risk_decision(
+    *,
+    outcome=RiskDecisionOutcome.UNKNOWN,
+    proposal_id="proposal-1",
+    risk_decision_id="decision-1",
+    correlation_id="correlation-1",
+):
     return RiskDecision(
-        risk_decision_id="decision-1",
+        risk_decision_id=risk_decision_id,
+        proposal_id=proposal_id,
         signal_id="signal-1",
         outcome=outcome,
         reason="Insufficient evidence",
@@ -102,7 +109,7 @@ def risk_decision(*, outcome=RiskDecisionOutcome.UNKNOWN):
         risk_evidence=(
             RiskEvidenceRef(kind="ACCOUNT_STATE", reference_id="state-1", as_of=BASE),
         ),
-        correlation_id="correlation-1",
+        correlation_id=correlation_id,
     )
 
 
@@ -337,6 +344,7 @@ def test_risk_evidence_ref_is_explicit_and_immutable():
 
 def test_risk_decision_contract_and_immutability():
     decision = risk_decision(outcome=RiskDecisionOutcome.REJECTED)
+    assert decision.proposal_id == "proposal-1"
     assert decision.signal_id == "signal-1"
     assert decision.outcome is RiskDecisionOutcome.REJECTED
     assert decision.reason == "Insufficient evidence"
@@ -344,12 +352,49 @@ def test_risk_decision_contract_and_immutability():
     assert isinstance(decision.risk_evidence, tuple)
     with pytest.raises(FrozenInstanceError):
         decision.reason = "changed"
+    with pytest.raises(FrozenInstanceError):
+        decision.proposal_id = "proposal-2"
+
+
+def test_risk_decision_requires_explicit_nonempty_proposal_id():
+    with pytest.raises(TypeError):
+        RiskDecision(
+            risk_decision_id="decision-missing-proposal",
+            signal_id="signal-1",
+            outcome=RiskDecisionOutcome.UNKNOWN,
+            reason="reason",
+            decision_timestamp=BASE,
+            risk_evidence=(),
+            correlation_id="correlation-2",
+        )
+    with pytest.raises(ValueError, match="proposal_id"):
+        risk_decision(proposal_id=None)
+    with pytest.raises(ValueError, match="proposal_id"):
+        risk_decision(proposal_id="")
+
+
+def test_two_risk_decisions_keep_evaluation_identity_separate_from_proposal_identity():
+    first = risk_decision(
+        risk_decision_id="decision-1",
+        proposal_id="proposal-1",
+        correlation_id="correlation-1",
+    )
+    second = risk_decision(
+        risk_decision_id="decision-2",
+        proposal_id="proposal-1",
+        correlation_id="correlation-2",
+    )
+
+    assert first.proposal_id == second.proposal_id == "proposal-1"
+    assert first.risk_decision_id != second.risk_decision_id
+    assert first.correlation_id != second.correlation_id
 
 
 def test_risk_decision_rejects_invalid_outcome_and_id_reuse():
     with pytest.raises(ValueError, match="RiskDecisionOutcome"):
         RiskDecision(
             risk_decision_id="decision-2",
+            proposal_id="proposal-2",
             signal_id="signal-1",
             outcome="APPROVED",
             reason="reason",
@@ -360,6 +405,7 @@ def test_risk_decision_rejects_invalid_outcome_and_id_reuse():
     with pytest.raises(ValueError, match="correlation_id"):
         RiskDecision(
             risk_decision_id="decision-2",
+            proposal_id="proposal-2",
             signal_id="signal-1",
             outcome=RiskDecisionOutcome.UNKNOWN,
             reason="reason",
@@ -370,6 +416,7 @@ def test_risk_decision_rejects_invalid_outcome_and_id_reuse():
     with pytest.raises(ValueError, match="correlation_id"):
         RiskDecision(
             risk_decision_id="decision-2",
+            proposal_id="proposal-2",
             signal_id="signal-1",
             outcome=RiskDecisionOutcome.UNKNOWN,
             reason="reason",
@@ -398,10 +445,11 @@ def test_all_identifiers_are_distinct_in_contract_fixture():
         risk_limit().risk_limit_id,
         "limit-set-1",
         risk_decision().risk_decision_id,
+        risk_decision().proposal_id,
         risk_decision().signal_id,
         risk_decision().correlation_id,
     }
-    assert len(identifiers) == 9
+    assert len(identifiers) == 10
 
 
 def test_every_contract_uses_timezone_aware_temporal_fields():
