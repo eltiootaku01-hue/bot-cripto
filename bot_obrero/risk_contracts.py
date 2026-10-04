@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Iterable
 
 from .analysis_contracts import ArtifactNature, Provenance
+from .trade_proposal import TradeProposal
 
 
 class Completeness(str, Enum):
@@ -224,12 +225,12 @@ class RiskEvidenceRef:
 
 @dataclass(frozen=True)
 class RiskDecision:
-    """Immutable risk evaluation identity bound explicitly to a proposal.
+    """Immutable risk evaluation decision with a proposal-bound construction path.
 
-    This contract carries proposal_id, signal_id, and correlation_id, but it
-    cannot prove their equality against a concrete TradeProposal because it
-    does not receive that object. No repository producer currently evaluates
-    both objects together, so Proposal -> Risk propagation remains unimplemented.
+    The primitive dataclass constructor remains available for the existing
+    transport contract. The from_trade_proposal constructor is the
+    identity-safe path that derives proposal_id, signal_id, and correlation_id
+    directly from one concrete TradeProposal.
     """
 
     risk_decision_id: str
@@ -240,6 +241,31 @@ class RiskDecision:
     decision_timestamp: datetime
     risk_evidence: tuple[RiskEvidenceRef, ...]
     correlation_id: str
+
+    @classmethod
+    def from_trade_proposal(
+        cls,
+        *,
+        proposal: TradeProposal,
+        risk_decision_id: str,
+        outcome: RiskDecisionOutcome,
+        reason: str,
+        decision_timestamp: datetime,
+        risk_evidence: tuple[RiskEvidenceRef, ...],
+    ) -> "RiskDecision":
+        """Build a RiskDecision while deriving identity from one TradeProposal."""
+        if not isinstance(proposal, TradeProposal):
+            raise TypeError("proposal must be TradeProposal")
+        return cls(
+            risk_decision_id=risk_decision_id,
+            proposal_id=proposal.proposal_id,
+            signal_id=proposal.signal_id,
+            outcome=outcome,
+            reason=reason,
+            decision_timestamp=decision_timestamp,
+            risk_evidence=risk_evidence,
+            correlation_id=proposal.correlation_id,
+        )
 
     def __post_init__(self) -> None:
         _nonempty(self.risk_decision_id, "risk_decision_id")

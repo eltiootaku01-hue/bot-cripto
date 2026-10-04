@@ -9,6 +9,12 @@ from pathlib import Path
 import pytest
 
 from bot_obrero.analysis_contracts import ArtifactNature, Provenance
+from bot_obrero.trade_proposal import (
+    PricePolicy,
+    TradeOrderType,
+    TradeProposal,
+    TradeSide,
+)
 from bot_obrero.risk_contracts import (
     BalanceSnapshot,
     CanonicalAccountState,
@@ -91,6 +97,21 @@ def risk_limit(risk_limit_id="limit-1"):
         provenance=OBSERVED,
     )
 
+
+def make_trade_proposal() -> TradeProposal:
+    return TradeProposal(
+        signal_id="signal-1",
+        symbol="BTC/USDT",
+        side=TradeSide.BUY,
+        requested_quantity=Decimal("0.001"),
+        requested_price=None,
+        max_quote_spend=Decimal("100"),
+        price_policy=PricePolicy.MARKET_REFERENCE,
+        order_type=TradeOrderType.MARKET,
+        strategy_identity="strategy.example",
+        strategy_version="1.0.0",
+        decision_timestamp=BASE,
+    )
 
 def risk_decision(
     *,
@@ -355,6 +376,78 @@ def test_risk_decision_contract_and_immutability():
     with pytest.raises(FrozenInstanceError):
         decision.proposal_id = "proposal-2"
 
+
+def test_risk_decision_from_trade_proposal_propagates_proposal_identity():
+    proposal = make_trade_proposal()
+
+    decision = RiskDecision.from_trade_proposal(
+        proposal=proposal,
+        risk_decision_id="decision-bound-1",
+        outcome=RiskDecisionOutcome.UNKNOWN,
+        reason="Insufficient evidence",
+        decision_timestamp=BASE,
+        risk_evidence=(),
+    )
+
+    assert decision.proposal_id == proposal.proposal_id
+    assert decision.signal_id == proposal.signal_id
+    assert decision.correlation_id == proposal.correlation_id
+    assert decision.risk_decision_id != proposal.proposal_id
+    assert decision.risk_decision_id != proposal.signal_id
+    assert decision.risk_decision_id != proposal.correlation_id
+
+
+def test_risk_decision_from_same_trade_proposal_never_regenerates_correlation_id():
+    proposal = make_trade_proposal()
+
+    first = RiskDecision.from_trade_proposal(
+        proposal=proposal,
+        risk_decision_id="decision-bound-1",
+        outcome=RiskDecisionOutcome.UNKNOWN,
+        reason="first",
+        decision_timestamp=BASE,
+        risk_evidence=(),
+    )
+    second = RiskDecision.from_trade_proposal(
+        proposal=proposal,
+        risk_decision_id="decision-bound-2",
+        outcome=RiskDecisionOutcome.UNKNOWN,
+        reason="second",
+        decision_timestamp=BASE,
+        risk_evidence=(),
+    )
+
+    assert first.correlation_id == proposal.correlation_id
+    assert second.correlation_id == proposal.correlation_id
+    assert first.risk_decision_id != second.risk_decision_id
+
+
+def test_risk_decision_from_trade_proposal_preserves_frozen_source_identity():
+    proposal = make_trade_proposal()
+
+    RiskDecision.from_trade_proposal(
+        proposal=proposal,
+        risk_decision_id="decision-bound-3",
+        outcome=RiskDecisionOutcome.UNKNOWN,
+        reason="Insufficient evidence",
+        decision_timestamp=BASE,
+        risk_evidence=(),
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        proposal.correlation_id = "changed"
+
+
+def test_risk_decision_from_trade_proposal_rejects_non_proposal_source():
+    with pytest.raises(TypeError, match="TradeProposal"):
+        RiskDecision.from_trade_proposal(
+            proposal=object(),
+            risk_decision_id="decision-bound-4",
+            outcome=RiskDecisionOutcome.UNKNOWN,
+            reason="Insufficient evidence",
+            decision_timestamp=BASE,
+            risk_evidence=(),
+        )
 
 def test_risk_decision_requires_explicit_nonempty_proposal_id():
     with pytest.raises(TypeError):
