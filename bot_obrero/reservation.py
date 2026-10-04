@@ -10,14 +10,14 @@ proposal multiplicity invariant as a logical contract check for this phase.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
-from .risk_contracts import RiskDecision, RiskDecisionOutcome
+from .risk_contracts import Completeness, RiskDecision, RiskDecisionOutcome
 from .trade_proposal import TradeProposal
 
 
@@ -395,6 +395,50 @@ class Reservation:
         return updated, transition
 
 
+
+@dataclass(frozen=True)
+class ReservationReadSet:
+    """Complete logical enumeration of Reservations for one account."""
+
+    account_id: str
+    reservations: tuple[Reservation, ...]
+    read_at: datetime
+    completeness: Completeness
+
+    def __post_init__(self) -> None:
+        _nonempty(self.account_id, "account_id")
+        _aware(self.read_at, "read_at")
+        if not isinstance(self.completeness, Completeness):
+            raise ReservationContractError("completeness must be Completeness")
+        reservations = tuple(self.reservations)
+        if not all(isinstance(item, Reservation) for item in reservations):
+            raise ReservationContractError(
+                "reservations must contain only Reservation values"
+            )
+        if any(item.account_id != self.account_id for item in reservations):
+            raise ReservationContractError("INCONSISTENT READ SET")
+        reservation_ids = [item.reservation_id for item in reservations]
+        if len(reservation_ids) != len(set(reservation_ids)):
+            raise ReservationContractError(
+                "reservations must not contain duplicate reservation_id values"
+            )
+        object.__setattr__(self, "reservations", reservations)
+
+    @property
+    def reservation_count(self) -> int:
+        return len(self.reservations)
+
+    @property
+    def relevant_reservations(self) -> tuple[Reservation, ...]:
+        return tuple(
+            item for item in self.reservations if item.state in NON_TERMINAL_STATES
+        )
+
+    @property
+    def relevant_reservation_count(self) -> int:
+        return len(self.relevant_reservations)
+
+
 class SQLiteReservationStore:
     """Durable Reservation store using tables separate from the idempotency ledger."""
 
@@ -580,6 +624,33 @@ class SQLiteReservationStore:
         ).fetchall()
         return tuple(self._from_row(row) for row in rows)
 
+
+    def read_set_for_account(self, account_id: str) -> ReservationReadSet:
+        _nonempty(account_id, "account_id")
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM reservations
+            WHERE account_id=?
+            ORDER BY created_at ASC, reservation_id ASC
+            """,
+            (account_id,),
+        ).fetchall()
+
+        reservations: list[Reservation] = []
+        for row in rows:
+            reservation = self._from_row(row)
+            if reservation.account_id != account_id:
+                raise ReservationContractError("INCONSISTENT READ SET")
+            reservations.append(reservation)
+
+        return ReservationReadSet(
+            account_id=account_id,
+            reservations=tuple(reservations),
+            read_at=datetime.now(timezone.utc),
+            completeness=Completeness.COMPLETE,
+        )
+
     def transitions(self, reservation_id: str) -> tuple[ReservationTransition, ...]:
         _nonempty(reservation_id, "reservation_id")
         rows = self._connection.execute(
@@ -722,6 +793,7 @@ __all__ = [
     "Reservation",
     "ReservationConflict",
     "ReservationContractError",
+    "ReservationReadSet",
     "ReservationResourceKind",
     "ReservationState",
     "ReservationTransition",
