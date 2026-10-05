@@ -636,3 +636,30 @@ def test_existing_indicator_modules_remain_present():
     assert Path("bot_obrero/analysis_sma.py").exists()
     assert Path("bot_obrero/analysis_ema.py").exists()
     assert Path("bot_obrero/analysis_rsi.py").exists()
+
+
+def test_admission_idempotency_survives_store_restart(tmp_path):
+    path = tmp_path / "reservations.sqlite3"
+    request = make_request(amount=Decimal("25"))
+
+    store_a = SQLiteReservationStore(path)
+    boundary_a = FinancialAdmissionBoundary(store_a)
+
+    first = boundary_a.admit(request)
+
+    assert first.status is FinancialAdmissionStatus.ADMITTED
+    assert first.reservation is not None
+    persisted_reservation = first.reservation
+    store_a.close()
+
+    store_b = SQLiteReservationStore(path)
+    boundary_b = FinancialAdmissionBoundary(store_b)
+
+    try:
+        second = boundary_b.admit(request)
+
+        assert second.status is FinancialAdmissionStatus.ALREADY_ADMITTED
+        assert second.reservation == persisted_reservation
+        assert len(store_b.list_for_proposal(request.proposal.proposal_id)) == 1
+    finally:
+        store_b.close()
