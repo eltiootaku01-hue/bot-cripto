@@ -698,10 +698,7 @@ class SQLiteReservationStore:
 
             reservation_read_set = self.read_set_for_account(account_id)
 
-            from .effective_capacity import (
-                EffectiveCapacityStatus,
-                calculate_effective_capacity,
-            )
+            from .effective_capacity import calculate_effective_capacity
 
             effective_capacity = calculate_effective_capacity(
                 canonical_account_state,
@@ -713,7 +710,7 @@ class SQLiteReservationStore:
                 raise ReservationAdmissionRejected(
                     "Reservation effective-capacity inputs are not COMPLETE"
                 )
-            if effective_capacity.status is EffectiveCapacityStatus.OVERCOMMITTED:
+            if effective_capacity.status.value == "OVERCOMMITTED":
                 raise ReservationAdmissionRejected(
                     "effective capacity is already OVERCOMMITTED"
                 )
