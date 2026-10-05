@@ -2,7 +2,7 @@
 
 ## ÚLTIMA ACTUALIZACIÓN VERIFICADA
 
-Fecha de referencia: 2026-10-03
+Fecha de referencia: 2026-10-05
 
 Repository:
 
@@ -16,23 +16,13 @@ CURRENT MAIN HEAD:
 
 `VERIFY DIRECTLY FROM GITHUB`
 
-LAST VERIFIED MAIN BASE:
+LAST VERIFIED MAIN HEAD:
 
-`036ec717364ddeff3a0bb0703acf27eea968dd5a`
+`01a4c1dad479fcecba1e13587c6455b1939cd436`
 
-LAST CONTINUITY MERGE:
+### Regla de HEAD
 
-PR #29
-
-MERGE COMMIT:
-
-`050c0d260500d2ddde3810b997b75597518a4830`
-
----
-
-# CONTINUIDAD DEL HEAD
-
-El HEAD actual de `main` NO se almacena como un valor permanente en este archivo.
+El HEAD actual de `main` NO se almacena como una referencia permanente.
 
 Antes de iniciar cualquier nueva fase:
 
@@ -41,15 +31,11 @@ Antes de iniciar cualquier nueva fase:
 3. comparar contra la continuidad conocida;
 4. reconstruir evidencia si existe divergencia.
 
-GitHub gana al documento.
-
-Este archivo mantiene únicamente referencias históricas y de continuidad; no intenta autorreferenciar el commit que contiene su propia actualización.
+**GitHub y el código real son SOURCE OF TRUTH.**
 
 ---
 
-# FASE 1.45
-
-## CONTRATOS CANÓNICOS DE ESTADO FINANCIERO + RISK DECISION
+# HUESO 01 — TRADE PROPOSAL
 
 Estado:
 
@@ -57,223 +43,420 @@ Estado:
 
 PR:
 
-`#25`
+`#31`
 
-Contracts introduced:
+Merge commit:
 
-- CanonicalAccountState
-- BalanceSnapshot
-- CanonicalPosition
-- CanonicalExposure
-- RiskLimit
-- RiskLimitSet
+`d89c94e9fba3b5de1767579eba45531e37fa1cc5`
+
+Evidencia observada en `main`:
+
+- `bot_obrero/trade_proposal.py`
+- `tests/test_phase_hueso_01_trade_proposal.py`
+- `TradeProposal`
+- `build_trade_proposal`
+- `max_quote_spend`
+
+`TradeProposal` permanece separado de `Signal`, no es ejecutable y realiza validación estructural. No implementa Risk Engine ni Execution.
+
+### HUESO 02D — TradeProposal max_quote_spend
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#33`
+
+Merge commit:
+
+`71d25fe16170e6cc28cea8514e58792fd6cb261a`
+
+CI registrado antes del merge:
+
+- Workflow: `tests`
+- Run: `37147484265`
+- Commit: `f69a0e246cf1d86f65b0ce6d94e5e4e4cb89bf2b`
+- Job: `pytest`
+- Resultado: `868 passed in 4.84s`
+
+---
+
+# HUESO 02 — SECUENCIA INTEGRADA
+
+## 02-C — Spot economic instrument identity
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#32`
+
+Merge commit:
+
+`2d9886f121bf7c4a19e54abe9a5aac73573561ef`
+
+La identidad económica Spot mantiene BASE/QUOTE explícitos y provider-neutral.
+
+---
+
+## 02-E1 — ReservationReadSet
+
+Estado:
+
+**MERGED / CLOSED**
+
+El repositorio contiene la evolución persistente/read-model de Reservation asociada a esta frontera.
+
+---
+
+## 02-E1R — Repair del test heredado SQLite
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#35`
+
+Merge commit:
+
+`ec252bd1db3a33aa6a53b167842d3f884ca675f7`
+
+Alcance: test-only. Se excluye `sqlite_%` de la enumeración de tablas de aplicación.
+
+---
+
+## 02-F1 — EffectiveCapacity
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#34`
+
+Merge commit:
+
+`27136dbad1f4b12303fb7ba9bccd49241d81689a`
+
+El read model es provider-neutral, derivado y no persistente. Usa `Reservation.protected_capacity`, conserva UNKNOWN y separa completeness de OVERCOMMITTED.
+
+---
+
+## 02-G0 — Atomic admission audit/design
+
+Estado:
+
+**AUDITED / DESIGN COMPLETED**
+
+No registrar este paso como Risk Engine ni como Execution.
+
+---
+
+## 02-G1 — Atomic Reservation admission
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#36`
+
+Merge commit:
+
+`a4986ddecd4a4e32aab036d8286a243f0462ca7c`
+
+La frontera implementada es fail-closed y local sobre una conexión SQLite con `BEGIN IMMEDIATE`.
+
+Se mantienen:
+
+- comprobación atómica de capacidad;
+- persistencia de Reservation + transición inicial;
+- multiplicidad de Proposal no terminal;
+- rollback;
+- manejo fail-closed de SQLite busy/locked.
+
+---
+
+## 02-H0 — Proposal → Risk → Atomic Reservation audit
+
+Estado:
+
+**AUDITED / PARTIAL FLOW IDENTIFIED**
+
+La auditoría estableció que la cadena contractual existe parcialmente, pero no constituye todavía un Risk Engine operativo.
+
+---
+
+## 02-H1 — Financial Admission Boundary design
+
+Estado:
+
+**DESIGNED / CLOSED**
+
+El límite de admisión se mantiene separado de Risk Engine y Execution.
+
+---
+
+## 02-H2 — Financial Admission Boundary implementation
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#37`
+
+HEAD previo al merge:
+
+`2cb36a06caeda1fcde770bf56260cac2f07586aa`
+
+Merge commit / MAIN posterior:
+
+`01a4c1dad479fcecba1e13587c6455b1939cd436`
+
+Evidencia observada en `main`:
+
+- `bot_obrero/financial_admission.py`
+- `tests/test_hueso_02h2_financial_admission.py`
+- `FinancialAdmissionRequest`
+- `FinancialAdmissionBoundary`
+- `FinancialAdmissionResult`
+- delegación de admisión a `SQLiteReservationStore.admit()`
+- estados tipados de admisión
+- identity binding entre TradeProposal y RiskDecision
+- approved-only admission
+- idempotency key financiera
+
+No se introdujo Risk Engine, Strategy, Final Admission ni Execution integration.
+
+---
+
+## 02-H2R — Persistence idempotency across restart
+
+Estado:
+
+**TESTED / MERGED**
+
+Evidencia en el test actual:
+
+- la primera admisión persiste una Reservation;
+- el store se cierra;
+- se reconstruye el store desde el mismo SQLite;
+- una segunda admisión con la misma request devuelve `ALREADY_ADMITTED`;
+- la Reservation persistida es la misma;
+- no se crea una segunda Reservation para la Proposal.
+
+Commit de cierre en `main`:
+
+`01a4c1dad479fcecba1e13587c6455b1939cd436`
+
+Mensaje:
+
+`test: verify financial admission idempotency across restart`
+
+---
+
+# HUESO 02-H3 — POST-MERGE VERIFICATION
+
+Estado:
+
+**PASS / CLOSED**
+
+PR verificado:
+
+`#37`
+
+MAIN posterior:
+
+`01a4c1dad479fcecba1e13587c6455b1939cd436`
+
+### CI PR previo
+
+- Run: `37282487584`
+- Resultado: `1002 passed in 6.42s`
+
+### CI post-merge
+
+- Run: `37287615768`
+- Event: `push`
+- Branch: `main`
+- Commit: `01a4c1dad479fcecba1e13587c6455b1939cd436`
+- Job: `pytest`
+- Python: `3.12.14`
+- Resultado: `1002 passed in 5.98s`
+- Duración observada: `16 s`
+
+Este CI post-merge constituye evidencia real de la continuidad funcional del `main`.
+
+---
+
+# BUG-001
+
+Estado:
+
+**PASS — CI POST-MERGE VERIFIED**
+
+Root cause documentado:
+
+**observability / connector inspection limitation**
+
+No fue necesario modificar el workflow `tests`.
+
+Workflow real observado:
+
+```
+name: tests
+on: [push, pull_request]
+```
+
+No registrar BUG-001 como un defecto de YAML.
+
+---
+
+# E2E — ESTADO SEPARADO
+
+## SMA
+
+Estado:
+
+**UNKNOWN — POST-MERGE E2E NOT VERIFIED**
+
+El workflow real de SMA no ejecuta automáticamente sobre `push` a `main`. La evidencia post-merge de tests no equivale a una nueva ejecución E2E real de Binance sobre `main`.
+
+## Indicators
+
+Estado:
+
+**UNKNOWN — POST-MERGE E2E NOT VERIFIED**
+
+El workflow real de indicadores tampoco ejecuta automáticamente sobre `push` a `main`. La existencia del workflow no constituye por sí sola evidencia de una nueva ejecución E2E post-merge sobre `main`.
+
+Estas incertidumbres no se registran como BUG-001 y no se implementan correcciones en esta sincronización documental.
+
+---
+
+# ARQUITECTURA FINANCIERA OBSERVADA
+
+La frontera actualmente implementada es:
+
+```
+TradeProposal
+      ↓
+RiskDecision.APPROVED
+      ↓
+FinancialAdmissionBoundary
+      ↓
+SQLiteReservationStore.admit()
+      ↓
+Reservation
+```
+
+Componentes observados:
+
+- TradeProposal
 - RiskDecision
-- RiskDecisionOutcome
-- RiskEvidenceRef
-- Completeness
+- Reservation
+- ReservationReadSet
+- EffectiveCapacity
+- atomic Reservation admission
+- FinancialAdmissionRequest
+- FinancialAdmissionBoundary
+- FinancialAdmissionResult
 
-### Evidencia de FASE 1.45
+### Frontera importante
 
-Branch de implementación:
-
-`phase1.45-risk-contracts`
-
-HEAD antes del merge:
-
-`337bc8f0ffb0e802a88dca80b641a0d2123d7db8`
-
-CI verificado antes del merge:
-
-Run ID `37128838716`
-
-Job:
-
-`pytest`
-
-Resultado:
-
-`782 passed in 4.80s`
-
-Archivos funcionales introducidos:
-
-- `bot_obrero/risk_contracts.py`
-- `tests/test_phase1_45_risk_contracts.py`
-
-No se introdujo en esta fase:
-
-- Risk Engine;
-- position sizing;
-- equity;
-- agregación global de exposure;
-- Signal → RiskDecision;
-- RiskDecision → OrderIntent;
-- persistencia;
-- cambios en Execution;
-- cambios en RiskGuard.
+`FinancialAdmissionBoundary` es una barrera de admisión financiera local. No debe reinterpretarse como un `RiskEngine` completo ni como `FinalAdmission` de Execution.
 
 ---
 
-# DOCUMENTACIÓN DE CONTINUIDAD PERSISTENTE
+# COMPONENTES QUE SIGUEN SIN IMPLEMENTARSE
 
-Después de FASE 1.45 se integraron dos bloques documentales:
+No declarar como implementados:
 
-### PR #26 — continuidad operativa
-
-Estado:
-
-**MERGED / CLOSED**
-
-Merge commit:
-
-`5de3a0a1fff31c2a977a240997f9424398a35699`
-
-Documentos:
-
-- `cerebro/README.md`
-- `cerebro/PROJECT_STATE.md`
-- `obrero/README.md`
-
-Alcance:
-
-**Solo documentación. No se modificó código de producción, tests ni contratos.**
-
-### PR #27 — mapa de reparación arquitectónica
-
-Estado:
-
-**MERGED / CLOSED**
-
-Merge commit:
-
-`c325056673cb005a4f931fefd0f7a55b983cdf81`
-
-Documentos:
-
-- `problema-de-huesos/README.md`
-- `problema-de-huesos/REMEDIATION_PLAN.md`
-- `problema-de-huesos/PHASE_1_46_AUDIT.md`
-
-Alcance:
-
-**Solo documentación arquitectónica. No se modificó código de producción, tests ni contratos existentes.**
-
-Estos documentos son memoria y diseño arquitectónico persistente; no deben declararse como código funcional implementado.
-
----
-
-# FRONTERA ARQUITECTÓNICA ACTUAL
-
-La cadena funcional existente continúa:
-
-**MarketData → Analysis → Strategy → Signal**
-
-FASE 1.45 aporta contratos financieros/risk, pero no implementa el Risk Engine ni conecta todavía Signal con una evaluación financiera operativa.
-
-La auditoría persistente de la frontera Risk identifica como orden de reparación:
-
-**HUESO 00 — Risk Evaluation Boundary Design**
-
-Estado:
-
-**DESIGNED / NOT IMPLEMENTED**
-
-Esta frontera debe cerrar primero las reglas y límites de la evaluación financiera antes de avanzar a la implementación final del Risk Engine.
-
-La secuencia conceptual resultante es:
-
-**Signal → TradeProposal → Financial / Operational Context → Risk Engine → RiskDecision → Typed OrderIntent → Final Admission → Execution**
-
-El siguiente trabajo operativo, después de esta sincronización documental, es:
-
-**HUESO 01 — TradeProposal**
-
-Estado:
-
-**CONTRACT GAP — BLOCKING / NOT IMPLEMENTED**
-
-TradeProposal debe permanecer separado de Signal y no debe ser ejecutable.
-
----
-
-# ESTADO ACTUAL DE COMPONENTES FUTUROS
-
-Los siguientes componentes no deben presentarse como implementados:
-
-### Risk Engine
+### RiskEngine
 
 **NOT IMPLEMENTED**
 
-### TradeProposal
+### StrategyRuntime
 
 **NOT IMPLEMENTED**
 
-### RiskEvaluationContext
+### Sizing Engine
 
-**DESIGNED / NOT IMPLEMENTED**
+**NOT IMPLEMENTED**
 
-### ReservationState
+### FinalAdmission
 
-**DESIGNED / NOT IMPLEMENTED**
+**NOT IMPLEMENTED**
 
-### FinancialEvidence
+### Reservation → Execution runtime
 
-**DESIGNED / NOT IMPLEMENTED**
+**NOT IMPLEMENTED**
 
-### Final Admission
+### Reconciliation runtime
 
-**DESIGNED / NOT IMPLEMENTED**
+**NOT IMPLEMENTED**
 
-Estos estados describen diseño o ausencia de implementación; no constituyen evidencia de código funcional existente.
-
----
-
-# COMPONENTES QUE NO DEBEN REINTERPRETARSE AUTOMÁTICAMENTE
-
-Estos componentes existentes no deben declararse canónicos solo por conveniencia:
-
-- AccountPosition legacy;
-- OwnershipBook;
-- reconciliation.Snapshot;
-- LifecycleOrder;
-- AccountConfiguration;
-- StrategyAssumptions;
-- RiskGuard.
-
-Su significado exacto debe seguir siendo el observado en el código real.
+La ausencia de estos componentes no se considera por sí misma un bug. Son fronteras funcionales posteriores.
 
 ---
 
-# GAPS BLOQUEANTES REGISTRADOS
+# GOBIERNO DE ALCANCE
 
-La carpeta `problema-de-huesos/` mantiene como bloqueantes, entre otros:
+No introducir en esta frontera:
 
-- TradeProposal;
-- In-flight / Reserved State;
-- Strategy Read Model / sizing boundary;
+- Strategy;
+- Risk Engine final;
+- sizing;
 - Final Admission;
-- UNKNOWN / retry semantics;
-- Fill Identity;
-- External Activity.
+- OrderIntent final;
+- Execution integration;
+- Reconciliation runtime;
+- registry;
+- factory;
+- plugin system;
+- generic dispatcher.
 
-Mientras existan gaps BLOQUEANTES sin resolver:
+No generalizar los componentes existentes solo por conveniencia.
 
-**NO avanzar a la implementación final del Risk Engine ni a ejecución financiera real.**
+---
 
-La lista persistente de reparación debe leerse antes de continuar una nueva frontera funcional importante.
+# HISTORIAL PREVIO DE CONTINUIDAD
+
+La documentación persistente anterior registraba FASE 1.45 y los PR documentales #26/#27. Ese estado no debe prevalecer sobre la evidencia actual del repositorio.
+
+El punto de continuidad vigente para esta memoria es:
+
+**HUESO 02-H3 — PASS / CLOSED**
+
+`main`:
+
+**VERIFY DIRECTLY FROM GITHUB**
+
+Último HEAD observado durante esta sincronización:
+
+`01a4c1dad479fcecba1e13587c6455b1939cd436`
 
 ---
 
 # REGLA DE CONTINUIDAD
 
-Este archivo es una **memoria de estado**, no una fuente superior al repositorio.
+Este archivo es memoria documental y no sustituye al repositorio.
 
-Si GitHub muestra un estado diferente:
+Cuando exista discrepancia:
 
 **GitHub gana al documento.**
 
-Si el contenido de este archivo queda desactualizado, debe corregirse mediante evidencia del repositorio antes de continuar.
-
-Etiquetas de verdad utilizadas cuando corresponda:
+Usar etiquetas de verdad:
 
 - OBSERVED
 - TESTED
@@ -281,18 +464,41 @@ Etiquetas de verdad utilizadas cuando corresponda:
 - UNKNOWN
 - BLOCKED
 
+No inventar tests, commits, CI, merges, comportamiento ni estados arquitectónicos.
+
+Antes de iniciar cualquier nueva frontera funcional:
+
+1. verificar `main` directamente;
+2. leer este archivo;
+3. contrastar con el código real;
+4. respetar stop conditions;
+5. no asumir que diseño equivale a implementación.
+
 ---
 
 # ESTADO DE CONFIANZA
 
 - HEAD de main: **VERIFY DIRECTLY FROM GITHUB**
-- LAST VERIFIED MAIN BASE: **OBSERVED**
-- LAST CONTINUITY MERGE PR #29: **OBSERVED**
-- FASE 1.45 merged/closed: **OBSERVED**
-- 782 tests en FASE 1.45: **TESTED**
-- PR #26 merged/closed: **OBSERVED**
-- PR #27 merged/closed: **OBSERVED**
-- Documentos persistentes de continuidad presentes en main: **OBSERVED**
-- Risk Engine implementado: **NOT IMPLEMENTED**
-- HUESO 01 / TradeProposal implementado: **NOT IMPLEMENTED**
-- Próxima frontera operativa: **INFERRED / REQUIRES CEREBRO REVIEW BEFORE IMPLEMENTATION**
+- HEAD observado: **OBSERVED — `01a4c1dad479fcecba1e13587c6455b1939cd436`**
+- HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
+- 02-C: **OBSERVED — MERGED / CLOSED**
+- 02-D: **OBSERVED — MERGED / CLOSED**
+- 02-E1: **OBSERVED — MERGED / CLOSED**
+- 02-E1R: **OBSERVED — MERGED / CLOSED**
+- 02-F1: **OBSERVED — MERGED / CLOSED**
+- 02-G0: **AUDITED / DESIGN COMPLETED**
+- 02-G1: **OBSERVED — MERGED / CLOSED**
+- 02-H0: **AUDITED / PARTIAL FLOW IDENTIFIED**
+- 02-H1: **DESIGNED / CLOSED**
+- 02-H2: **OBSERVED — MERGED / CLOSED**
+- 02-H2R: **TESTED / MERGED**
+- 02-H3: **PASS / CLOSED**
+- BUG-001: **PASS — CI POST-MERGE VERIFIED**
+- SMA post-merge E2E: **UNKNOWN**
+- Indicators post-merge E2E: **UNKNOWN**
+- RiskEngine: **NOT IMPLEMENTED**
+- StrategyRuntime: **NOT IMPLEMENTED**
+- Sizing Engine: **NOT IMPLEMENTED**
+- FinalAdmission: **NOT IMPLEMENTED**
+- Reservation → Execution runtime: **NOT IMPLEMENTED**
+- Reconciliation runtime: **NOT IMPLEMENTED**
