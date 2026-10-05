@@ -736,6 +736,12 @@ class SQLiteReservationStore:
                     occurred_at=created_at,
                 )
             )
+            if not isinstance(transition_evidence, ReservationTransitionEvidence):
+                raise TypeError("evidence must be ReservationTransitionEvidence")
+            if transition_evidence.occurred_at != created_at:
+                raise ReservationContractError(
+                    "creation evidence timestamp must equal created_at"
+                )
 
             self._insert_reservation_and_transition(
                 reservation=reservation,
