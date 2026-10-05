@@ -469,7 +469,14 @@ class ReservationReadSet:
 class SQLiteReservationStore:
     """Durable Reservation store using tables separate from the idempotency ledger."""
 
-    _NON_TERMINAL_SQL = tuple(item.value for item in NON_TERMINAL_STATES)
+    _NON_TERMINAL_SQL = tuple(
+        state.value
+        for state in (
+            ReservationState.ACTIVE,
+            ReservationState.PARTIALLY_CONSUMED,
+            ReservationState.UNKNOWN,
+        )
+    )
 
     def __init__(self, path: str | Path):
         self.path = str(path)
