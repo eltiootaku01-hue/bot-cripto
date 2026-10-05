@@ -207,6 +207,19 @@ def build_admission_idempotency_key(
 ) -> str:
     """Build the stable admission identity from the complete financial context."""
 
+    if not isinstance(resource_kind, ReservationResourceKind):
+        raise FinancialAdmissionContractError(
+            "resource_kind must be ReservationResourceKind"
+        )
+    if type(approved_reserved_amount) is not Decimal:
+        raise FinancialAdmissionContractError(
+            "approved_reserved_amount must be Decimal"
+        )
+    if not approved_reserved_amount.is_finite():
+        raise FinancialAdmissionContractError(
+            "approved_reserved_amount must be finite"
+        )
+
     fields = {
         "account_id": account_id,
         "approved_reserved_amount": str(approved_reserved_amount),
