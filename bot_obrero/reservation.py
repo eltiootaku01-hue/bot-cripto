@@ -1,10 +1,8 @@
-"""Durable, provider-neutral Reservation contract for HUESO 02-D.
+"""Durable, provider-neutral Reservation contract with atomic local admission.
 
-Reservation is intentionally separate from account state, risk decisions,
-order lifecycle, execution, reconciliation, and idempotency.
-
-Concurrency-safe admission is explicitly out of scope. The store enforces the
-proposal multiplicity invariant as a logical contract check for this phase.
+Reservation remains separate from account state, risk decisions, order lifecycle,
+execution, reconciliation, and idempotency. Atomic admission serializes the
+local Reservation read/check/write boundary on one SQLite connection.
 """
 
 from __future__ import annotations
@@ -17,7 +15,12 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
-from .risk_contracts import Completeness, RiskDecision, RiskDecisionOutcome
+from .risk_contracts import (
+    CanonicalAccountState,
+    Completeness,
+    RiskDecision,
+    RiskDecisionOutcome,
+)
 from .trade_proposal import TradeProposal
 
 
@@ -27,6 +30,22 @@ class ReservationContractError(ValueError):
 
 class ReservationConflict(ReservationContractError):
     """A Proposal already has a non-terminal Reservation."""
+
+
+class ReservationAdmissionError(ReservationContractError):
+    """Base error for fail-closed atomic Reservation admission."""
+
+
+class ReservationAdmissionBusy(ReservationAdmissionError):
+    """SQLite could not acquire the admission write lock."""
+
+
+class ReservationAdmissionRejected(ReservationAdmissionError):
+    """The local admission preconditions or effective capacity rejected a request."""
+
+
+class ReservationSchemaConflict(ReservationContractError):
+    """Existing persisted data prevents the Reservation schema guard from being installed."""
 
 
 class InvalidReservationTransition(ReservationContractError):
@@ -77,6 +96,14 @@ def _decimal(value: Decimal, field_name: str) -> None:
         raise ReservationContractError(f"{field_name} must be Decimal")
     if not value.is_finite():
         raise ReservationContractError(f"{field_name} must be finite")
+
+
+def _is_sqlite_busy(exc: sqlite3.OperationalError) -> bool:
+    error_code = getattr(exc, "sqlite_errorcode", None)
+    if error_code in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+        return True
+    message = str(exc).lower()
+    return "database is locked" in message or "database is busy" in message
 
 
 @dataclass(frozen=True)
@@ -486,7 +513,40 @@ class SQLiteReservationStore:
             )
             """
         )
+        self._ensure_non_terminal_proposal_index()
         self._connection.commit()
+
+    def _ensure_non_terminal_proposal_index(self) -> None:
+        if sqlite3.sqlite_version_info < (3, 8, 0):
+            raise ReservationSchemaConflict(
+                "SQLite >= 3.8.0 is required for the non-terminal proposal partial index"
+            )
+
+        duplicate = self._connection.execute(
+            """
+            SELECT proposal_id, COUNT(*)
+            FROM reservations
+            WHERE state IN (?, ?, ?)
+            GROUP BY proposal_id
+            HAVING COUNT(*) > 1
+            LIMIT 1
+            """,
+            self._NON_TERMINAL_SQL,
+        ).fetchone()
+        if duplicate is not None:
+            raise ReservationSchemaConflict(
+                "existing non-terminal Reservation multiplicity prevents unique index creation"
+            )
+
+        state_literals = ", ".join(repr(item) for item in self._NON_TERMINAL_SQL)
+        self._connection.execute(
+            f"""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                ux_reservations_non_terminal_proposal
+            ON reservations(proposal_id)
+            WHERE state IN ({state_literals})
+            """
+        )
 
     def create(
         self,
@@ -564,6 +624,135 @@ class SQLiteReservationStore:
         except sqlite3.IntegrityError as exc:
             raise ReservationContractError("reservation_id already exists") from exc
         return reservation
+
+
+    def admit(
+        self,
+        *,
+        proposal: TradeProposal,
+        risk_decision: RiskDecision,
+        account_id: str,
+        resource_kind: ReservationResourceKind,
+        asset: str,
+        reserved_amount: Decimal,
+        canonical_account_state: CanonicalAccountState,
+        created_at: datetime,
+        reservation_id: str | None = None,
+        client_order_id: str | None = None,
+        exchange_order_id: str | None = None,
+        evidence: ReservationTransitionEvidence | None = None,
+    ) -> Reservation:
+        """Atomically validate capacity and persist a Reservation plus creation transition."""
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as exc:
+            if _is_sqlite_busy(exc):
+                raise ReservationAdmissionBusy(
+                    "SQLite admission write lock is busy"
+                ) from exc
+            raise
+
+        try:
+            if not isinstance(canonical_account_state, CanonicalAccountState):
+                raise TypeError("canonical_account_state must be CanonicalAccountState")
+            _nonempty(account_id, "account_id")
+            if not isinstance(resource_kind, ReservationResourceKind):
+                raise TypeError("resource_kind must be ReservationResourceKind")
+            _nonempty(asset, "asset")
+            _aware(created_at, "created_at")
+            _decimal(reserved_amount, "reserved_amount")
+            if reserved_amount <= 0:
+                raise ReservationAdmissionRejected(
+                    "reserved_amount must be greater than zero for admission"
+                )
+            if canonical_account_state.account_id != account_id:
+                raise ReservationAdmissionRejected(
+                    "canonical account_id must match admission account_id"
+                )
+            if canonical_account_state.completeness is not Completeness.COMPLETE:
+                raise ReservationAdmissionRejected(
+                    "CanonicalAccountState completeness must be COMPLETE"
+                )
+
+            existing = self._connection.execute(
+                """
+                SELECT reservation_id
+                FROM reservations
+                WHERE proposal_id = ?
+                  AND state IN (?, ?, ?)
+                LIMIT 1
+                """,
+                (proposal.proposal_id, *self._NON_TERMINAL_SQL),
+            ).fetchone()
+            if existing is not None:
+                raise ReservationConflict(
+                    "Proposal already has a non-terminal Reservation"
+                )
+
+            reservation_read_set = self.read_set_for_account(account_id)
+
+            from .effective_capacity import (
+                EffectiveCapacityStatus,
+                calculate_effective_capacity,
+            )
+
+            effective_capacity = calculate_effective_capacity(
+                canonical_account_state,
+                reservation_read_set,
+                resource_kind=resource_kind,
+                asset=asset,
+            )
+            if effective_capacity.completeness is not Completeness.COMPLETE:
+                raise ReservationAdmissionRejected(
+                    "Reservation effective-capacity inputs are not COMPLETE"
+                )
+            if effective_capacity.status is EffectiveCapacityStatus.OVERCOMMITTED:
+                raise ReservationAdmissionRejected(
+                    "effective capacity is already OVERCOMMITTED"
+                )
+            if reserved_amount > effective_capacity.effective_available:
+                raise ReservationAdmissionRejected(
+                    "reserved_amount exceeds effective available capacity"
+                )
+
+            reservation = Reservation.from_trade_proposal_and_risk_decision(
+                proposal=proposal,
+                risk_decision=risk_decision,
+                account_id=account_id,
+                resource_kind=resource_kind,
+                asset=asset,
+                reserved_amount=reserved_amount,
+                created_at=created_at,
+                reservation_id=reservation_id,
+                client_order_id=client_order_id,
+                exchange_order_id=exchange_order_id,
+            )
+            transition_evidence = (
+                evidence
+                if evidence is not None
+                else ReservationTransitionEvidence(
+                    kind="RESERVATION_CREATED",
+                    reference_id=proposal.proposal_id,
+                    occurred_at=created_at,
+                )
+            )
+
+            self._insert_reservation_and_transition(
+                reservation=reservation,
+                evidence=transition_evidence,
+            )
+            self._connection.commit()
+            return reservation
+        except sqlite3.OperationalError as exc:
+            self._connection.rollback()
+            if _is_sqlite_busy(exc):
+                raise ReservationAdmissionBusy(
+                    "SQLite admission write lock is busy"
+                ) from exc
+            raise
+        except Exception:
+            self._connection.rollback()
+            raise
 
     def create_from_trade_proposal_and_risk_decision(
         self,
@@ -739,6 +928,53 @@ class SQLiteReservationStore:
             self._insert_transition(reservation=updated, transition=transition)
         return updated
 
+
+    def _insert_reservation_and_transition(
+        self,
+        *,
+        reservation: Reservation,
+        evidence: ReservationTransitionEvidence,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO reservations(
+                reservation_id, account_id, resource_kind, asset,
+                reserved_amount, consumed_amount, remaining_amount,
+                state, proposal_id, risk_decision_id, correlation_id,
+                client_order_id, exchange_order_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reservation.reservation_id,
+                reservation.account_id,
+                reservation.resource_kind.value,
+                reservation.asset,
+                str(reservation.reserved_amount),
+                str(reservation.consumed_amount),
+                str(reservation.remaining_amount),
+                reservation.state.value,
+                reservation.proposal_id,
+                reservation.risk_decision_id,
+                reservation.correlation_id,
+                reservation.client_order_id,
+                reservation.exchange_order_id,
+                reservation.created_at.isoformat(),
+                reservation.updated_at.isoformat(),
+            ),
+        )
+        self._insert_transition(
+            reservation=reservation,
+            transition=ReservationTransition(
+                reservation_id=reservation.reservation_id,
+                from_state=None,
+                to_state=ReservationState.ACTIVE,
+                occurred_at=evidence.occurred_at,
+                evidence_kind=evidence.kind,
+                evidence_reference_id=evidence.reference_id,
+                consumed_delta=Decimal("0"),
+            ),
+        )
+
     def _insert_transition(
         self,
         *,
@@ -789,12 +1025,16 @@ class SQLiteReservationStore:
 
 __all__ = [
     "InvalidReservationTransition",
+    "ReservationAdmissionBusy",
+    "ReservationAdmissionError",
+    "ReservationAdmissionRejected",
     "NON_TERMINAL_STATES",
     "Reservation",
     "ReservationConflict",
     "ReservationContractError",
     "ReservationReadSet",
     "ReservationResourceKind",
+    "ReservationSchemaConflict",
     "ReservationState",
     "ReservationTransition",
     "ReservationTransitionEvidence",
