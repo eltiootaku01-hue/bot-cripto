@@ -217,6 +217,44 @@ def test_duplicate_non_terminal_data_blocks_schema_upgrade(tmp_path):
         SQLiteReservationStore(path)
 
 
+def test_admission_uses_begin_immediate_and_commits(tmp_path):
+    store = make_store(tmp_path)
+    traces = []
+    store._connection.set_trace_callback(traces.append)
+
+    admit(store, amount="10", reservation_id="trace-10")
+
+    assert traces[0].startswith("BEGIN IMMEDIATE")
+    assert "COMMIT" in traces
+    store.close()
+
+
+def test_admission_preserves_creation_evidence_timestamp_invariant(tmp_path):
+    store = make_store(tmp_path)
+    proposal = make_proposal(proposal_id="evidence-mismatch")
+    bad_evidence = ReservationTransitionEvidence(
+        kind="RESERVATION_CREATED",
+        reference_id=proposal.proposal_id,
+        occurred_at=BASE.replace(second=1),
+    )
+
+    with pytest.raises(Exception, match="created_at"):
+        store.admit(
+            proposal=proposal,
+            risk_decision=make_risk_decision(proposal),
+            account_id=ACCOUNT,
+            resource_kind=RESOURCE,
+            asset=ASSET,
+            reserved_amount=Decimal("10"),
+            canonical_account_state=make_state(),
+            created_at=BASE,
+            evidence=bad_evidence,
+        )
+
+    assert store.read_set_for_account(ACCOUNT).reservations == ()
+    store.close()
+
+
 def test_admit_is_atomic_happy_path_and_creates_transition(tmp_path):
     store = make_store(tmp_path)
 
