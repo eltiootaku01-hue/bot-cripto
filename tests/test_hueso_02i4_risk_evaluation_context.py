@@ -1054,8 +1054,25 @@ def test_provider_neutrality_and_no_io_static_guard():
     assert "binance" not in source
     assert "requests" not in source
     assert "httpx" not in source
-    assert "riskengine" not in source
-    assert "riskdecision" not in source
+
+    forbidden_symbols = {
+        "RiskEngine",
+        "RiskDecision",
+        "RiskAuthorization",
+        "FinancialAdmissionBoundary",
+        "ExecutionBoundary",
+    }
+    observed_names = {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name)
+    }
+    observed_names.update(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+    )
+    assert not forbidden_symbols.intersection(observed_names)
 
 
 def test_static_identity_namespace_and_hash_shape():
