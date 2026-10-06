@@ -406,6 +406,34 @@ def test_provider_access_is_absent() -> None:
     assert datetime_now_calls == []
 
 
+def test_result_rejects_inconsistent_sizing_metadata_or_quantity() -> None:
+    provenance = make_signal().provenance
+    common = {
+        "sizing_result_id": "sizing-result-1",
+        "signal_id": "signal-1",
+        "symbol": "BTC/USDT",
+        "direction": "LONG",
+        "requested_quantity": Decimal("1"),
+        "sizing_type": SIZING_TYPE,
+        "sizing_identity": SIZING_IDENTITY,
+        "sizing_version": SIZING_VERSION,
+        "effective_configuration": {},
+        "effective_parameters": {"quantity": Decimal("2")},
+        "decision_timestamp": DECISION,
+        "signal_provenance": provenance,
+    }
+
+    with pytest.raises(SizingError, match="requested_quantity"):
+        SizingResult(**common)
+
+    mismatched_identity = dict(common)
+    mismatched_identity["requested_quantity"] = Decimal("2")
+    mismatched_identity["sizing_identity"] = "sizing.other"
+
+    with pytest.raises(SizingError, match="sizing_identity"):
+        SizingResult(**mismatched_identity)
+
+
 def test_result_rejects_invalid_timestamp_and_quantity() -> None:
     provenance = make_signal().provenance
 
