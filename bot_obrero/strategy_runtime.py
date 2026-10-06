@@ -181,10 +181,16 @@ class StrategyRuntime:
                 status=payload["hypothesis_status"],
             )
 
+            signal_validity = (
+                SignalValidity.EXPIRED
+                if payload["expires_at"] is not None and now >= payload["expires_at"]
+                else SignalValidity.VALID
+            )
+
             signal = build_signal(
                 hypothesis,
                 generated_at=now,
-                validity=SignalValidity.VALID,
+                validity=signal_validity,
                 provenance=provenance,
                 evidence=payload["signal_evidence"],
             )
