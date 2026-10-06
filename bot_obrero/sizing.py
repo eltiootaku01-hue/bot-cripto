@@ -201,26 +201,54 @@ class SizingResult:
 
         if not isinstance(self.signal_provenance, Provenance):
             raise SizingError("signal_provenance must be Provenance")
+        if self.sizing_type != SIZING_TYPE:
+            raise SizingError(
+                f"sizing_type must be exactly {SIZING_TYPE!r}"
+            )
+        if self.sizing_identity != SIZING_IDENTITY:
+            raise SizingError(
+                f"sizing_identity must be exactly {SIZING_IDENTITY!r}"
+            )
+        if self.sizing_version != SIZING_VERSION:
+            raise SizingError(
+                f"sizing_version must be exactly {SIZING_VERSION!r}"
+            )
         if not isinstance(self.effective_configuration, Mapping):
             raise SizingError("effective_configuration must be a mapping")
         if not isinstance(self.effective_parameters, Mapping):
             raise SizingError("effective_parameters must be a mapping")
 
+        frozen_configuration = _freeze_mapping(
+            self.effective_configuration,
+            "effective_configuration",
+        )
+        frozen_parameters = _freeze_mapping(
+            self.effective_parameters,
+            "effective_parameters",
+        )
+        if set(frozen_parameters) != {_QUANTITY_PARAMETER}:
+            raise SizingError(
+                "effective_parameters must contain exactly 'quantity'"
+            )
+
+        parameter_quantity = _require_positive_decimal(
+            frozen_parameters[_QUANTITY_PARAMETER],
+            "effective_parameters['quantity']",
+        )
+        if parameter_quantity != self.requested_quantity:
+            raise SizingError(
+                "requested_quantity must match effective_parameters['quantity']"
+            )
+
         object.__setattr__(
             self,
             "effective_configuration",
-            _freeze_mapping(
-                self.effective_configuration,
-                "effective_configuration",
-            ),
+            frozen_configuration,
         )
         object.__setattr__(
             self,
             "effective_parameters",
-            _freeze_mapping(
-                self.effective_parameters,
-                "effective_parameters",
-            ),
+            frozen_parameters,
         )
 
 
