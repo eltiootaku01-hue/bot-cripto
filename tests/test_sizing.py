@@ -472,15 +472,27 @@ def test_module_is_provider_neutral_and_minimal() -> None:
         filename="bot_obrero/sizing.py",
     )
 
-    names = {
-        node.id
+    class_names = {
+        node.name
         for node in ast.walk(tree)
-        if isinstance(node, ast.Name)
+        if isinstance(node, ast.ClassDef)
+    }
+    imported_names = {
+        alias.asname or alias.name.split(".")[-1]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imported_from_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
     }
 
-    assert "FixedQuantitySizer" in names
-    assert "Signal" in names
-    assert "SizingCalculationConfig" in names
-    assert "RiskDecision" not in names
-    assert "Reservation" not in names
-    assert "ExecutionResult" not in names
+    assert "FixedQuantitySizer" in class_names
+    assert "Signal" in imported_from_names
+    assert "SizingCalculationConfig" in class_names
+    assert "RiskDecision" not in class_names | imported_names | imported_from_names
+    assert "Reservation" not in class_names | imported_names | imported_from_names
+    assert "ExecutionResult" not in class_names | imported_names | imported_from_names
