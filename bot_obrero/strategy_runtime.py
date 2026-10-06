@@ -175,7 +175,7 @@ class StrategyRuntime:
                 expected_direction=payload["expected_direction"],
                 expected_horizon=payload["expected_horizon"],
                 invalidation_conditions=payload["invalidation_conditions"],
-                created_at=now,
+                created_at=snapshot.decision_timestamp,
                 provenance=provenance,
                 expires_at=payload["expires_at"],
                 status=payload["hypothesis_status"],
