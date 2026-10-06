@@ -548,3 +548,38 @@ def test_successful_runtime_has_no_financial_or_execution_artifacts():
     assert not hasattr(result, "trade_proposal")
     assert not hasattr(result, "order_intent")
     assert not hasattr(result, "execution_result")
+
+
+@pytest.mark.parametrize("clock_offset", [timedelta(0), timedelta(seconds=1), timedelta(days=1)])
+def test_runtime_marks_expired_signal_when_clock_reaches_or_passes_expiry(clock_offset):
+    snapshot = make_snapshot()
+    expired_at_generation = EXPIRY + clock_offset
+
+    result = StrategyRuntime(clock=lambda: expired_at_generation).execute(
+        snapshot,
+        make_config(),
+        ValidStrategy(),
+    )
+
+    assert result.state is StrategyRuntimeState.COMPLETED
+    assert result.signal is not None
+    assert result.signal.generated_at == expired_at_generation
+    assert result.signal.expires_at == EXPIRY
+    assert result.signal.validity is SignalValidity.EXPIRED
+    assert result.signal.is_valid_at(expired_at_generation) is False
+
+
+def test_runtime_never_returns_completed_valid_signal_after_expiry():
+    snapshot = make_snapshot()
+    expired_runtime = StrategyRuntime(clock=lambda: EXPIRY + timedelta(seconds=5))
+
+    result = expired_runtime.execute(
+        snapshot,
+        make_config(),
+        ValidStrategy(),
+    )
+
+    assert result.state is StrategyRuntimeState.COMPLETED
+    assert result.signal is not None
+    assert result.signal.validity is not SignalValidity.VALID
+    assert result.signal.is_valid_at(EXPIRY + timedelta(seconds=5)) is False
