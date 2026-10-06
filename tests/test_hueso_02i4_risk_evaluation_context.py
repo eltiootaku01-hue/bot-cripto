@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -764,10 +765,13 @@ def test_optional_inputs_are_preserved_without_new_contracts():
     assert context.is_complete
     assert context.canonical_position is not None
     assert context.canonical_exposure is not None
-    assert context.reservation_read_set is read_set
+    assert context.reservation_read_set == read_set
+    assert context.reservation_read_set is not read_set
     assert context.effective_capacity is not None
-    assert context.market_data is market_data
-    assert context.market_observation is market_observation
+    assert context.market_data == market_data
+    assert context.market_data is not market_data
+    assert context.market_observation == market_observation
+    assert context.market_observation is not market_observation
     assert context.analysis_result is not None
     assert context.signal is not None
 
@@ -885,6 +889,248 @@ def test_effective_capacity_and_optional_snapshots_retain_fail_closed_completene
     )
     assert "POSITION_INCOMPLETE" in context.incompleteness_reasons
 
+
+
+def test_market_data_unknown_availability_is_incomplete_even_with_valid_binding():
+    data = replace(make_market_data(), available_at=None)
+    bindings = (
+        AvailabilityBinding(
+            AvailabilitySubjectKind.ACCOUNT_STATE,
+            "account-state-1",
+            BASE,
+            "test",
+            "account-evidence",
+        ),
+        AvailabilityBinding(
+            AvailabilitySubjectKind.RISK_LIMIT_SET,
+            "risk-limit-set-1",
+            BASE,
+            "test",
+            "limits-evidence",
+        ),
+        AvailabilityBinding(
+            AvailabilitySubjectKind.MARKET_DATA,
+            data.market_data_id,
+            BASE,
+            "external-binding",
+            "market-data-evidence",
+        ),
+    )
+
+    context = make_context(
+        market_data=data,
+        bindings=bindings,
+        resolution=make_resolution(),
+    )
+
+    assert context.completeness is RiskEvaluationContextStatus.INCOMPLETE
+    assert "MARKET_DATA_AVAILABILITY_UNKNOWN" in context.incompleteness_reasons
+    with pytest.raises(RiskEvaluationContextError, match="incomplete"):
+        context.require_complete()
+
+
+def test_market_data_unknown_availability_is_incomplete_without_binding():
+    data = replace(make_market_data(), available_at=None)
+    context = make_context(
+        market_data=data,
+        bindings=(
+            AvailabilityBinding(
+                AvailabilitySubjectKind.ACCOUNT_STATE,
+                "account-state-1",
+                BASE,
+                "test",
+                "account-evidence",
+            ),
+            AvailabilityBinding(
+                AvailabilitySubjectKind.RISK_LIMIT_SET,
+                "risk-limit-set-1",
+                BASE,
+                "test",
+                "limits-evidence",
+            ),
+        ),
+        resolution=make_resolution(),
+    )
+
+    assert context.completeness is RiskEvaluationContextStatus.INCOMPLETE
+    assert "MARKET_DATA_AVAILABILITY_UNKNOWN" in context.incompleteness_reasons
+    assert "MARKET_DATA_AVAILABILITY_BINDING_MISSING" in context.incompleteness_reasons
+
+
+def test_market_data_matching_explicit_availability_binding_remains_complete():
+    data = make_market_data()
+    context = make_context(
+        market_data=data,
+        bindings=(
+            AvailabilityBinding(
+                AvailabilitySubjectKind.ACCOUNT_STATE,
+                "account-state-1",
+                BASE,
+                "test",
+                "account-evidence",
+            ),
+            AvailabilityBinding(
+                AvailabilitySubjectKind.RISK_LIMIT_SET,
+                "risk-limit-set-1",
+                BASE,
+                "test",
+                "limits-evidence",
+            ),
+            AvailabilityBinding(
+                AvailabilitySubjectKind.MARKET_DATA,
+                data.market_data_id,
+                BASE,
+                "test",
+                "market-data-evidence",
+            ),
+        ),
+        resolution=make_resolution(),
+    )
+
+    assert context.is_complete
+
+
+def test_market_data_availability_binding_mismatch_still_fails_closed():
+    data = make_market_data()
+    with pytest.raises(RiskEvaluationContextError, match="MARKET_DATA availability"):
+        make_context(
+            market_data=data,
+            bindings=(
+                AvailabilityBinding(
+                    AvailabilitySubjectKind.ACCOUNT_STATE,
+                    "account-state-1",
+                    BASE,
+                    "test",
+                    "account-evidence",
+                ),
+                AvailabilityBinding(
+                    AvailabilitySubjectKind.RISK_LIMIT_SET,
+                    "risk-limit-set-1",
+                    BASE,
+                    "test",
+                    "limits-evidence",
+                ),
+                AvailabilityBinding(
+                    AvailabilitySubjectKind.MARKET_DATA,
+                    data.market_data_id,
+                    EVALUATION,
+                    "test",
+                    "market-data-evidence",
+                ),
+            ),
+            resolution=make_resolution(),
+        )
+
+
+def test_provenance_metadata_is_defensively_snapshotted():
+    source_provenance = Provenance(
+        "mutable-source",
+        ArtifactNature.OBSERVED,
+        metadata={"nested": {"value": 1}},
+    )
+    account = replace(make_account(), provenance=source_provenance)
+    context = make_context(account=account, resolution=make_resolution())
+    original_id = context.evaluation_context_id
+
+    source_provenance.metadata["nested"]["value"] = 2
+
+    assert context.evaluation_context_id == original_id
+    assert context.canonical_account_state.provenance.metadata["nested"]["value"] == 1
+
+
+def test_market_observation_values_are_defensively_snapshotted():
+    observation = replace(
+        make_observation(),
+        values={"payload": {"close": Decimal("105")}},
+    )
+    context = make_context(
+        market_observation=observation,
+        resolution=make_resolution(),
+    )
+    original_id = context.evaluation_context_id
+
+    observation.values["payload"]["close"] = Decimal("999")
+
+    assert context.evaluation_context_id == original_id
+    assert context.market_observation.values["payload"]["close"] == Decimal("105")
+
+
+def test_signal_evidence_is_defensively_snapshotted():
+    signal = replace(
+        make_signal(),
+        evidence={"nested": {"values": [1, 2, 3]}},
+    )
+    context = make_context(
+        signal=signal,
+        resolution=make_resolution(),
+    )
+    original_id = context.evaluation_context_id
+
+    signal.evidence["nested"]["values"].append(4)
+
+    assert context.evaluation_context_id == original_id
+    assert context.signal.evidence["nested"]["values"] == (1, 2, 3)
+
+
+def test_nested_lists_are_frozen_inside_the_context():
+    signal = replace(
+        make_signal(),
+        evidence={"series": [{"value": 1}, {"value": 2}]},
+    )
+    context = make_context(
+        signal=signal,
+        resolution=make_resolution(),
+    )
+
+    assert isinstance(context.signal.evidence, MappingProxyType)
+    assert context.signal.evidence["series"] == (
+        {"value": 1},
+        {"value": 2},
+    )
+    with pytest.raises(TypeError):
+        context.signal.evidence["series"] = ()
+    with pytest.raises(AttributeError):
+        context.signal.evidence["series"].append({"value": 3})
+    with pytest.raises(TypeError):
+        context.signal.evidence["series"][0]["value"] = 99
+
+
+def test_context_snapshot_isolated_from_source_and_context_mutation():
+    observation = make_observation()
+    source_values = observation.values
+    context = make_context(
+        market_observation=observation,
+        resolution=make_resolution(),
+    )
+
+    with pytest.raises(TypeError):
+        context.market_observation.values["close"] = Decimal("999")
+
+    assert source_values["close"] == Decimal("105")
+    assert context.market_observation.values["close"] == Decimal("105")
+
+
+def test_identity_tracks_snapshot_content_across_external_mutation():
+    observation = replace(
+        make_observation(),
+        values={"payload": {"close": Decimal("105")}},
+    )
+    context_a = make_context(
+        market_observation=observation,
+        resolution=make_resolution(),
+    )
+    identity_a = context_a.evaluation_context_id
+
+    observation.values["payload"]["close"] = Decimal("106")
+    context_b = make_context(
+        market_observation=observation,
+        resolution=make_resolution(),
+    )
+
+    assert context_a.evaluation_context_id == identity_a
+    assert context_a.market_observation.values["payload"]["close"] == Decimal("105")
+    assert context_b.market_observation.values["payload"]["close"] == Decimal("106")
+    assert context_b.evaluation_context_id != identity_a
 
 def test_market_data_binding_must_agree_with_snapshot_availability():
     data = make_market_data()

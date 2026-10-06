@@ -10,12 +10,14 @@ risk-evaluation-context-v1:<sha256>.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from copy import copy
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 import hashlib
 import json
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from .analysis_contracts import AnalysisResult, MarketObservation, Provenance, Signal
@@ -324,6 +326,34 @@ def _sha256(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _snapshot(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {
+                _snapshot(key): _snapshot(item)
+                for key, item in value.items()
+            }
+        )
+    if isinstance(value, list):
+        return tuple(_snapshot(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_snapshot(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_snapshot(item) for item in value)
+    if isinstance(value, frozenset):
+        return frozenset(_snapshot(item) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        snapshot = copy(value)
+        for descriptor in fields(value):
+            object.__setattr__(
+                snapshot,
+                descriptor.name,
+                _snapshot(getattr(value, descriptor.name)),
+            )
+        return snapshot
+    return value
+
+
 @dataclass(frozen=True)
 class RiskEvaluationContext:
     """Immutable logical snapshot for a future risk evaluation."""
@@ -348,6 +378,30 @@ class RiskEvaluationContext:
     incompleteness_reasons: tuple[str, ...] = field(init=False)
 
     def __post_init__(self) -> None:
+        snapshot_fields = (
+            "trade_proposal",
+            "instrument",
+            "canonical_account_state",
+            "risk_limit_set",
+            "evaluation_timestamp",
+            "availability_bindings",
+            "risk_limit_resolution",
+            "canonical_position",
+            "canonical_exposure",
+            "reservation_read_set",
+            "effective_capacity",
+            "market_data",
+            "market_observation",
+            "analysis_result",
+            "signal",
+        )
+        for field_name in snapshot_fields:
+            object.__setattr__(
+                self,
+                field_name,
+                _snapshot(getattr(self, field_name)),
+            )
+
         _require_type(self.trade_proposal, TradeProposal, "trade_proposal")
         _require_type(self.instrument, InstrumentIdentity, "instrument")
         _require_type(self.canonical_account_state, CanonicalAccountState, "canonical_account_state")
@@ -547,6 +601,8 @@ class RiskEvaluationContext:
         if self.effective_capacity is not None and self.effective_capacity.completeness is not Completeness.COMPLETE:
             reasons.append("EFFECTIVE_CAPACITY_INCOMPLETE")
         if self.market_data is not None:
+            if self.market_data.available_at is None:
+                reasons.append("MARKET_DATA_AVAILABILITY_UNKNOWN")
             if self.market_data.quality.value != "VALID":
                 reasons.append("MARKET_DATA_QUALITY_NOT_VALID")
             if self.market_data.completeness.value != "COMPLETE":
