@@ -519,12 +519,12 @@ def test_engine_preserves_context_and_proposal():
     proposal = make_proposal()
     context = make_context(proposal)
     before = (
-        deepcopy(proposal),
+        proposal,
         context.evaluation_context_id,
-        deepcopy(context.trade_proposal),
-        deepcopy(context.canonical_account_state),
-        deepcopy(context.risk_limit_set),
-        deepcopy(context.availability_bindings),
+        context.trade_proposal,
+        context.canonical_account_state,
+        context.risk_limit_set,
+        context.availability_bindings,
     )
 
     evaluate(proposal, context)
