@@ -74,7 +74,7 @@ def test_scope_and_metric_are_exact_no_fallback():
     result = resolver.resolve(
         limits,
         scope="ACCOUNT",
-        metric="MAX_DRAWDOWN",
+        metric="NON_EXISTENT_METRIC",
         evaluation_timestamp=BASE,
     )
     assert result.status is RiskLimitResolutionStatus.NO_APPLICABLE_LIMIT
