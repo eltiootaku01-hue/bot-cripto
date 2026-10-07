@@ -2,7 +2,7 @@
 
 ## ÚLTIMA ACTUALIZACIÓN VERIFICADA
 
-Fecha de referencia: 2026-10-05
+Fecha de referencia: 2026-10-06
 
 Repository:
 
@@ -18,7 +18,7 @@ CURRENT MAIN HEAD:
 
 LAST VERIFIED MAIN HEAD:
 
-`01a4c1dad479fcecba1e13587c6455b1939cd436`
+`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
 
 ### Regla de HEAD
 
@@ -299,6 +299,79 @@ Este CI post-merge constituye evidencia real de la continuidad funcional del `ma
 
 ---
 
+# HUESO 03 — STRATEGY RUNTIME V1.0
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#41`
+
+Título:
+
+`HUESO 03 — Strategy Runtime v1.0`
+
+Merge commit:
+
+`d1287bfa03bdfa71020f41d642242da491b952da`
+
+Archivos principales:
+
+- `bot_obrero/strategy_runtime.py`
+- `tests/test_strategy_runtime.py`
+
+Estado arquitectónico:
+
+**StrategyRuntime = IMPLEMENTED**
+
+La implementación observada mantiene la frontera:
+
+`Strategy.compute()` → `StrategicArtifact` → `Hypothesis` → `Signal`
+
+y no introduce sizing, Risk, TradeProposal, Execution, providers, persistence, registry ni scheduler.
+
+---
+
+# HUESO 04 — SIZING / PORTFOLIO CONSTRUCTION V1.0
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#42`
+
+Título:
+
+`HUESO 04 — Sizing / Portfolio Construction v1.0`
+
+Merge commit:
+
+`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
+
+Archivos:
+
+- `bot_obrero/sizing.py`
+- `tests/test_sizing.py`
+
+Modelo implementado:
+
+`Signal` → `FixedQuantitySizer` → `SizingResult`
+
+Alcance real observado:
+
+- `fixed_quantity`
+- identity: `sizing.fixed_quantity`
+- version: `1.0.0`
+- requested quantity como `Decimal` en `effective_parameters["quantity"]`
+
+No reinterpretar este componente como portfolio optimization, Kelly, VaR, volatility targeting u otros modelos no presentes en el repositorio.
+
+---
+
 # BUG-001
 
 Estado:
@@ -324,6 +397,52 @@ No registrar BUG-001 como un defecto de YAML.
 
 # E2E — ESTADO SEPARADO
 
+## FASE 1.34 — INDICATORS REAL E2E
+
+Estado:
+
+**HISTORICALLY VERIFIED — E2E SUCCESS**
+
+PR:
+
+`#19`
+
+Título:
+
+`FASE 1.34 — Validate real Binance EMA and RSI E2E`
+
+Merged:
+
+**YES**
+
+Merge commit:
+
+`868dd1c3d34fd0ee019754f9ea391d074420f92f`
+
+Workflow:
+
+`phase1.34-indicators-real-e2e`
+
+Run histórico:
+
+`37057797709`
+
+Evidencia observada en el job `indicators-real-e2e`:
+
+- conclusión: `success`
+- Binance Spot real
+- `BTCUSDT` / `BTC/USDT`
+- 14 velas reales de 1m
+- EMA expected == result
+- RSI expected == result
+- Decimal preservado
+- look-ahead EMA/RSI: PASS
+- determinism EMA/RSI: PASS
+- no mutation / indicator independence: PASS
+- resultado: `REAL E2E PASS`
+
+Esta es evidencia histórica de FASE 1.34. No afirmar por ella una nueva ejecución E2E sobre el `main` actual.
+
 ## SMA
 
 Estado:
@@ -341,6 +460,40 @@ Estado:
 El workflow real de indicadores tampoco ejecuta automáticamente sobre `push` a `main`. La existencia del workflow no constituye por sí sola evidencia de una nueva ejecución E2E post-merge sobre `main`.
 
 Estas incertidumbres no se registran como BUG-001 y no se implementan correcciones en esta sincronización documental.
+
+---
+
+# CI ACTUAL
+
+## Main
+
+HEAD verificado:
+
+`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
+
+Workflow:
+
+`tests`
+
+Run:
+
+`37550121086`
+
+Job:
+
+`pytest`
+
+Commit:
+
+`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
+
+Conclusión:
+
+**success**
+
+Resultado visible en logs:
+
+`1151 passed in 7.07s`
 
 ---
 
@@ -386,11 +539,7 @@ No declarar como implementados:
 
 **NOT IMPLEMENTED**
 
-### StrategyRuntime
-
-**NOT IMPLEMENTED**
-
-### Sizing Engine
+### RiskAuthorization
 
 **NOT IMPLEMENTED**
 
@@ -406,17 +555,17 @@ No declarar como implementados:
 
 **NOT IMPLEMENTED**
 
+StrategyRuntime y Sizing Engine ya están implementados y cerrados en HUESO 03 y HUESO 04, respectivamente.
+
 La ausencia de estos componentes no se considera por sí misma un bug. Son fronteras funcionales posteriores.
 
 ---
 
 # GOBIERNO DE ALCANCE
 
-No introducir en esta frontera:
+No introducir en la frontera actual:
 
-- Strategy;
 - Risk Engine final;
-- sizing;
 - Final Admission;
 - OrderIntent final;
 - Execution integration;
@@ -426,17 +575,19 @@ No introducir en esta frontera:
 - plugin system;
 - generic dispatcher.
 
+StrategyRuntime y Sizing Engine son fronteras ya implementadas y no deben reinterpretarse ni generalizarse por conveniencia.
+
 No generalizar los componentes existentes solo por conveniencia.
 
 ---
 
 # HISTORIAL PREVIO DE CONTINUIDAD
 
-La documentación persistente anterior registraba FASE 1.45 y los PR documentales #26/#27. Ese estado no debe prevalecer sobre la evidencia actual del repositorio.
+La documentación persistente anterior registraba estados históricos que ya no corresponden al repositorio actual. Ese historial no debe prevalecer sobre la evidencia actual de GitHub.
 
 El punto de continuidad vigente para esta memoria es:
 
-**HUESO 02-H3 — PASS / CLOSED**
+**HUESO 04 — MERGED / CLOSED**
 
 `main`:
 
@@ -444,7 +595,7 @@ El punto de continuidad vigente para esta memoria es:
 
 Último HEAD observado durante esta sincronización:
 
-`01a4c1dad479fcecba1e13587c6455b1939cd436`
+`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
 
 ---
 
@@ -479,7 +630,7 @@ Antes de iniciar cualquier nueva frontera funcional:
 # ESTADO DE CONFIANZA
 
 - HEAD de main: **VERIFY DIRECTLY FROM GITHUB**
-- HEAD observado: **OBSERVED — `01a4c1dad479fcecba1e13587c6455b1939cd436`**
+- HEAD observado: **OBSERVED — `60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
 - 02-D: **OBSERVED — MERGED / CLOSED**
@@ -494,11 +645,15 @@ Antes de iniciar cualquier nueva frontera funcional:
 - 02-H2R: **TESTED / MERGED**
 - 02-H3: **PASS / CLOSED**
 - BUG-001: **PASS — CI POST-MERGE VERIFIED**
+- HUESO 03: **OBSERVED — MERGED / CLOSED**
+- StrategyRuntime: **OBSERVED — IMPLEMENTED**
+- HUESO 04: **OBSERVED — MERGED / CLOSED**
+- Sizing Engine: **OBSERVED — IMPLEMENTED**
+- FASE 1.34: **HISTORICALLY VERIFIED — E2E SUCCESS**
 - SMA post-merge E2E: **UNKNOWN**
-- Indicators post-merge E2E: **UNKNOWN**
+- Indicators post-merge E2E: **HISTORICALLY VERIFIED — CURRENT-MAIN POST-MERGE E2E UNKNOWN**
 - RiskEngine: **NOT IMPLEMENTED**
-- StrategyRuntime: **NOT IMPLEMENTED**
-- Sizing Engine: **NOT IMPLEMENTED**
+- RiskAuthorization: **NOT IMPLEMENTED**
 - FinalAdmission: **NOT IMPLEMENTED**
 - Reservation → Execution runtime: **NOT IMPLEMENTED**
 - Reconciliation runtime: **NOT IMPLEMENTED**
