@@ -14,11 +14,11 @@ Branch principal:
 
 CURRENT MAIN HEAD:
 
-`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
+`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
 
 LAST VERIFIED MAIN HEAD:
 
-`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
+`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
 
 ### Estado de continuidad
 
@@ -513,6 +513,11 @@ Evidencia observada en el job `indicators-real-e2e`:
 - no mutation / indicator independence: PASS
 - resultado: `REAL E2E PASS`
 
+Árbol actual observado en `main`:
+
+- `scripts/phase1_34_indicators_real_e2e.py`
+- `.github/workflows/phase1_34_indicators_real_e2e.yml`
+
 Esta es evidencia histórica de FASE 1.34. No afirmar por ella una nueva ejecución E2E sobre el `main` actual.
 
 ## SMA
@@ -541,19 +546,19 @@ Estas incertidumbres no se registran como BUG-001 y no se implementan correccion
 
 HEAD verificado:
 
-`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
+`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
 
 Workflow:
 
 `tests`
 
-Run actual post-PR #47:
+Run actual asociado a PR #48:
 
-`37815328710`
+`37831334656`
 
 Commit:
 
-`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
+`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
 
 Job:
 
@@ -701,7 +706,7 @@ El punto de continuidad vigente para esta memoria es:
 
 Último HEAD observado durante esta sincronización:
 
-`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
+`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
 
 ---
 
@@ -735,9 +740,9 @@ Antes de iniciar cualquier nueva frontera funcional:
 
 # ESTADO DE CONFIANZA
 
-- HEAD de main: **OBSERVED — `b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`**
+- HEAD de main: **OBSERVED — `90dce1d5ecc81b86d2085db6918bcb7ef771e050`**
 - Continuidad: **RESOLVED**
-- HEAD observado: **OBSERVED — `b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`**
+- HEAD observado: **OBSERVED — `90dce1d5ecc81b86d2085db6918bcb7ef771e050`**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
 - 02-D: **OBSERVED — MERGED / CLOSED**
