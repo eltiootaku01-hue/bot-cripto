@@ -14,11 +14,11 @@ Branch principal:
 
 CURRENT MAIN HEAD:
 
-`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
 
 LAST VERIFIED MAIN HEAD:
 
-`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
 
 ### Estado de continuidad
 
@@ -541,29 +541,33 @@ Estas incertidumbres no se registran como BUG-001 y no se implementan correccion
 
 HEAD verificado:
 
-`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
 
 Workflow:
 
 `tests`
 
-Run actual post-HUESO 05-B:
+Run actual post-PR #47:
 
-**NOT VERIFIED IN THIS DOCUMENTATION SYNC**
+`37815328710`
 
-Commit objetivo:
+Commit:
 
-`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
 
-Último CI de `main` documentado antes de HUESO 05-B:
+Job:
 
-- Run: `37550121086`
-- Commit: `60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
-- Job: `pytest`
-- Conclusión: **success**
-- Resultado: `1151 passed in 7.07s`
+`pytest`
 
-No extrapolar ese resultado al HEAD actual.
+Conclusión:
+
+**success**
+
+Resultado exacto de tests:
+
+**UNKNOWN**
+
+No extrapolar un conteo de tests desde otros CI.
 
 ---
 
@@ -697,7 +701,7 @@ El punto de continuidad vigente para esta memoria es:
 
 Último HEAD observado durante esta sincronización:
 
-`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+`b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`
 
 ---
 
@@ -731,9 +735,9 @@ Antes de iniciar cualquier nueva frontera funcional:
 
 # ESTADO DE CONFIANZA
 
-- HEAD de main: **OBSERVED — `72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`**
+- HEAD de main: **OBSERVED — `b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`**
 - Continuidad: **RESOLVED**
-- HEAD observado: **OBSERVED — `72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`**
+- HEAD observado: **OBSERVED — `b1a85ae5a0a873701c0c4ff195ce2fdc9c9c5ad4`**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
 - 02-D: **OBSERVED — MERGED / CLOSED**
