@@ -198,7 +198,7 @@ def test_approved_decision_produces_authorized_artifact():
     assert authorization.policy_id == policy.policy_id
     assert authorization.policy_version == policy.policy_version
     assert authorization.decision_timestamp == proposal.decision_timestamp
-    assert authorization.risk_evidence is decision.risk_evidence
+    assert authorization.risk_evidence == decision.risk_evidence
     assert result.reason == "RISK_AUTHORIZATION_CREATED"
 
 
@@ -366,13 +366,39 @@ def test_empty_evidence_is_fail_closed():
     assert result.reason == "RISK_EVIDENCE_EMPTY"
 
 
-def test_risk_evidence_is_preserved_without_reconstruction():
+def test_risk_evidence_is_preserved_by_value():
     proposal, context, policy, decision = approved_bundle()
     result = authorize((proposal, context, policy, decision))
 
     assert result.authorization is not None
     assert result.authorization.risk_evidence == decision.risk_evidence
-    assert result.authorization.risk_evidence is decision.risk_evidence
+
+
+def test_equivalent_risk_evidence_tuple_is_authorized_by_structural_equality():
+    proposal, context, policy, decision = approved_bundle()
+
+    equivalent_evidence = tuple(list(decision.risk_evidence))
+    assert equivalent_evidence == decision.risk_evidence
+    assert equivalent_evidence is not decision.risk_evidence
+
+    rebuilt_decision = replace(
+        decision,
+        risk_evidence=equivalent_evidence,
+    )
+    assert rebuilt_decision.risk_evidence == decision.risk_evidence
+    assert rebuilt_decision.risk_evidence is not decision.risk_evidence
+
+    result = authorize_risk_decision(
+        proposal=proposal,
+        risk_decision=rebuilt_decision,
+        context=context,
+        policy=policy,
+    )
+
+    assert result.status is RiskAuthorizationStatus.AUTHORIZED
+    assert result.authorization is not None
+    assert result.authorization.risk_evidence == decision.risk_evidence
+    assert result.authorization.risk_evidence is not decision.risk_evidence
 
 
 def test_authorization_and_inputs_are_immutable_and_not_mutated():
