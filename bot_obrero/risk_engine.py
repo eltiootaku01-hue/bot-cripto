@@ -316,6 +316,8 @@ class RiskEngine:
 
         return self._decision(
             proposal=proposal,
+            context=context,
+            policy=policy,
             outcome=RiskDecisionOutcome.APPROVED,
             reason=APPROVED_REASON,
             risk_evidence=risk_evidence,
@@ -422,9 +424,10 @@ class RiskEngine:
         reason: str,
         risk_evidence: tuple[RiskEvidenceRef, ...],
     ) -> RiskDecision:
-        if isinstance(context, RiskEvaluationContext) and isinstance(
-            policy,
-            RiskEvaluationPolicy,
+        if (
+            isinstance(context, RiskEvaluationContext)
+            and isinstance(policy, RiskEvaluationPolicy)
+            and context.trade_proposal == proposal
         ):
             return RiskDecision.from_risk_evaluation(
                 proposal=proposal,
@@ -436,8 +439,8 @@ class RiskEngine:
                 risk_evidence=risk_evidence,
             )
 
-        # Preserve existing fail-closed transport behavior for malformed
-        # context/policy inputs that cannot carry a valid provenance binding.
+        # Preserve fail-closed behavior for malformed or mismatched
+        # inputs that cannot carry a valid provenance binding.
         return RiskDecision.from_trade_proposal(
             proposal=proposal,
             risk_decision_id=uuid4().hex,
