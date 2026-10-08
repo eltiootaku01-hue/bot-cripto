@@ -393,13 +393,21 @@ def test_authorization_and_inputs_are_immutable_and_not_mutated():
 
 
 def test_logical_determinism_ignores_instance_ids():
-    first = approved_bundle()
-    second = approved_bundle()
+    proposal = make_proposal()
+    context = make_context(proposal)
+    policy = make_policy()
+
+    first_decision = evaluate(proposal, context, policy)
+    second_decision = evaluate(proposal, context, policy)
+
+    assert first_decision.risk_decision_id != second_decision.risk_decision_id
+
+    first = (proposal, context, policy, first_decision)
+    second = (proposal, context, policy, second_decision)
 
     first_result = authorize(first)
     second_result = authorize(second)
 
-    assert first[3].risk_decision_id != second[3].risk_decision_id
     assert first_result.authorization is not None
     assert second_result.authorization is not None
 
