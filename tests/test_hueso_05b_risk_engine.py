@@ -250,7 +250,8 @@ def evaluate(
 def test_happy_path_is_approved():
     proposal = make_proposal()
     context = make_context(proposal)
-    result = evaluate(proposal, context)
+    policy = make_policy()
+    result = evaluate(proposal, context, policy=policy)
 
     assert result.outcome is RiskDecisionOutcome.APPROVED
     assert result.reason == APPROVED_REASON
@@ -258,12 +259,9 @@ def test_happy_path_is_approved():
     assert result.proposal_id == proposal.proposal_id
     assert result.signal_id == proposal.signal_id
     assert result.correlation_id == proposal.correlation_id
-
-    policy = make_policy()
-    rebound = evaluate(proposal, context, policy=policy)
-    assert rebound.evaluation_context_id == context.evaluation_context_id
-    assert rebound.policy_id == policy.policy_id
-    assert rebound.policy_version == policy.policy_version
+    assert result.evaluation_context_id == context.evaluation_context_id
+    assert result.policy_id == policy.policy_id
+    assert result.policy_version == policy.policy_version
     assert result.risk_evidence
 
 
