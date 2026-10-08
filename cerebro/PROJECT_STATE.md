@@ -12,28 +12,37 @@ Branch principal:
 
 `main`
 
-CURRENT MAIN HEAD:
+DOCUMENTATION BASIS HEAD:
 
-`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
+`052113bfe1e93d160ce1299bd9a9e1e6536869d2`
 
-LAST VERIFIED MAIN HEAD:
+Este SHA identifica el commit de `main` contra el que se realizó esta actualización documental.
 
-`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
+LAST FUNCTIONAL CHECKPOINT:
+
+`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+
+Este SHA es una referencia histórica del último checkpoint funcional confirmado. No representa necesariamente el HEAD actual de `main`.
 
 ### Estado de continuidad
 
-**RESOLVED — CURRENT MAIN VERIFIED**
+**DOCUMENTATION MODEL REPAIRED — LIVE HEAD MUST BE QUERIED DIRECTLY**
 
-### Regla de HEAD
+### Gobierno de HEAD
 
-El HEAD actual de `main` NO se almacena como una referencia permanente.
+`PROJECT_STATE.md` NO almacena de forma permanente el SHA vivo del HEAD de `main`.
+
+Los SHA persistidos aquí son snapshots históricos, checkpoints funcionales o bases documentales. El `main` HEAD vigente siempre debe obtenerse directamente desde GitHub.
 
 Antes de iniciar cualquier nueva fase:
 
-1. consultar GitHub;
-2. verificar el HEAD real de `main`;
-3. comparar contra la continuidad conocida;
-4. reconstruir evidencia si existe divergencia.
+1. consultar GitHub y obtener el HEAD real de `main`;
+2. leer `cerebro/PROJECT_STATE.md`;
+3. comparar el HEAD real con el último checkpoint funcional, el documentation basis head y los merges posteriores conocidos;
+4. distinguir cambios funcionales de cambios exclusivamente documentales;
+5. detenerse solo si existe una divergencia que afecte la frontera funcional que se pretende ejecutar.
+
+Un merge que modifica únicamente documentación puede cambiar el SHA vivo de `main` sin constituir por sí mismo un conflicto funcional.
 
 **GitHub y el código real son SOURCE OF TRUTH.**
 
@@ -544,15 +553,23 @@ Estas incertidumbres no se registran como BUG-001 y no se implementan correccion
 
 ## Main
 
-HEAD verificado:
+DOCUMENTATION BASIS HEAD:
 
-`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
+`052113bfe1e93d160ce1299bd9a9e1e6536869d2`
+
+El HEAD vivo de `main` NO se persiste como estado permanente en este documento.
+
+Estado CI del documentation basis head `052113bfe1e93d160ce1299bd9a9e1e6536869d2`:
+
+**UNKNOWN — no se encontró workflow run ni status asociado a este commit.**
+
+### Última evidencia CI verificada conocida
 
 Workflow:
 
 `tests`
 
-Run actual asociado a PR #48:
+Run:
 
 `37831334656`
 
@@ -572,7 +589,7 @@ Resultado exacto de tests:
 
 **UNKNOWN**
 
-No extrapolar un conteo de tests desde otros CI.
+Esta ejecución pertenece al commit histórico `90dce1d5ecc81b86d2085db6918bcb7ef771e050`. No asociarla al documentation basis head `052113bfe1e93d160ce1299bd9a9e1e6536869d2` y no usarla como evidencia de CI del HEAD actual.
 
 ---
 
@@ -696,23 +713,29 @@ No generalizar los componentes existentes solo por conveniencia.
 
 La documentación persistente anterior registraba estados históricos que ya no corresponden al repositorio actual. Ese historial no debe prevalecer sobre la evidencia actual de GitHub.
 
-El punto de continuidad vigente para esta memoria es:
+El punto de continuidad funcional vigente para esta memoria es:
 
 **HUESO 05-B — MERGED / CLOSED**
 
-`main`:
+Último checkpoint funcional confirmado:
 
-**OBSERVED — CURRENT MAIN VERIFIED**
+`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
 
-Último HEAD observado durante esta sincronización:
+La base documental de esta actualización es:
 
-`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
+`052113bfe1e93d160ce1299bd9a9e1e6536869d2`
+
+Este archivo no afirma que `052113bfe1e93d160ce1299bd9a9e1e6536869d2` siga siendo el HEAD vivo después de futuros merges documentales o funcionales.
 
 ---
 
 # REGLA DE CONTINUIDAD
 
-Este archivo es memoria documental y no sustituye al repositorio.
+Este archivo es memoria documental y evidencia arquitectónica; no sustituye al repositorio.
+
+**GitHub y el código real son SOURCE OF TRUTH.**
+
+Los SHA almacenados en `PROJECT_STATE.md` son referencias históricas, checkpoints funcionales o bases documentales. No son un puntero vivo al HEAD actual.
 
 Cuando exista discrepancia:
 
@@ -728,21 +751,26 @@ Usar etiquetas de verdad:
 
 No inventar tests, commits, CI, merges, comportamiento ni estados arquitectónicos.
 
-Antes de iniciar cualquier nueva frontera funcional:
+### Procedimiento canónico antes de cualquier nueva frontera funcional
 
-1. verificar `main` directamente;
+1. consultar GitHub directamente y obtener el HEAD real de `main`;
 2. leer este archivo;
-3. contrastar con el código real;
-4. respetar stop conditions;
-5. no asumir que diseño equivale a implementación.
+3. contrastar el HEAD real con el último checkpoint funcional, el documentation basis head y los merges posteriores conocidos;
+4. distinguir si la divergencia es funcional o exclusivamente documental;
+5. declarar conflicto de continuidad solo cuando la diferencia afecte la frontera funcional que se pretende ejecutar;
+6. respetar stop conditions y no asumir que diseño equivale a implementación.
+
+Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 
 ---
 
 # ESTADO DE CONFIANZA
 
-- HEAD de main: **OBSERVED — `90dce1d5ecc81b86d2085db6918bcb7ef771e050`**
-- Continuidad: **RESOLVED**
-- HEAD observado: **OBSERVED — `90dce1d5ecc81b86d2085db6918bcb7ef771e050`**
+- Documentation basis head: **OBSERVED — `052113bfe1e93d160ce1299bd9a9e1e6536869d2`**
+- Último functional checkpoint: **OBSERVED — `72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`**
+- Current main HEAD: **NOT STORED — QUERY GITHUB DIRECTLY**
+- CI del documentation basis head: **UNKNOWN**
+- Continuidad: **REPAIRED — LIVE HEAD QUERIED DIRECTLY**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
 - 02-D: **OBSERVED — MERGED / CLOSED**
