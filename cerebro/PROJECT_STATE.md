@@ -2,7 +2,7 @@
 
 ## ÚLTIMA ACTUALIZACIÓN VERIFICADA
 
-Fecha de referencia: 2026-10-06
+Fecha de referencia: 2026-10-08
 
 Repository:
 
@@ -18,7 +18,7 @@ CURRENT MAIN HEAD:
 
 LAST VERIFIED MAIN HEAD:
 
-`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
+`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
 
 ### Regla de HEAD
 
@@ -372,6 +372,104 @@ No reinterpretar este componente como portfolio optimization, Kelly, VaR, volati
 
 ---
 
+# HUESO 05-B — DETERMINISTIC RISK ENGINE V1.0
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#45`
+
+Título:
+
+`HUESO 05-B — Implement deterministic risk engine`
+
+Merge commit:
+
+`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+
+Parent anterior de `main`:
+
+`80aa28771d95e9759ccb9442d30a129455d13569`
+
+HEAD de la branch / commit de hardening R1:
+
+`664b612b07a85c155e1566db2a59f712ac87173c`
+
+Archivos exactos:
+
+- `bot_obrero/risk_engine.py`
+- `tests/test_hueso_05b_risk_engine.py`
+
+Frontera implementada:
+
+```
+TradeProposal
++
+RiskEvaluationContext
++
+RiskEvaluationPolicy
++
+RiskLimitApplicabilityResolver
+        ↓
+RiskEngine
+        ↓
+RiskDecision
+```
+
+Métrica implementada:
+
+`MAX_NOTIONAL`
+
+Scope:
+
+`ACCOUNT`
+
+Semántica:
+
+`APPROVED` / `REJECTED` / `UNKNOWN`
+
+El `RiskEngine` observado:
+
+- no accede a providers;
+- no utiliza reloj del sistema;
+- no modifica contexto ni propuesta;
+- no modifica `Reservation`;
+- no ejecuta órdenes;
+- no implementa `RiskAuthorization`;
+- no implementa `FinalAdmission`;
+- no implementa un execution bridge.
+
+### HARDENING R1
+
+Unidad de `RiskLimit`:
+
+```
+RiskLimit.unit == context.instrument.quote_asset
+```
+
+Si la unidad no coincide:
+
+```
+RiskDecisionOutcome.UNKNOWN
+reason = MAX_NOTIONAL_LIMIT_UNIT_MISMATCH
+```
+
+No existe conversión monetaria ni FX.
+
+### CI de la branch de HUESO 05-B
+
+- Workflow: `tests`
+- Run: `37718838012`
+- Job: `pytest`
+- Commit: `664b612b07a85c155e1566db2a59f712ac87173c`
+- Conclusión: **success**
+- Resultado observado: `1215 passed in 5.92s`
+
+Este CI corresponde a la branch/HEAD de HUESO 05-B. No se registra como CI post-merge de `main`.
+
 # BUG-001
 
 Estado:
@@ -469,75 +567,82 @@ Estas incertidumbres no se registran como BUG-001 y no se implementan correccion
 
 HEAD verificado:
 
-`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
+`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
 
 Workflow:
 
 `tests`
 
-Run:
+Post-merge CI de `main`:
 
-`37550121086`
+**UNKNOWN — POST-MERGE CI NOT VERIFIED**
 
-Job:
-
-`pytest`
-
-Commit:
-
-`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
-
-Conclusión:
-
-**success**
-
-Resultado visible en logs:
-
-`1151 passed in 7.07s`
+La consulta disponible no aporta evidencia directa suficiente para afirmar un run de `tests` asociado al nuevo HEAD de `main`. No transformar UNKNOWN en SUCCESS.
 
 ---
 
 # ARQUITECTURA FINANCIERA OBSERVADA
 
-La frontera actualmente implementada es:
+La frontera actualmente observada es:
 
 ```
+Signal
+  ↓
 TradeProposal
-      ↓
-RiskDecision.APPROVED
-      ↓
+  ↓
+RiskEvaluationContext
+  +
+RiskEvaluationPolicy
+  +
+RiskLimitApplicabilityResolver
+  ↓
+RiskEngine
+  ↓
+RiskDecision
+  ↓
 FinancialAdmissionBoundary
-      ↓
-SQLiteReservationStore.admit()
-      ↓
+  ↓
 Reservation
 ```
 
-Componentes observados:
+Esta representación refleja fronteras y componentes observados en el código. No implica que la cadena constituya todavía un runtime operacional completo.
+
+Componentes actualmente implementados/observados:
 
 - TradeProposal
+- StrategyRuntime
+- Sizing
+- Risk Evaluation Context
+- Risk Evaluation Policy
+- RiskLimitApplicabilityResolver
+- RiskEngine
 - RiskDecision
 - Reservation
 - ReservationReadSet
 - EffectiveCapacity
-- atomic Reservation admission
-- FinancialAdmissionRequest
 - FinancialAdmissionBoundary
-- FinancialAdmissionResult
+- SQLite Reservation Admission
+- execution boundary primitives
+- reconciliation primitives
 
 ### Frontera importante
 
-`FinancialAdmissionBoundary` es una barrera de admisión financiera local. No debe reinterpretarse como un `RiskEngine` completo ni como `FinalAdmission` de Execution.
+`RiskDecision → FinancialAdmission` existe como frontera de admisión financiera, pero no constituye por sí solo un runtime integrado de:
+
+```
+RiskAuthorization
+→ FinalAdmission
+→ Execution
+→ Reconciliation
+```
+
+No inferir una integración completa a partir de contratos o primitivas parciales.
 
 ---
 
-# COMPONENTES QUE SIGUEN SIN IMPLEMENTARSE
+# COMPONENTES QUE SIGUEN SIN IMPLEMENTARSE COMO FRONTERA OPERATIVA
 
 No declarar como implementados:
-
-### RiskEngine
-
-**NOT IMPLEMENTED**
 
 ### RiskAuthorization
 
@@ -551,13 +656,21 @@ No declarar como implementados:
 
 **NOT IMPLEMENTED**
 
-### Reconciliation runtime
+### Risk → Reservation → Execution bridge completo
+
+**NOT IMPLEMENTED**
+
+### Reconciliation runtime integrado
+
+**NOT IMPLEMENTED**
+
+### autonomous production runtime
 
 **NOT IMPLEMENTED**
 
 StrategyRuntime y Sizing Engine ya están implementados y cerrados en HUESO 03 y HUESO 04, respectivamente.
 
-La ausencia de estos componentes no se considera por sí misma un bug. Son fronteras funcionales posteriores.
+La ausencia de estas fronteras no se considera por sí misma un bug. Son fronteras funcionales posteriores.
 
 ---
 
@@ -565,15 +678,17 @@ La ausencia de estos componentes no se considera por sí misma un bug. Son front
 
 No introducir en la frontera actual:
 
-- Risk Engine final;
-- Final Admission;
+- RiskAuthorization;
+- FinalAdmission;
 - OrderIntent final;
 - Execution integration;
-- Reconciliation runtime;
+- Reconciliation runtime integrado;
 - registry;
 - factory;
 - plugin system;
 - generic dispatcher.
+
+El RiskEngine v1.0 actual debe permanecer limitado a su frontera determinista y fail-closed.
 
 StrategyRuntime y Sizing Engine son fronteras ya implementadas y no deben reinterpretarse ni generalizarse por conveniencia.
 
@@ -587,15 +702,25 @@ La documentación persistente anterior registraba estados históricos que ya no 
 
 El punto de continuidad vigente para esta memoria es:
 
-**HUESO 04 — MERGED / CLOSED**
+**HUESO 05-B — MERGED / CLOSED**
 
 `main`:
 
-**VERIFY DIRECTLY FROM GITHUB**
+`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
 
-Último HEAD observado durante esta sincronización:
+PR #45:
 
-`60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`
+`HUESO 05-B — Implement deterministic risk engine`
+
+Parent anterior de `main`:
+
+`80aa28771d95e9759ccb9442d30a129455d13569`
+
+HEAD de la branch / hardening R1:
+
+`664b612b07a85c155e1566db2a59f712ac87173c`
+
+Última frontera implementada: HUESO 05-B.
 
 ---
 
@@ -630,7 +755,7 @@ Antes de iniciar cualquier nueva frontera funcional:
 # ESTADO DE CONFIANZA
 
 - HEAD de main: **VERIFY DIRECTLY FROM GITHUB**
-- HEAD observado: **OBSERVED — `60aa155162fdd52b6c75e4cd0ed3ffe90ce42b26`**
+- HEAD observado: **OBSERVED — `72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
 - 02-D: **OBSERVED — MERGED / CLOSED**
@@ -652,8 +777,12 @@ Antes de iniciar cualquier nueva frontera funcional:
 - FASE 1.34: **HISTORICALLY VERIFIED — E2E SUCCESS**
 - SMA post-merge E2E: **UNKNOWN**
 - Indicators post-merge E2E: **HISTORICALLY VERIFIED — CURRENT-MAIN POST-MERGE E2E UNKNOWN**
-- RiskEngine: **NOT IMPLEMENTED**
+- HUESO 05-B: **OBSERVED — MERGED / CLOSED**
+- RiskEngine: **OBSERVED — IMPLEMENTED**
+- RiskDecision: **OBSERVED — IMPLEMENTED**
 - RiskAuthorization: **NOT IMPLEMENTED**
 - FinalAdmission: **NOT IMPLEMENTED**
 - Reservation → Execution runtime: **NOT IMPLEMENTED**
-- Reconciliation runtime: **NOT IMPLEMENTED**
+- Risk → Reservation → Execution bridge completo: **NOT IMPLEMENTED**
+- Reconciliation runtime integrado: **NOT IMPLEMENTED**
+- autonomous production runtime: **NOT IMPLEMENTED**
