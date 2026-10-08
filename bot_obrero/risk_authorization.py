@@ -222,10 +222,7 @@ def authorize_risk_decision(
             "RISK_AUTHORIZATION_CONSTRUCTION_FAILED",
         )
 
-    if (
-        authorization.risk_evidence != risk_decision.risk_evidence
-        or authorization.risk_evidence is not risk_decision.risk_evidence
-    ):
+    if authorization.risk_evidence != risk_decision.risk_evidence:
         return _result(
             RiskAuthorizationStatus.UNKNOWN,
             "RISK_EVIDENCE_REBIND_FAILED",
