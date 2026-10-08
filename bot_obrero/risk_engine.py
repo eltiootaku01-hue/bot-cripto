@@ -51,6 +51,7 @@ UNKNOWN_VALUATION_REASON = "VALUATION_FRESHNESS_UNKNOWN"
 UNKNOWN_EVIDENCE_REASON = "RISK_APPROVAL_EVIDENCE_INSUFFICIENT"
 UNKNOWN_PREREQUISITE_REASON = "RISK_APPROVAL_PREREQUISITES_UNSATISFIED"
 UNKNOWN_INPUT_REASON = "RISK_INPUT_INVALID"
+UNKNOWN_UNIT_MISMATCH_REASON = "MAX_NOTIONAL_LIMIT_UNIT_MISMATCH"
 
 
 class RiskEngine:
@@ -197,6 +198,14 @@ class RiskEngine:
             context=context,
             applicable_limit=applicable_limit,
         )
+
+        if applicable_limit.unit != context.instrument.quote_asset:
+            return self._decision(
+                proposal=proposal,
+                outcome=RiskDecisionOutcome.UNKNOWN,
+                reason=UNKNOWN_UNIT_MISMATCH_REASON,
+                risk_evidence=risk_evidence,
+            )
 
         valuation_freshness = policy.valuation_freshness_policy.evaluate(
             valuation_as_of=(
@@ -390,6 +399,7 @@ __all__ = [
     "MAX_NOTIONAL_METRIC",
     "MAX_NOTIONAL_SCOPE",
     "REJECTED_LIMIT_REASON",
+    "UNKNOWN_UNIT_MISMATCH_REASON",
     "REJECTED_PROPOSAL_REASON",
     "REJECTED_VALUATION_REASON",
     "RiskEngine",
