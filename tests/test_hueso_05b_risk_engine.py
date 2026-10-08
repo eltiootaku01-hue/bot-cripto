@@ -41,6 +41,7 @@ from bot_obrero.risk_engine import (
     REJECTED_LIMIT_REASON,
     REJECTED_PROPOSAL_REASON,
     REJECTED_VALUATION_REASON,
+    UNKNOWN_UNIT_MISMATCH_REASON,
     RiskEngine,
 )
 
@@ -89,13 +90,18 @@ def make_proposal(
     )
 
 
-def make_limit(risk_limit_id="limit-1", *, threshold="250"):
+def make_limit(
+    risk_limit_id="limit-1",
+    *,
+    threshold="250",
+    unit="USDT",
+):
     return RiskLimit(
         risk_limit_id=risk_limit_id,
         scope=MAX_NOTIONAL_SCOPE,
         metric=MAX_NOTIONAL_METRIC,
         threshold=Decimal(threshold),
-        unit="USDT",
+        unit=unit,
         effective_from=BASE - timedelta(minutes=1),
         effective_until=None,
         provenance=PROVENANCE,
@@ -271,6 +277,97 @@ def test_max_notional_over_limit_is_rejected():
 
     assert result.outcome is RiskDecisionOutcome.REJECTED
     assert result.reason == REJECTED_LIMIT_REASON
+
+
+def test_max_notional_limit_unit_matches_instrument_quote_asset():
+    proposal = make_proposal(quantity="2", price="100")
+    context = make_context(proposal)
+    result = evaluate(proposal, context)
+
+    assert context.instrument.quote_asset == "USDT"
+    assert context.risk_limit_set.limits[0].unit == "USDT"
+    assert result.outcome is RiskDecisionOutcome.APPROVED
+
+
+def test_max_notional_limit_unit_mismatch_is_unknown():
+    proposal = make_proposal(quantity="2", price="100")
+    risk_limit_set = RiskLimitSet(
+        risk_limit_set_id="limits-1",
+        limits=(make_limit(unit="BTC"),),
+        as_of=BASE,
+        provenance=PROVENANCE,
+    )
+    context = make_context(proposal, risk_limits=risk_limit_set)
+    result = evaluate(proposal, context)
+
+    assert context.instrument.quote_asset == "USDT"
+    assert context.risk_limit_set.limits[0].unit == "BTC"
+    assert result.outcome is RiskDecisionOutcome.UNKNOWN
+    assert result.reason == UNKNOWN_UNIT_MISMATCH_REASON
+
+
+def test_buy_market_max_quote_spend_requires_quote_asset_limit_unit():
+    proposal = make_proposal(
+        order_type=TradeOrderType.MARKET,
+        side=TradeSide.BUY,
+        quantity="10",
+        max_quote_spend="200",
+    )
+    compatible = make_context(proposal)
+    compatible_result = evaluate(proposal, compatible)
+
+    incompatible_limits = RiskLimitSet(
+        risk_limit_set_id="limits-1",
+        limits=(make_limit(unit="BTC"),),
+        as_of=BASE,
+        provenance=PROVENANCE,
+    )
+    incompatible = make_context(proposal, risk_limits=incompatible_limits)
+    incompatible_result = evaluate(proposal, incompatible)
+
+    assert compatible_result.outcome is RiskDecisionOutcome.APPROVED
+    assert incompatible_result.outcome is RiskDecisionOutcome.UNKNOWN
+    assert incompatible_result.reason == UNKNOWN_UNIT_MISMATCH_REASON
+
+
+def test_max_notional_limit_unit_mismatch_does_not_convert_currency():
+    proposal = make_proposal(quantity="2", price="100")
+    risk_limit_set = RiskLimitSet(
+        risk_limit_set_id="limits-1",
+        limits=(make_limit(threshold="1000", unit="BTC"),),
+        as_of=BASE,
+        provenance=PROVENANCE,
+    )
+    context = make_context(proposal, risk_limits=risk_limit_set)
+
+    result = evaluate(proposal, context)
+
+    assert result.outcome is RiskDecisionOutcome.UNKNOWN
+    assert result.reason == UNKNOWN_UNIT_MISMATCH_REASON
+
+
+def test_max_notional_unit_mismatch_is_deterministic():
+    proposal = make_proposal(quantity="2", price="100")
+    risk_limit_set = RiskLimitSet(
+        risk_limit_set_id="limits-1",
+        limits=(make_limit(unit="BTC"),),
+        as_of=BASE,
+        provenance=PROVENANCE,
+    )
+    context = make_context(proposal, risk_limits=risk_limit_set)
+
+    first = evaluate(proposal, context)
+    second = evaluate(proposal, context)
+
+    assert first.risk_decision_id != second.risk_decision_id
+    assert first.outcome is RiskDecisionOutcome.UNKNOWN
+    assert second.outcome is RiskDecisionOutcome.UNKNOWN
+    assert first.reason == second.reason == UNKNOWN_UNIT_MISMATCH_REASON
+    assert first.risk_evidence == second.risk_evidence
+    assert first.decision_timestamp == second.decision_timestamp
+    assert first.proposal_id == second.proposal_id
+    assert first.signal_id == second.signal_id
+    assert first.correlation_id == second.correlation_id
 
 
 def test_buy_market_uses_explicit_max_quote_spend():
