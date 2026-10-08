@@ -258,6 +258,12 @@ def test_happy_path_is_approved():
     assert result.proposal_id == proposal.proposal_id
     assert result.signal_id == proposal.signal_id
     assert result.correlation_id == proposal.correlation_id
+
+    policy = make_policy()
+    rebound = evaluate(proposal, context, policy=policy)
+    assert rebound.evaluation_context_id == context.evaluation_context_id
+    assert rebound.policy_id == policy.policy_id
+    assert rebound.policy_version == policy.policy_version
     assert result.risk_evidence
 
 
@@ -647,6 +653,9 @@ def test_deterministic_logical_result():
     assert first.proposal_id == second.proposal_id
     assert first.signal_id == second.signal_id
     assert first.correlation_id == second.correlation_id
+    assert first.evaluation_context_id == second.evaluation_context_id == context.evaluation_context_id
+    assert first.policy_id == second.policy_id == make_policy().policy_id
+    assert first.policy_version == second.policy_version == make_policy().policy_version
     assert first.outcome is second.outcome
     assert first.reason == second.reason
     assert first.decision_timestamp == second.decision_timestamp

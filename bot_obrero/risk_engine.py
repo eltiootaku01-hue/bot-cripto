@@ -71,6 +71,8 @@ class RiskEngine:
         if not isinstance(context, RiskEvaluationContext):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.REJECTED,
                 reason=UNKNOWN_INPUT_REASON,
                 risk_evidence=(),
@@ -79,6 +81,8 @@ class RiskEngine:
         if not isinstance(policy, RiskEvaluationPolicy):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.REJECTED,
                 reason=UNKNOWN_INPUT_REASON,
                 risk_evidence=(),
@@ -90,6 +94,8 @@ class RiskEngine:
         ):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.REJECTED,
                 reason=UNKNOWN_INPUT_REASON,
                 risk_evidence=(),
@@ -100,6 +106,8 @@ class RiskEngine:
         except (TypeError, ValueError):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.REJECTED,
                 reason=REJECTED_PROPOSAL_REASON,
                 risk_evidence=(),
@@ -108,6 +116,8 @@ class RiskEngine:
         if proposal != context.trade_proposal:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.REJECTED,
                 reason=UNKNOWN_INPUT_REASON,
                 risk_evidence=(),
@@ -116,6 +126,8 @@ class RiskEngine:
         if not context.is_complete:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_CONTEXT_REASON,
                 risk_evidence=self._available_evidence(
@@ -130,6 +142,8 @@ class RiskEngine:
         ):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_AVAILABILITY_REASON,
                 risk_evidence=self._available_evidence(
@@ -148,6 +162,8 @@ class RiskEngine:
         except (TypeError, ValueError):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_RESOLUTION_REASON,
                 risk_evidence=self._available_evidence(
@@ -159,6 +175,8 @@ class RiskEngine:
         if context.risk_limit_resolution != resolved:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_RESOLUTION_MISMATCH_REASON,
                 risk_evidence=self._available_evidence(
@@ -170,6 +188,8 @@ class RiskEngine:
         if resolved.status is not RiskLimitResolutionStatus.AVAILABLE:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_RESOLUTION_REASON,
                 risk_evidence=self._available_evidence(
@@ -185,6 +205,8 @@ class RiskEngine:
         if applicable_limit is None:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_RESOLUTION_REASON,
                 risk_evidence=self._available_evidence(
@@ -202,6 +224,8 @@ class RiskEngine:
         if applicable_limit.unit != context.instrument.quote_asset:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_UNIT_MISMATCH_REASON,
                 risk_evidence=risk_evidence,
@@ -222,6 +246,8 @@ class RiskEngine:
         ):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.REJECTED,
                 reason=REJECTED_VALUATION_REASON,
                 risk_evidence=risk_evidence,
@@ -233,6 +259,8 @@ class RiskEngine:
         ):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_VALUATION_REASON,
                 risk_evidence=risk_evidence,
@@ -243,6 +271,8 @@ class RiskEngine:
         ):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_EVIDENCE_REASON,
                 risk_evidence=risk_evidence,
@@ -256,6 +286,8 @@ class RiskEngine:
         ):
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_PREREQUISITE_REASON,
                 risk_evidence=risk_evidence,
@@ -265,6 +297,8 @@ class RiskEngine:
         if notional is None:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.UNKNOWN,
                 reason=UNKNOWN_NOTIONAL_REASON,
                 risk_evidence=risk_evidence,
@@ -273,6 +307,8 @@ class RiskEngine:
         if notional > applicable_limit.threshold:
             return self._decision(
                 proposal=proposal,
+                context=context,
+                policy=policy,
                 outcome=RiskDecisionOutcome.REJECTED,
                 reason=REJECTED_LIMIT_REASON,
                 risk_evidence=risk_evidence,
@@ -380,10 +416,28 @@ class RiskEngine:
     def _decision(
         *,
         proposal: TradeProposal,
+        context: RiskEvaluationContext,
+        policy: RiskEvaluationPolicy,
         outcome: RiskDecisionOutcome,
         reason: str,
         risk_evidence: tuple[RiskEvidenceRef, ...],
     ) -> RiskDecision:
+        if isinstance(context, RiskEvaluationContext) and isinstance(
+            policy,
+            RiskEvaluationPolicy,
+        ):
+            return RiskDecision.from_risk_evaluation(
+                proposal=proposal,
+                context=context,
+                policy=policy,
+                risk_decision_id=uuid4().hex,
+                outcome=outcome,
+                reason=reason,
+                risk_evidence=risk_evidence,
+            )
+
+        # Preserve existing fail-closed transport behavior for malformed
+        # context/policy inputs that cannot carry a valid provenance binding.
         return RiskDecision.from_trade_proposal(
             proposal=proposal,
             risk_decision_id=uuid4().hex,
