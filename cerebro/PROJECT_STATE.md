@@ -2,7 +2,7 @@
 
 ## ÚLTIMA ACTUALIZACIÓN VERIFICADA
 
-Fecha de referencia: 2026-10-08
+Fecha de referencia: 2026-10-09
 
 Repository:
 
@@ -14,15 +14,15 @@ Branch principal:
 
 DOCUMENTATION BASIS HEAD:
 
-`052113bfe1e93d160ce1299bd9a9e1e6536869d2`
+`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
 
 Este SHA identifica el commit de `main` contra el que se realizó esta actualización documental.
 
 LAST FUNCTIONAL CHECKPOINT:
 
-`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
 
-Este SHA es una referencia histórica del último checkpoint funcional confirmado. No representa necesariamente el HEAD actual de `main`.
+Este SHA identifica el último checkpoint funcional confirmado en HUESO 05-C. Es una referencia histórica y no representa necesariamente el HEAD actual de `main`.
 
 ### Estado de continuidad
 
@@ -449,7 +449,66 @@ Evidencia observada en `main`:
 - sin Reservation;
 - sin Execution.
 
-La existencia de `RiskEngine` no implica que estén implementados los runtimes posteriores de `RiskAuthorization`, `FinalAdmission`, ejecución o reconciliación.
+`RiskAuthorization` se implementó posteriormente en HUESO 05-C. Su existencia no implica que estén implementados `FinalAdmission`, la integración runtime con Reservation/Execution o la reconciliación operativa.
+
+---
+
+# HUESO 05-C — RISK AUTHORIZATION V1.0 + DECISION PROVENANCE BINDING
+
+Estado:
+
+**MERGED / CLOSED**
+
+PR:
+
+`#52`
+
+URL:
+
+https://github.com/eltiootaku01-hue/bot-cripto/pull/52
+
+HEAD de la PR revisado:
+
+`1ec386ebafdc0426ce45fd13ab45520c345189fd`
+
+Merge commit:
+
+`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+
+CI posterior al merge:
+
+- Workflow: `tests`
+- Run ID: `37881330778`
+- Event: `push`
+- Branch: `main`
+- Commit: `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+- Job: `pytest`
+- Conclusión: `success`
+- Resultado: `1242 passed in 7.78s`
+
+Evidencia: https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/37881330778
+
+Implementación integrada y observada en `main`:
+
+- `bot_obrero/risk_authorization.py`
+- `RiskAuthorization`
+- `RiskAuthorizationResult`
+- `RiskAuthorizationStatus`
+- `authorize_risk_decision`
+- Binding de provenance en `RiskDecision`: `evaluation_context_id`, `policy_id`, `policy_version`.
+- Derivación del binding a partir de `RiskEvaluationContext` y `RiskEvaluationPolicy`.
+- Validación de relaciones entre propuesta, decisión, contexto, política, timestamp y evidencia.
+- Resultado fail-closed: `AUTHORIZED`, `REJECTED` o `UNKNOWN`.
+- El artefacto `RiskAuthorization` solo representa el estado `AUTHORIZED`.
+- Los resultados `REJECTED` y `UNKNOWN` no exponen un artefacto de autorización.
+- La evidencia de riesgo se verifica por igualdad estructural, no por identidad de objetos Python.
+- Contratos inmutables y cobertura de tests.
+
+Frontera arquitectónica:
+
+`RiskDecision → RiskAuthorization`
+
+Esta implementación no equivale a `FinalAdmission`, no integra runtime `Reservation → Execution` y no implementa ejecución de órdenes ni reconciliación operativa. La admisión financiera local permanece como frontera separada.
 
 ---
 
@@ -555,41 +614,30 @@ Estas incertidumbres no se registran como BUG-001 y no se implementan correccion
 
 DOCUMENTATION BASIS HEAD:
 
-`052113bfe1e93d160ce1299bd9a9e1e6536869d2`
+`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
 
 El HEAD vivo de `main` NO se persiste como estado permanente en este documento.
 
-Estado CI del documentation basis head `052113bfe1e93d160ce1299bd9a9e1e6536869d2`:
-
-**UNKNOWN — no se encontró workflow run ni status asociado a este commit.**
-
-### Última evidencia CI verificada conocida
+### Evidencia CI posterior al merge de HUESO 05-C
 
 Workflow:
 
 `tests`
 
-Run:
+Run ID:
 
-`37831334656`
+`37881330778`
 
-Commit:
+Event: `push`
+Branch: `main`
+Commit: `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+Job: `pytest`
+Conclusión: **success**
+Resultado exacto: **1242 passed in 7.78s**
 
-`90dce1d5ecc81b86d2085db6918bcb7ef771e050`
+Evidencia: https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/37881330778
 
-Job:
-
-`pytest`
-
-Conclusión:
-
-**success**
-
-Resultado exacto de tests:
-
-**UNKNOWN**
-
-Esta ejecución pertenece al commit histórico `90dce1d5ecc81b86d2085db6918bcb7ef771e050`. No asociarla al documentation basis head `052113bfe1e93d160ce1299bd9a9e1e6536869d2` y no usarla como evidencia de CI del HEAD actual.
+Este run es evidencia de CI post-merge del checkpoint funcional HUESO 05-C. No es evidencia de CI del commit documental que eventualmente se cree después. La evidencia histórica de E2E permanece separada y no demuestra una nueva ejecución sobre el `main` posterior.
 
 ---
 
@@ -601,7 +649,7 @@ La frontera de Risk actualmente implementada es:
 
 ```
 TradeProposal
-      ↓
+      +
 RiskEvaluationContext
       +
 RiskEvaluationPolicy
@@ -610,18 +658,17 @@ RiskLimitApplicabilityResolver
       ↓
 RiskEngine
       ↓
-RiskDecision
+RiskDecision (con provenance binding)
+      ↓
+RiskAuthorization
 ```
 
-Alcance actual de `RiskEngine`:
+Componentes de evaluación/autorización observados:
 
-- evaluación determinista y fail-closed;
-- MAX_NOTIONAL sobre ACCOUNT;
-- sin provider access;
-- sin reloj;
-- sin mutación;
-- sin autorización posterior;
-- sin ejecución.
+- `RiskEngine`: evaluación determinista y fail-closed; MAX_NOTIONAL sobre ACCOUNT; sin provider access, sin reloj y sin mutación de inputs.
+- `RiskDecision`: incluye el provenance binding del contexto y política de evaluación.
+- `RiskAuthorization`: frontera explícita, inmutable y fail-closed que valida el binding de una decisión ya creada.
+- No se afirma que RiskAuthorization reevalúe riesgo ni que conecte por sí mismo con admisión financiera, Execution o reconciliación.
 
 ## Admisión financiera local
 
@@ -657,17 +704,13 @@ Componentes observados:
 
 ### Frontera importante
 
-`FinancialAdmissionBoundary` sigue siendo una barrera de admisión financiera local. No debe reinterpretarse como `RiskAuthorization`, `FinalAdmission` ni como Execution integration.
+`FinancialAdmissionBoundary` sigue siendo una barrera de admisión financiera local. `RiskAuthorization` es una frontera distinta (`RiskDecision → RiskAuthorization`); HUESO 05-C no declara integrada una cadena `RiskAuthorization → FinancialAdmissionBoundary`. Ninguna de estas fronteras debe reinterpretarse como `FinalAdmission` ni como Execution integration.
 
 ---
 
 # COMPONENTES QUE SIGUEN SIN IMPLEMENTARSE
 
 No declarar como implementados:
-
-### RiskAuthorization
-
-**NOT IMPLEMENTED**
 
 ### FinalAdmission
 
@@ -691,9 +734,8 @@ No confundir contratos, primitivas o motores deterministas implementados con run
 
 # GOBIERNO DE ALCANCE
 
-No introducir en la frontera actual:
+No introducir fuera del alcance implementado y autorizado:
 
-- Risk Engine final;
 - Final Admission;
 - OrderIntent final;
 - Execution integration;
@@ -715,17 +757,17 @@ La documentación persistente anterior registraba estados históricos que ya no 
 
 El punto de continuidad funcional vigente para esta memoria es:
 
-**HUESO 05-B — MERGED / CLOSED**
+**HUESO 05-C — MERGED / CLOSED**
 
 Último checkpoint funcional confirmado:
 
-`72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`
+`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
 
 La base documental de esta actualización es:
 
-`052113bfe1e93d160ce1299bd9a9e1e6536869d2`
+`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
 
-Este archivo no afirma que `052113bfe1e93d160ce1299bd9a9e1e6536869d2` siga siendo el HEAD vivo después de futuros merges documentales o funcionales.
+Este archivo no afirma que `f9b6785ab322d99f503b438ee5d504a9b0eab2c8` siga siendo el HEAD vivo después de futuros merges documentales o funcionales.
 
 ---
 
@@ -766,10 +808,10 @@ Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 
 # ESTADO DE CONFIANZA
 
-- Documentation basis head: **OBSERVED — `052113bfe1e93d160ce1299bd9a9e1e6536869d2`**
-- Último functional checkpoint: **OBSERVED — `72ffc2161eb7ad4dcf10d871eecb72f8e8255dfb`**
+- Documentation basis head: **OBSERVED — `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`**
+- Último functional checkpoint: **OBSERVED — `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`**
 - Current main HEAD: **NOT STORED — QUERY GITHUB DIRECTLY**
-- CI del documentation basis head: **UNKNOWN**
+- CI del documentation basis head: **OBSERVED — workflow `tests`, run `37881330778`, success, 1242 passed in 7.78s**
 - Continuidad: **REPAIRED — LIVE HEAD QUERIED DIRECTLY**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
@@ -792,10 +834,12 @@ Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 - HUESO 05-A: **OBSERVED — MERGED / CLOSED**
 - HUESO 05-B: **OBSERVED — MERGED / CLOSED**
 - RiskEngine: **OBSERVED — IMPLEMENTED**
+- HUESO 05-C / PR #52: **OBSERVED — MERGED / CLOSED**
+- RiskAuthorization: **OBSERVED — IMPLEMENTED**
+- CI post-merge HUESO 05-C: **OBSERVED — success, 1242 passed in 7.78s**
 - FASE 1.34: **HISTORICALLY VERIFIED — E2E SUCCESS**
 - SMA post-merge E2E: **UNKNOWN**
 - Indicators post-merge E2E: **HISTORICALLY VERIFIED — CURRENT-MAIN POST-MERGE E2E UNKNOWN**
-- RiskAuthorization: **NOT IMPLEMENTED**
 - FinalAdmission: **NOT IMPLEMENTED**
 - Reservation → Execution runtime: **NOT IMPLEMENTED**
 - Reconciliation runtime: **NOT IMPLEMENTED**
