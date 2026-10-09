@@ -424,7 +424,11 @@ def test_read_set_is_ephemeral_and_no_new_sqlite_table_is_created(tmp_path):
         ).fetchall()
     }
 
-    assert table_names == {"reservations", "reservation_transitions"}
+    assert table_names == {
+        "reservations",
+        "reservation_transitions",
+        "reservation_authorization_bindings",
+    }
     store.close()
 
 
