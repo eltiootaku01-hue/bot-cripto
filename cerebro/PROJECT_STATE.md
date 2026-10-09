@@ -811,7 +811,7 @@ Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 - Documentation basis head: **OBSERVED — `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`**
 - Último functional checkpoint: **OBSERVED — `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`**
 - Current main HEAD: **NOT STORED — QUERY GITHUB DIRECTLY**
-- CI del documentation basis head: **UNKNOWN**
+- CI del documentation basis head: **OBSERVED — workflow `tests`, run `37881330778`, success, 1242 passed in 7.78s**
 - Continuidad: **REPAIRED — LIVE HEAD QUERIED DIRECTLY**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
