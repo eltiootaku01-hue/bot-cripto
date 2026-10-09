@@ -157,6 +157,10 @@ def make_admission_request_for_amount(
 ):
     amount_decimal = Decimal(amount)
     economic_proposal = replace(proposal, max_quote_spend=amount_decimal)
+    # Preserve semantic identity when replacing only financial terms in a fixture.
+    object.__setattr__(economic_proposal, "proposal_id", proposal.proposal_id)
+    object.__setattr__(economic_proposal, "signal_id", proposal.signal_id)
+    object.__setattr__(economic_proposal, "correlation_id", proposal.correlation_id)
     resolved_state = make_state() if state is None else state
     if decision_suffix is None:
         return admission_fixtures.make_request(
@@ -297,7 +301,7 @@ def test_store_controls_creation_evidence_timestamp(tmp_path):
     assert len(transitions) == 1
     assert transitions[0].occurred_at == request.created_at
     assert transitions[0].evidence_kind == "RESERVATION_CREATED"
-    assert transitions[0].evidence_reference_id == proposal.proposal_id
+    assert transitions[0].evidence_reference_id == reservation.reservation_id
     store.close()
 
 
@@ -309,7 +313,7 @@ def test_admit_is_atomic_happy_path_and_creates_transition(tmp_path):
     assert reservation.state is ReservationState.ACTIVE
     assert reservation.protected_capacity == Decimal("30")
     assert store.get(reservation.reservation_id) == reservation
-    transitions = store.transitions("admit-30")
+    transitions = store.transitions(reservation.reservation_id)
     assert len(transitions) == 1
     assert transitions[0].from_state is None
     assert transitions[0].to_state is ReservationState.ACTIVE
@@ -399,7 +403,7 @@ def test_unknown_reservation_remains_protected(tmp_path):
         evidence=ReservationTransitionEvidence(
             kind="VENUE_TIMEOUT",
             reference_id="unknown-70",
-            occurred_at=BASE.replace(second=1),
+            occurred_at=store.get(admitted.reservation_id).updated_at + timedelta(seconds=1),
         ),
     )
 
@@ -450,7 +454,7 @@ def test_same_proposal_can_be_reused_only_after_terminal_state(tmp_path):
         evidence=ReservationTransitionEvidence(
             kind="ORDER_RELEASE",
             reference_id="first-release",
-            occurred_at=BASE.replace(second=1),
+            occurred_at=first.updated_at + timedelta(seconds=1),
         ),
     )
 
@@ -717,7 +721,7 @@ def test_admission_preserves_decimal_amounts_and_terminal_zero_protection(tmp_pa
         evidence=ReservationTransitionEvidence(
             kind="RELEASE",
             reference_id="release-decimal",
-            occurred_at=BASE.replace(second=1),
+            occurred_at=reservation.updated_at + timedelta(seconds=1),
         ),
     )
     assert released.protected_capacity == Decimal("0")
