@@ -512,9 +512,6 @@ Esta implementación no equivale a `FinalAdmission`, no integra `Reservation →
 
 ---
 
-
----
-
 # BUG-001
 
 Estado:
@@ -761,8 +758,8 @@ No confundir contratos, primitivas o motores deterministas implementados con run
 
 No introducir en la frontera actual:
 
-- Risk Engine final;
-- Final Admission;
+- modificaciones o generalizaciones no autorizadas del `RiskEngine` implementado en HUESO 05-B;
+- `FinalAdmission`;
 - OrderIntent final;
 - Execution integration;
 - Reconciliation runtime;
