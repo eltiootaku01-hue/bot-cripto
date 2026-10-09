@@ -96,7 +96,7 @@ def make_reservation(
         created_at=created_at,
         reservation_id=reservation_id,
     )
-    return store.create(
+    return store._insert_unbound_fixture(
         reservation,
         evidence=ReservationTransitionEvidence(
             kind="RESERVATION_CREATED",
@@ -234,7 +234,7 @@ def test_proposal_multiplicity_retains_released_and_active_for_same_proposal(tmp
         created_at=BASE,
         reservation_id="r1",
     )
-    store.create(
+    store._insert_unbound_fixture(
         first,
         evidence=ReservationTransitionEvidence(
             kind="RESERVATION_CREATED",
@@ -260,7 +260,7 @@ def test_proposal_multiplicity_retains_released_and_active_for_same_proposal(tmp
         created_at=BASE + timedelta(seconds=2),
         reservation_id="r2",
     )
-    store.create(
+    store._insert_unbound_fixture(
         second,
         evidence=ReservationTransitionEvidence(
             kind="RESERVATION_CREATED",

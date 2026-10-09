@@ -454,7 +454,7 @@ def test_existing_overcommit_is_not_clamped(tmp_path):
         created_at=BASE,
         reservation_id="legacy-120",
     )
-    store.create(reservation, evidence=evidence(proposal))
+    store._insert_unbound_fixture(reservation, evidence=evidence(proposal))
 
     with pytest.raises(ReservationAdmissionRejected, match="OVERCOMMITTED"):
         admit(store, amount="1", reservation_id="new-1")

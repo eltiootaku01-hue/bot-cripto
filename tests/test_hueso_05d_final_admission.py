@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ast
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -324,6 +326,70 @@ def make_store(path) -> SQLiteReservationStore:
     return SQLiteReservationStore(path)
 
 
+def test_unbound_reservation_writers_are_internal_fixture_only():
+    source_path = Path("bot_obrero/reservation.py")
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    store_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "SQLiteReservationStore"
+    )
+    method_nodes = [
+        node
+        for node in store_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    method_names = {node.name for node in method_nodes}
+
+    assert "admit" in method_names
+    assert not any(name.startswith("create") for name in method_names)
+    assert "_insert_unbound_fixture" in method_names
+    assert "_create_unbound_fixture_from_trade_proposal_and_risk_decision" in method_names
+    assert callable(FinancialAdmissionBoundary.admit)
+
+    store = SQLiteReservationStore(":memory:")
+    try:
+        assert not hasattr(store, "create")
+        assert not hasattr(store, "create_from_trade_proposal_and_risk_decision")
+    finally:
+        store.close()
+
+    fixture_only_methods = {
+        "_insert_unbound_fixture",
+        "_create_unbound_fixture_from_trade_proposal_and_risk_decision",
+    }
+    for method in method_nodes:
+        if method.name.startswith("_"):
+            continue
+        called_attributes = {
+            node.func.attr
+            for node in ast.walk(method)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert called_attributes.isdisjoint(fixture_only_methods), (
+            f"public ReservationStore method {method.name} invokes a fixture-only writer"
+        )
+        string_constants = [
+            node.value
+            for node in ast.walk(method)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+        assert not any("INSERT INTO reservations" in value.upper() for value in string_constants), (
+            f"public ReservationStore method {method.name} inserts reservations directly"
+        )
+
+    for module_path in Path("bot_obrero").glob("*.py"):
+        if module_path.name == "reservation.py":
+            continue
+        module_tree = ast.parse(module_path.read_text(encoding="utf-8"))
+        for node in ast.walk(module_tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                assert node.func.attr not in fixture_only_methods, (
+                    f"business module {module_path} called fixture-only "
+                    f"ReservationStore API {node.func.attr}"
+                )
+
+
 def test_authorization_fingerprint_is_semantic_and_excludes_random_id():
     request = make_request()
     first = request.authorization
@@ -470,7 +536,7 @@ def test_historical_reservation_without_binding_is_not_treated_as_authorized(tmp
         created_at=request.created_at,
         reservation_id="historical-no-binding",
     )
-    store.create(
+    store._insert_unbound_fixture(
         legacy_reservation,
         evidence=ReservationTransitionEvidence(
             kind="RESERVATION_CREATED",

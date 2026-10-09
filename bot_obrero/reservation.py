@@ -673,12 +673,18 @@ class SQLiteReservationStore:
             """
         )
 
-    def create(
+    def _insert_unbound_fixture(
         self,
         reservation: Reservation,
         *,
         evidence: ReservationTransitionEvidence,
     ) -> Reservation:
+        """Insert an unbound pre-existing reservation for fixtures or legacy history only.
+
+        This intentionally bypasses atomic capacity admission and authorization binding.
+        It is not a business creation API. New business reservations must enter through
+        FinancialAdmissionBoundary.admit(), which uses SQLiteReservationStore.admit().
+        """
         if not isinstance(reservation, Reservation):
             raise TypeError("reservation must be Reservation")
         if reservation.state is not ReservationState.ACTIVE:
@@ -896,7 +902,7 @@ class SQLiteReservationStore:
             self._connection.rollback()
             raise
 
-    def create_from_trade_proposal_and_risk_decision(
+    def _create_unbound_fixture_from_trade_proposal_and_risk_decision(
         self,
         *,
         proposal: TradeProposal,
@@ -911,6 +917,7 @@ class SQLiteReservationStore:
         exchange_order_id: str | None = None,
         evidence: ReservationTransitionEvidence | None = None,
     ) -> Reservation:
+        """Fixture-only legacy construction; never use for business admission."""
         reservation = Reservation.from_trade_proposal_and_risk_decision(
             proposal=proposal,
             risk_decision=risk_decision,
@@ -932,7 +939,7 @@ class SQLiteReservationStore:
                 occurred_at=created_at,
             )
         )
-        return self.create(reservation, evidence=transition_evidence)
+        return self._insert_unbound_fixture(reservation, evidence=transition_evidence)
 
     def get(self, reservation_id: str) -> Reservation | None:
         _nonempty(reservation_id, "reservation_id")
