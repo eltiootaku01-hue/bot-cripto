@@ -631,3 +631,104 @@ def test_legacy_tables_are_migrated_without_backfilling_binding(tmp_path):
         "SELECT COUNT(*) FROM reservation_authorization_bindings"
     ).fetchone() == (0,)
     store.close()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("risk_decision_id", "changed-decision"),
+        ("proposal_id", "changed-proposal"),
+        ("signal_id", "changed-signal"),
+        ("correlation_id", "changed-correlation"),
+        ("evaluation_context_id", "changed-context"),
+        ("policy_id", "changed-policy"),
+        ("policy_version", "9.9.9"),
+        ("decision_timestamp", BASE + timedelta(seconds=1)),
+        (
+            "risk_evidence",
+            (RiskEvidenceRef(kind="OTHER", reference_id="changed", as_of=BASE),),
+        ),
+    ],
+)
+def test_semantic_fingerprint_changes_for_each_logical_binding_field(field, value):
+    request = make_request()
+    changed = replace(request.authorization, **{field: value})
+
+    assert risk_authorization_semantic_fingerprint(changed) != request.authorization_fingerprint
+
+
+def test_v2_idempotency_key_changes_with_semantic_fingerprint_and_financial_terms():
+    request = make_request()
+    changed_auth = replace(
+        request.authorization,
+        policy_version="9.9.9",
+    )
+    changed_fingerprint = risk_authorization_semantic_fingerprint(changed_auth)
+
+    key_with_changed_authorization = build_admission_idempotency_key(
+        risk_decision_id=request.risk_decision.risk_decision_id,
+        proposal_id=request.proposal.proposal_id,
+        account_id=request.account_id,
+        resource_kind=request.resource_kind,
+        asset=request.asset,
+        approved_reserved_amount=request.approved_reserved_amount,
+        correlation_id=request.proposal.correlation_id,
+        authorization_fingerprint=changed_fingerprint,
+    )
+    key_with_changed_amount = build_admission_idempotency_key(
+        risk_decision_id=request.risk_decision.risk_decision_id,
+        proposal_id=request.proposal.proposal_id,
+        account_id=request.account_id,
+        resource_kind=request.resource_kind,
+        asset=request.asset,
+        approved_reserved_amount=request.approved_reserved_amount + Decimal("1"),
+        correlation_id=request.proposal.correlation_id,
+        authorization_fingerprint=request.authorization_fingerprint,
+    )
+
+    assert key_with_changed_authorization != request.admission_idempotency_key
+    assert key_with_changed_amount != request.admission_idempotency_key
+
+
+def test_request_rejects_each_cross_object_provenance_mismatch():
+    request = make_request()
+
+    with pytest.raises(FinancialAdmissionContractError, match="correlation_id mismatch"):
+        replace(
+            request,
+            risk_decision=replace(
+                request.risk_decision,
+                correlation_id="different-correlation",
+            ),
+        )
+
+    changed_instrument = replace(
+        request.context.instrument,
+        instrument_id="different-canonical-instrument",
+    )
+    changed_context = replace(request.context, instrument=changed_instrument)
+    with pytest.raises(FinancialAdmissionContractError, match="evaluation_context_id mismatch"):
+        replace(request, context=changed_context)
+
+    changed_policy = replace(request.policy, policy_version="9.9.9")
+    with pytest.raises(FinancialAdmissionContractError, match="policy_id/policy_version mismatch"):
+        replace(request, policy=changed_policy)
+
+    changed_timestamp_auth = replace(
+        request.authorization,
+        decision_timestamp=BASE + timedelta(seconds=1),
+    )
+    with pytest.raises(FinancialAdmissionContractError, match="decision_timestamp mismatch"):
+        replace(request, authorization=changed_timestamp_auth)
+
+    changed_evidence = (
+        RiskEvidenceRef(kind="OTHER", reference_id="not-bound", as_of=BASE),
+    )
+    changed_evidence_auth = replace(
+        request.authorization,
+        risk_evidence=changed_evidence,
+    )
+    with pytest.raises(FinancialAdmissionContractError, match="authorization evidence"):
+        replace(request, authorization=changed_evidence_auth)
+
+
