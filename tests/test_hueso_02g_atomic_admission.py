@@ -3,7 +3,7 @@ from __future__ import annotations
 import multiprocessing as mp
 import sqlite3
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -301,7 +301,7 @@ def test_store_controls_creation_evidence_timestamp(tmp_path):
     assert len(transitions) == 1
     assert transitions[0].occurred_at == request.created_at
     assert transitions[0].evidence_kind == "RESERVATION_CREATED"
-    assert transitions[0].evidence_reference_id == reservation.reservation_id
+    assert transitions[0].evidence_reference_id == proposal.proposal_id
     store.close()
 
 
