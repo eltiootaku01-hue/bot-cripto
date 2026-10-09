@@ -757,24 +757,8 @@ class SQLiteReservationStore:
         return reservation
 
 
-    def admit(
-        self,
-        *,
-        proposal: TradeProposal,
-        risk_decision: RiskDecision,
-        account_id: str,
-        resource_kind: ReservationResourceKind,
-        asset: str,
-        reserved_amount: Decimal,
-        canonical_account_state: CanonicalAccountState,
-        created_at: datetime,
-        authorization_binding: ReservationAuthorizationBindingInput,
-        reservation_id: str | None = None,
-        client_order_id: str | None = None,
-        exchange_order_id: str | None = None,
-        evidence: ReservationTransitionEvidence | None = None,
-    ) -> Reservation:
-        """Atomically validate capacity and persist a Reservation plus creation transition."""
+    def admit(self, *, request: "FinancialAdmissionRequest") -> Reservation:
+        """Revalidate and atomically persist one complete financial admission request."""
         try:
             self._connection.execute("BEGIN IMMEDIATE")
         except sqlite3.OperationalError as exc:
@@ -785,18 +769,35 @@ class SQLiteReservationStore:
             raise
 
         try:
+            from .financial_admission import FinancialAdmissionRequest
+
+            if not isinstance(request, FinancialAdmissionRequest):
+                raise TypeError("request must be FinancialAdmissionRequest")
+            try:
+                validated = request.validate()
+            except Exception as exc:
+                raise ReservationAdmissionRejected(
+                    "financial admission request failed canonical semantic validation"
+                ) from exc
+
+            proposal = request.proposal
+            risk_decision = request.risk_decision
+            account_id = request.account_id
+            resource_kind = validated.resource_kind
+            asset = validated.asset
+            reserved_amount = validated.reserved_amount
+            canonical_account_state = request.canonical_account_state
+            created_at = request.created_at
+            authorization_binding = validated.authorization_binding
+
+            _nonempty(account_id, "account_id")
             if not isinstance(canonical_account_state, CanonicalAccountState):
                 raise TypeError("canonical_account_state must be CanonicalAccountState")
-            _nonempty(account_id, "account_id")
             if not isinstance(resource_kind, ReservationResourceKind):
                 raise TypeError("resource_kind must be ReservationResourceKind")
             _nonempty(asset, "asset")
             _aware(created_at, "created_at")
             _decimal(reserved_amount, "reserved_amount")
-            if not isinstance(authorization_binding, ReservationAuthorizationBindingInput):
-                raise TypeError(
-                    "authorization_binding must be ReservationAuthorizationBindingInput"
-                )
             self._validate_authorization_binding(
                 authorization_binding,
                 proposal=proposal,
@@ -815,6 +816,22 @@ class SQLiteReservationStore:
                     "CanonicalAccountState completeness must be COMPLETE"
                 )
 
+            reservation_read_set = self.read_set_for_account(account_id)
+            from .effective_capacity import calculate_effective_capacity
+
+            effective_capacity = calculate_effective_capacity(
+                canonical_account_state,
+                reservation_read_set,
+                resource_kind=resource_kind,
+                asset=asset,
+            )
+            if effective_capacity.completeness is not Completeness.COMPLETE:
+                raise ReservationAdmissionRejected(
+                    "Reservation effective-capacity inputs are not COMPLETE"
+                )
+
+            # Resolve proposal/idempotency conflicts before amount-specific capacity
+            # rejection so a true repeated request can be recognized by the boundary.
             existing = self._connection.execute(
                 """
                 SELECT reservation_id
@@ -830,20 +847,6 @@ class SQLiteReservationStore:
                     "Proposal already has a non-terminal Reservation"
                 )
 
-            reservation_read_set = self.read_set_for_account(account_id)
-
-            from .effective_capacity import calculate_effective_capacity
-
-            effective_capacity = calculate_effective_capacity(
-                canonical_account_state,
-                reservation_read_set,
-                resource_kind=resource_kind,
-                asset=asset,
-            )
-            if effective_capacity.completeness is not Completeness.COMPLETE:
-                raise ReservationAdmissionRejected(
-                    "Reservation effective-capacity inputs are not COMPLETE"
-                )
             if effective_capacity.status.value == "OVERCOMMITTED":
                 raise ReservationAdmissionRejected(
                     "effective capacity is already OVERCOMMITTED"
@@ -861,26 +864,12 @@ class SQLiteReservationStore:
                 asset=asset,
                 reserved_amount=reserved_amount,
                 created_at=created_at,
-                reservation_id=reservation_id,
-                client_order_id=client_order_id,
-                exchange_order_id=exchange_order_id,
             )
-            transition_evidence = (
-                evidence
-                if evidence is not None
-                else ReservationTransitionEvidence(
-                    kind="RESERVATION_CREATED",
-                    reference_id=proposal.proposal_id,
-                    occurred_at=created_at,
-                )
+            transition_evidence = ReservationTransitionEvidence(
+                kind="RESERVATION_CREATED",
+                reference_id=proposal.proposal_id,
+                occurred_at=created_at,
             )
-            if not isinstance(transition_evidence, ReservationTransitionEvidence):
-                raise TypeError("evidence must be ReservationTransitionEvidence")
-            if transition_evidence.occurred_at != created_at:
-                raise ReservationContractError(
-                    "creation evidence timestamp must equal created_at"
-                )
-
             self._insert_reservation_and_transition(
                 reservation=reservation,
                 evidence=transition_evidence,

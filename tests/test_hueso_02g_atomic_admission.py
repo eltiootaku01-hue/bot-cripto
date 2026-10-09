@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import sqlite3
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from bot_obrero.financial_admission import FinancialAdmissionBoundary, FinancialAdmissionStatus
+import test_hueso_05d_final_admission as admission_fixtures
 from bot_obrero.analysis_contracts import ArtifactNature, Provenance, Signal
 from bot_obrero.effective_capacity import (
     EffectiveCapacityStatus,
@@ -16,7 +19,6 @@ from bot_obrero.effective_capacity import (
 from bot_obrero.reservation import (
     ReservationAdmissionBusy,
     ReservationAdmissionRejected,
-    ReservationAuthorizationBindingInput,
     ReservationConflict,
     ReservationResourceKind,
     ReservationSchemaConflict,
@@ -110,26 +112,6 @@ def make_risk_decision(
     )
 
 
-def make_binding(
-    proposal: TradeProposal,
-    risk_decision: RiskDecision | None = None,
-) -> ReservationAuthorizationBindingInput:
-    decision = make_risk_decision(proposal) if risk_decision is None else risk_decision
-    return ReservationAuthorizationBindingInput(
-        authorization_id=f"g1-auth-{decision.risk_decision_id}",
-        semantic_fingerprint="risk-authorization-semantic-v1:" + ("0" * 64),
-        risk_decision_id=decision.risk_decision_id,
-        proposal_id=proposal.proposal_id,
-        signal_id=proposal.signal_id,
-        correlation_id=proposal.correlation_id,
-        evaluation_context_id=decision.evaluation_context_id,
-        policy_id=decision.policy_id,
-        policy_version=decision.policy_version,
-        decision_timestamp=decision.decision_timestamp,
-        risk_evidence=decision.risk_evidence,
-    )
-
-
 def make_state(
     *,
     available: str = "100",
@@ -166,6 +148,40 @@ def evidence(proposal: TradeProposal, *, seconds: int = 0) -> ReservationTransit
     )
 
 
+def make_admission_request_for_amount(
+    proposal: TradeProposal,
+    amount: str,
+    *,
+    state: CanonicalAccountState | None = None,
+    decision_suffix: str | None = None,
+):
+    amount_decimal = Decimal(amount)
+    economic_proposal = replace(proposal, max_quote_spend=amount_decimal)
+    resolved_state = make_state() if state is None else state
+    if decision_suffix is None:
+        return admission_fixtures.make_request(
+            proposal=economic_proposal,
+            state=resolved_state,
+            amount=amount_decimal,
+        )
+    _, _, context, policy, decision, _ = admission_fixtures.make_bundle(
+        proposal=economic_proposal,
+        state=resolved_state,
+    )
+    decision = replace(
+        decision,
+        risk_decision_id=f"{decision.risk_decision_id}-{decision_suffix}",
+    )
+    return admission_fixtures.make_request(
+        proposal=economic_proposal,
+        state=resolved_state,
+        context=context,
+        policy=policy,
+        decision=decision,
+        amount=amount_decimal,
+    )
+
+
 def admit(
     store: SQLiteReservationStore,
     *,
@@ -173,21 +189,27 @@ def admit(
     proposal: TradeProposal | None = None,
     state: CanonicalAccountState | None = None,
     reservation_id: str | None = None,
-) -> object:
+    decision_suffix: str | None = None,
+):
     proposal = make_proposal() if proposal is None else proposal
-    return store.admit(
-        proposal=proposal,
-        risk_decision=make_risk_decision(proposal),
-        account_id=ACCOUNT,
-        authorization_binding=make_binding(proposal),
-        resource_kind=RESOURCE,
-        asset=ASSET,
-        reserved_amount=Decimal(amount),
-        canonical_account_state=make_state() if state is None else state,
-        created_at=BASE,
-        reservation_id=reservation_id,
-        evidence=evidence(proposal),
+    request = make_admission_request_for_amount(
+        proposal,
+        amount,
+        state=state,
+        decision_suffix=decision_suffix,
     )
+    result = FinancialAdmissionBoundary(store).admit(request)
+    if result.status in {
+        FinancialAdmissionStatus.ADMITTED,
+        FinancialAdmissionStatus.ALREADY_ADMITTED,
+    }:
+        assert result.reservation is not None
+        return result.reservation
+    if result.status is FinancialAdmissionStatus.BUSY:
+        raise ReservationAdmissionBusy(result.reason)
+    if result.reason in {"RESERVATION_CONFLICT", "IDEMPOTENCY_CONTEXT_CONFLICT"}:
+        raise ReservationConflict(result.reason)
+    raise ReservationAdmissionRejected(result.reason)
 
 
 def test_partial_unique_index_exists_and_matches_non_terminal_states(tmp_path):
@@ -259,35 +281,23 @@ def test_admission_uses_begin_immediate_and_commits(tmp_path):
 
     admit(store, amount="10", reservation_id="trace-10")
 
-    assert traces[0].startswith("BEGIN IMMEDIATE")
+    assert any(statement.startswith("BEGIN IMMEDIATE") for statement in traces)
     assert "COMMIT" in traces
     store.close()
 
 
-def test_admission_preserves_creation_evidence_timestamp_invariant(tmp_path):
+def test_store_controls_creation_evidence_timestamp(tmp_path):
     store = make_store(tmp_path)
-    proposal = make_proposal(proposal_id="evidence-mismatch")
-    bad_evidence = ReservationTransitionEvidence(
-        kind="RESERVATION_CREATED",
-        reference_id=proposal.proposal_id,
-        occurred_at=BASE.replace(second=1),
-    )
+    proposal = make_proposal(proposal_id="store-owned-evidence")
+    request = make_admission_request_for_amount(proposal, "10", state=make_state())
 
-    with pytest.raises(Exception, match="created_at"):
-        store.admit(
-            proposal=proposal,
-            risk_decision=make_risk_decision(proposal),
-            account_id=ACCOUNT,
-            authorization_binding=make_binding(proposal),
-            resource_kind=RESOURCE,
-            asset=ASSET,
-            reserved_amount=Decimal("10"),
-            canonical_account_state=make_state(),
-            created_at=BASE,
-            evidence=bad_evidence,
-        )
+    reservation = store.admit(request=request)
+    transitions = store.transitions(reservation.reservation_id)
 
-    assert store.read_set_for_account(ACCOUNT).reservations == ()
+    assert len(transitions) == 1
+    assert transitions[0].occurred_at == request.created_at
+    assert transitions[0].evidence_kind == "RESERVATION_CREATED"
+    assert transitions[0].evidence_reference_id == proposal.proposal_id
     store.close()
 
 
@@ -298,7 +308,7 @@ def test_admit_is_atomic_happy_path_and_creates_transition(tmp_path):
 
     assert reservation.state is ReservationState.ACTIVE
     assert reservation.protected_capacity == Decimal("30")
-    assert store.get("admit-30") == reservation
+    assert store.get(reservation.reservation_id) == reservation
     transitions = store.transitions("admit-30")
     assert len(transitions) == 1
     assert transitions[0].from_state is None
@@ -320,46 +330,29 @@ def test_admit_is_atomic_happy_path_and_creates_transition(tmp_path):
     "amount",
     [Decimal("0"), Decimal("-1")],
 )
-def test_admit_requires_strictly_positive_amount(tmp_path, amount):
+def test_admit_rejects_tampered_nonpositive_amount(tmp_path, amount):
     store = make_store(tmp_path)
-    proposal = make_proposal()
+    request = make_admission_request_for_amount(make_proposal(), "10", state=make_state())
+    object.__setattr__(request, "approved_reserved_amount", amount)
 
-    with pytest.raises(ReservationAdmissionRejected, match="greater than zero"):
-        store.admit(
-            proposal=proposal,
-            risk_decision=make_risk_decision(proposal),
-            account_id=ACCOUNT,
-            authorization_binding=make_binding(proposal),
-            resource_kind=RESOURCE,
-            asset=ASSET,
-            reserved_amount=amount,
-            canonical_account_state=make_state(),
-            created_at=BASE,
-            evidence=evidence(proposal),
-        )
+    with pytest.raises(ReservationAdmissionRejected, match="canonical semantic validation"):
+        store.admit(request=request)
 
     assert store.read_set_for_account(ACCOUNT).reservations == ()
     store.close()
 
 
-def test_admit_rejects_incomplete_canonical_snapshot(tmp_path):
+def test_admit_rejects_tampered_incomplete_canonical_snapshot(tmp_path):
     store = make_store(tmp_path)
-    proposal = make_proposal()
-
     for completeness in (Completeness.PARTIAL, Completeness.UNKNOWN):
-        with pytest.raises(ReservationAdmissionRejected, match="COMPLETE"):
-            store.admit(
-                proposal=proposal,
-                risk_decision=make_risk_decision(proposal),
-                account_id=ACCOUNT,
-                authorization_binding=make_binding(proposal),
-                resource_kind=RESOURCE,
-                asset=ASSET,
-                reserved_amount=Decimal("10"),
-                canonical_account_state=make_state(completeness=completeness),
-                created_at=BASE,
-                evidence=evidence(proposal),
-            )
+        request = make_admission_request_for_amount(make_proposal(), "10", state=make_state())
+        object.__setattr__(
+            request,
+            "canonical_account_state",
+            make_state(completeness=completeness),
+        )
+        with pytest.raises(ReservationAdmissionRejected, match="canonical semantic validation"):
+            store.admit(request=request)
 
     assert store.read_set_for_account(ACCOUNT).reservations == ()
     store.close()
@@ -390,18 +383,7 @@ def test_admit_rejects_capacity_overage(tmp_path):
     proposal = make_proposal()
 
     with pytest.raises(ReservationAdmissionRejected, match="exceeds"):
-        store.admit(
-            proposal=proposal,
-            risk_decision=make_risk_decision(proposal),
-            account_id=ACCOUNT,
-            authorization_binding=make_binding(proposal),
-            resource_kind=RESOURCE,
-            asset=ASSET,
-            reserved_amount=Decimal("41"),
-            canonical_account_state=make_state(),
-            created_at=BASE,
-            evidence=evidence(proposal),
-        )
+        admit(store, amount="41", proposal=proposal, state=make_state())
 
     read_set = store.read_set_for_account(ACCOUNT)
     assert sum((item.protected_capacity for item in read_set.relevant_reservations), Decimal("0")) == Decimal("60")
@@ -426,18 +408,7 @@ def test_unknown_reservation_remains_protected(tmp_path):
 
     other = make_proposal(proposal_id="other-proposal")
     with pytest.raises(ReservationAdmissionRejected, match="exceeds"):
-        store.admit(
-            proposal=other,
-            risk_decision=make_risk_decision(other),
-            account_id=ACCOUNT,
-            authorization_binding=make_binding(other),
-            resource_kind=RESOURCE,
-            asset=ASSET,
-            reserved_amount=Decimal("31"),
-            canonical_account_state=make_state(),
-            created_at=BASE,
-            evidence=evidence(other),
-        )
+        admit(store, amount="31", proposal=other, state=make_state())
     store.close()
 
 
@@ -483,7 +454,13 @@ def test_same_proposal_can_be_reused_only_after_terminal_state(tmp_path):
         ),
     )
 
-    second = admit(store, amount="20", proposal=proposal, reservation_id="second")
+    second = admit(
+        store,
+        amount="20",
+        proposal=proposal,
+        reservation_id="second",
+        decision_suffix="terminal-retry",
+    )
     assert second.proposal_id == proposal.proposal_id
     assert {
         item.state for item in store.list_for_proposal(proposal.proposal_id)
@@ -491,14 +468,13 @@ def test_same_proposal_can_be_reused_only_after_terminal_state(tmp_path):
     store.close()
 
 
-def test_same_proposal_is_rejected_while_non_terminal(tmp_path):
+def test_same_nonterminal_admission_repeats_idempotently(tmp_path):
     store = make_store(tmp_path)
     proposal = make_proposal(proposal_id="duplicate-proposal")
-    admit(store, amount="20", proposal=proposal, reservation_id="first")
+    first = admit(store, amount="20", proposal=proposal, reservation_id="first")
+    second = admit(store, amount="20", proposal=proposal, reservation_id="second")
 
-    with pytest.raises(ReservationConflict, match="non-terminal"):
-        admit(store, amount="20", proposal=proposal, reservation_id="second")
-
+    assert second.reservation_id == first.reservation_id
     assert len(store.list_for_proposal(proposal.proposal_id)) == 1
     store.close()
 
@@ -506,21 +482,15 @@ def test_same_proposal_is_rejected_while_non_terminal(tmp_path):
 def test_risk_rejection_rolls_back_and_does_not_persist(tmp_path):
     store = make_store(tmp_path)
     proposal = make_proposal()
-    rejected = make_risk_decision(proposal, outcome=RiskDecisionOutcome.REJECTED)
+    request = make_admission_request_for_amount(proposal, "10", state=make_state())
+    object.__setattr__(
+        request,
+        "risk_decision",
+        make_risk_decision(proposal, outcome=RiskDecisionOutcome.REJECTED),
+    )
 
-    with pytest.raises(Exception, match="APPROVED"):
-        store.admit(
-            proposal=proposal,
-            risk_decision=rejected,
-            account_id=ACCOUNT,
-            authorization_binding=make_binding(proposal, rejected),
-            resource_kind=RESOURCE,
-            asset=ASSET,
-            reserved_amount=Decimal("10"),
-            canonical_account_state=make_state(),
-            created_at=BASE,
-            evidence=evidence(proposal),
-        )
+    with pytest.raises(ReservationAdmissionRejected, match="canonical semantic validation"):
+        store.admit(request=request)
 
     assert store.read_set_for_account(ACCOUNT).reservations == ()
     store.close()
@@ -529,6 +499,7 @@ def test_risk_rejection_rolls_back_and_does_not_persist(tmp_path):
 def test_artificial_failure_after_reservation_insert_rolls_back_everything(tmp_path, monkeypatch):
     store = make_store(tmp_path)
     proposal = make_proposal(proposal_id="rollback-proposal")
+    request = make_admission_request_for_amount(proposal, "25", state=make_state())
 
     original = store._insert_transition
 
@@ -538,15 +509,12 @@ def test_artificial_failure_after_reservation_insert_rolls_back_everything(tmp_p
 
     monkeypatch.setattr(store, "_insert_transition", fail_after_insert)
 
-    with pytest.raises(RuntimeError, match="ARTIFICIAL_G1_FAILURE"):
-        admit(store, amount="25", proposal=proposal, reservation_id="rollback-25")
-
-    assert store.get("rollback-25") is None
-    transition_rows = store._connection.execute(
-        "SELECT COUNT(*) FROM reservation_transitions WHERE reservation_id=?",
-        ("rollback-25",),
-    ).fetchone()
-    assert transition_rows == (0,)
+    result = FinancialAdmissionBoundary(store).admit(request)
+    assert result.status is FinancialAdmissionStatus.REJECTED
+    assert store.list_for_proposal(proposal.proposal_id) == ()
+    assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (0,)
     store.close()
 
 
@@ -556,21 +524,10 @@ def test_sqlite_busy_fails_closed(tmp_path):
     contender._connection.execute("PRAGMA busy_timeout=0")
 
     holder._connection.execute("BEGIN IMMEDIATE")
-    proposal = make_proposal()
+    request = make_admission_request_for_amount(make_proposal(), "10", state=make_state())
 
     with pytest.raises(ReservationAdmissionBusy, match="busy"):
-        contender.admit(
-            proposal=proposal,
-            risk_decision=make_risk_decision(proposal),
-            account_id=ACCOUNT,
-            authorization_binding=make_binding(proposal),
-            resource_kind=RESOURCE,
-            asset=ASSET,
-            reserved_amount=Decimal("10"),
-            canonical_account_state=make_state(),
-            created_at=BASE,
-            evidence=evidence(proposal),
-        )
+        contender.admit(request=request)
 
     holder._connection.rollback()
     contender.close()
@@ -593,20 +550,16 @@ def _cross_process_worker(
             proposal_id=proposal_id,
             correlation_id=correlation_id,
         )
-        reservation = store.admit(
-            proposal=proposal,
-            risk_decision=make_risk_decision(proposal),
-            account_id=ACCOUNT,
-            authorization_binding=make_binding(proposal),
-            resource_kind=RESOURCE,
-            asset=ASSET,
-            reserved_amount=Decimal(amount),
-            canonical_account_state=make_state(),
-            created_at=BASE,
-            reservation_id=f"{proposal_id}-{amount}",
-            evidence=evidence(proposal),
-        )
-        results.put(("accepted", amount, reservation.reservation_id))
+        request = make_admission_request_for_amount(proposal, amount, state=make_state())
+        result = FinancialAdmissionBoundary(store).admit(request)
+        if result.status in {
+            FinancialAdmissionStatus.ADMITTED,
+            FinancialAdmissionStatus.ALREADY_ADMITTED,
+        }:
+            assert result.reservation is not None
+            results.put(("accepted", amount, result.reservation.reservation_id))
+        else:
+            results.put(("rejected", amount, result.status.value, result.reason))
     except Exception as exc:
         results.put(("rejected", amount, type(exc).__name__, str(exc)))
     finally:
@@ -727,7 +680,11 @@ def test_cross_process_same_proposal_creates_exactly_one_non_terminal_reservatio
 
     assert len(accepted) == 1
     assert len(rejected) == 1
-    assert "ReservationConflict" in rejected[0][2] or "reservation" in rejected[0][3].lower()
+    assert (
+        "ReservationConflict" in rejected[0][2]
+        or "reservation" in rejected[0][3].lower()
+        or "IDEMPOTENCY_CONTEXT_CONFLICT" in rejected[0][3]
+    )
 
     store = SQLiteReservationStore(path)
     reservations = store.list_for_proposal("shared-proposal")
@@ -744,12 +701,7 @@ def test_cross_process_results_are_explicit_about_fail_closed_rejection(tmp_path
     outcomes, _ = run_cross_process_race(tmp_path, "70", "50")
     rejected = [item for item in outcomes if item[0] == "rejected"]
     assert len(rejected) == 1
-    assert rejected[0][2] in {
-        "ReservationAdmissionRejected",
-        "ReservationConflict",
-        "ReservationAdmissionBusy",
-        "ReservationContractError",
-    }
+    assert rejected[0][2] in {"REJECTED", "BUSY"}
 
 
 def test_admission_preserves_decimal_amounts_and_terminal_zero_protection(tmp_path):

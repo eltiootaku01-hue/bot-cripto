@@ -30,6 +30,7 @@ from .reservation import (
 from .risk_authorization import (
     RiskAuthorization,
     RiskAuthorizationStatus,
+    authorize_risk_decision,
     risk_authorization_semantic_fingerprint,
 )
 from .risk_evaluation_context import RiskEvaluationContext
@@ -74,6 +75,9 @@ class FinancialAdmissionRequest:
     evidence: tuple[RiskEvidenceRef, ...]
 
     def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> "_ValidatedFinancialAdmission":
         if not isinstance(self.proposal, TradeProposal):
             raise FinancialAdmissionContractError("proposal must be TradeProposal")
         if not isinstance(self.risk_decision, RiskDecision):
@@ -258,9 +262,61 @@ class FinancialAdmissionRequest:
                 "admission_idempotency_key does not bind v2 financial and authorization context"
             )
 
+        canonical_result = authorize_risk_decision(
+            proposal=proposal,
+            risk_decision=decision,
+            context=context,
+            policy=policy,
+        )
+        if (
+            canonical_result.status is not RiskAuthorizationStatus.AUTHORIZED
+            or canonical_result.authorization is None
+        ):
+            raise FinancialAdmissionContractError(
+                "canonical risk authorization did not return AUTHORIZED"
+            )
+        canonical_fingerprint = risk_authorization_semantic_fingerprint(
+            canonical_result.authorization
+        )
+        if canonical_fingerprint != fingerprint:
+            raise FinancialAdmissionContractError(
+                "authorization semantic fingerprint does not match canonical authorization"
+            )
+
+        binding = ReservationAuthorizationBindingInput(
+            authorization_id=authorization.authorization_id,
+            semantic_fingerprint=fingerprint,
+            risk_decision_id=authorization.risk_decision_id,
+            proposal_id=authorization.proposal_id,
+            signal_id=authorization.signal_id,
+            correlation_id=authorization.correlation_id,
+            evaluation_context_id=authorization.evaluation_context_id,
+            policy_id=authorization.policy_id,
+            policy_version=authorization.policy_version,
+            decision_timestamp=authorization.decision_timestamp,
+            risk_evidence=evidence,
+        )
+        return _ValidatedFinancialAdmission(
+            resource_kind=expected_resource,
+            asset=expected_asset,
+            reserved_amount=expected_amount,
+            authorization_fingerprint=fingerprint,
+            authorization_binding=binding,
+        )
+
     @property
     def authorization_fingerprint(self) -> str:
         return risk_authorization_semantic_fingerprint(self.authorization)
+
+@dataclass(frozen=True)
+class _ValidatedFinancialAdmission:
+    """Canonical terms derived by validating a complete admission request."""
+
+    resource_kind: ReservationResourceKind
+    asset: str
+    reserved_amount: Decimal
+    authorization_fingerprint: str
+    authorization_binding: ReservationAuthorizationBindingInput
 
 
 def _required_reservation_terms(
@@ -428,7 +484,7 @@ class FinancialAdmissionBoundary:
             raise TypeError("request must be FinancialAdmissionRequest")
 
         try:
-            request.__post_init__()
+            request.validate()
         except Exception:
             return FinancialAdmissionResult(
                 status=FinancialAdmissionStatus.REJECTED,
@@ -449,31 +505,7 @@ class FinancialAdmissionBoundary:
             return self._existing_result(existing, request)
 
         try:
-            authorization = request.authorization
-            binding = ReservationAuthorizationBindingInput(
-                authorization_id=authorization.authorization_id,
-                semantic_fingerprint=request.authorization_fingerprint,
-                risk_decision_id=authorization.risk_decision_id,
-                proposal_id=authorization.proposal_id,
-                signal_id=authorization.signal_id,
-                correlation_id=authorization.correlation_id,
-                evaluation_context_id=authorization.evaluation_context_id,
-                policy_id=authorization.policy_id,
-                policy_version=authorization.policy_version,
-                decision_timestamp=authorization.decision_timestamp,
-                risk_evidence=request.evidence,
-            )
-            reservation = self._store.admit(
-                proposal=request.proposal,
-                risk_decision=request.risk_decision,
-                account_id=request.account_id,
-                resource_kind=request.resource_kind,
-                asset=request.asset,
-                reserved_amount=request.approved_reserved_amount,
-                canonical_account_state=request.canonical_account_state,
-                created_at=request.created_at,
-                authorization_binding=binding,
-            )
+            reservation = self._store.admit(request=request)
             return FinancialAdmissionResult(
                 status=FinancialAdmissionStatus.ADMITTED,
                 reservation=reservation,

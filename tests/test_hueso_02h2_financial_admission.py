@@ -649,16 +649,16 @@ def test_delegates_to_admit_not_create_and_preserves_exact_amount():
         def list_for_proposal(self, proposal_id):
             return ()
 
-        def admit(self, **kwargs):
-            calls.append(("admit", kwargs))
+        def admit(self, *, request):
+            calls.append(("admit", {"request": request}))
             return Reservation.from_trade_proposal_and_risk_decision(
-                proposal=kwargs["proposal"],
-                risk_decision=kwargs["risk_decision"],
-                account_id=kwargs["account_id"],
-                resource_kind=kwargs["resource_kind"],
-                asset=kwargs["asset"],
-                reserved_amount=kwargs["reserved_amount"],
-                created_at=kwargs["created_at"],
+                proposal=request.proposal,
+                risk_decision=request.risk_decision,
+                account_id=request.account_id,
+                resource_kind=request.resource_kind,
+                asset=request.asset,
+                reserved_amount=request.approved_reserved_amount,
+                created_at=request.created_at,
                 reservation_id="recording-reservation",
             )
 
@@ -671,7 +671,8 @@ def test_delegates_to_admit_not_create_and_preserves_exact_amount():
     assert result.status is FinancialAdmissionStatus.ADMITTED
     assert len(calls) == 1
     assert calls[0][0] == "admit"
-    assert calls[0][1]["reserved_amount"] == request.approved_reserved_amount
+    assert calls[0][1]["request"] is request
+    assert calls[0][1]["request"].approved_reserved_amount == request.approved_reserved_amount
 
 
 def test_fail_closed_when_existing_same_decision_context_differs():

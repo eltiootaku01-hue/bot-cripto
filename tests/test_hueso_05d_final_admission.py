@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from threading import Barrier
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -22,6 +24,7 @@ from bot_obrero.market_data import InstrumentIdentity
 from bot_obrero.reservation import (
     PersistedReservationAuthorizationBinding,
     Reservation,
+    ReservationAdmissionRejected,
     ReservationAuthorizationBindingInput,
     ReservationResourceKind,
     ReservationTransitionEvidence,
@@ -600,10 +603,11 @@ def test_boundary_revalidates_tampered_request_before_store_access():
     assert store.admissions == 0
 
 
-def test_direct_store_requires_binding_dto(tmp_path):
+def test_direct_store_requires_complete_request_and_rejects_legacy_arguments(tmp_path):
     request = make_request()
-    store = make_store(tmp_path / "requires-binding.sqlite3")
-    with pytest.raises(TypeError, match="authorization_binding"):
+    store = make_store(tmp_path / "requires-request.sqlite3")
+
+    with pytest.raises(TypeError):
         store.admit(
             proposal=request.proposal,
             risk_decision=request.risk_decision,
@@ -615,40 +619,128 @@ def test_direct_store_requires_binding_dto(tmp_path):
             created_at=request.created_at,
         )
     assert store.list_for_proposal(request.proposal.proposal_id) == ()
+    assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (0,)
+
+    reservation = store.admit(request=request)
+    assert store.get(reservation.reservation_id) == reservation
+    assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (1,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (1,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (1,)
     store.close()
 
 
-def test_binding_dto_rejects_proposal_or_evidence_mismatch(tmp_path):
+def test_well_formed_arbitrary_fingerprint_is_rejected_without_partial_writes(tmp_path):
     request = make_request()
-    store = make_store(tmp_path / "dto-mismatch.sqlite3")
-    auth = request.authorization
-    bad_binding = ReservationAuthorizationBindingInput(
+    forged_fingerprint = "risk-authorization-semantic-v1:" + ("0" * 64)
+    assert forged_fingerprint != request.authorization_fingerprint
+    object.__setattr__(
+        request,
+        "admission_idempotency_key",
+        build_admission_idempotency_key(
+            risk_decision_id=request.risk_decision.risk_decision_id,
+            proposal_id=request.proposal.proposal_id,
+            account_id=request.account_id,
+            resource_kind=request.resource_kind,
+            asset=request.asset,
+            approved_reserved_amount=request.approved_reserved_amount,
+            correlation_id=request.proposal.correlation_id,
+            authorization_fingerprint=forged_fingerprint,
+        ),
+    )
+
+    store = make_store(tmp_path / "arbitrary-fingerprint.sqlite3")
+    with pytest.raises(ReservationAdmissionRejected, match="canonical semantic validation"):
+        store.admit(request=request)
+
+    assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (0,)
+
+    valid_request = make_request()
+    auth = valid_request.authorization
+    unaccepted_binding = ReservationAuthorizationBindingInput(
         authorization_id=auth.authorization_id,
-        semantic_fingerprint=request.authorization_fingerprint,
+        semantic_fingerprint=forged_fingerprint,
         risk_decision_id=auth.risk_decision_id,
-        proposal_id="unrelated-proposal",
+        proposal_id=auth.proposal_id,
         signal_id=auth.signal_id,
         correlation_id=auth.correlation_id,
         evaluation_context_id=auth.evaluation_context_id,
         policy_id=auth.policy_id,
         policy_version=auth.policy_version,
         decision_timestamp=auth.decision_timestamp,
-        risk_evidence=request.evidence,
+        risk_evidence=valid_request.evidence,
     )
-    with pytest.raises(Exception, match="authorization binding"):
-        store.admit(
-            proposal=request.proposal,
-            risk_decision=request.risk_decision,
-            account_id=request.account_id,
-            resource_kind=request.resource_kind,
-            asset=request.asset,
-            reserved_amount=request.approved_reserved_amount,
-            canonical_account_state=request.canonical_account_state,
-            created_at=request.created_at,
-            authorization_binding=bad_binding,
-        )
-    assert store.list_for_proposal(request.proposal.proposal_id) == ()
+    with pytest.raises(TypeError):
+        store.admit(request=valid_request, authorization_binding=unaccepted_binding)
+
+    assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (0,)
     store.close()
+
+
+def test_store_revalidates_tampered_authorization_inside_transaction(tmp_path):
+    request = make_request()
+    object.__setattr__(
+        request,
+        "authorization",
+        replace(request.authorization, policy_version="9.9.9"),
+    )
+    store = make_store(tmp_path / "tampered-authorization.sqlite3")
+
+    with pytest.raises(ReservationAdmissionRejected, match="canonical semantic validation"):
+        store.admit(request=request)
+
+    assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (0,)
+    assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (0,)
+    store.close()
+
+
+def test_concurrent_equivalent_boundary_calls_converge_on_one_reservation(tmp_path):
+    request = make_request()
+    equivalent_auth = replace(request.authorization, authorization_id="equivalent-random-id")
+    equivalent_request = replace(request, authorization=equivalent_auth)
+    db_path = tmp_path / "concurrent-final-admission.sqlite3"
+
+    initial = make_store(db_path)
+    initial.close()
+    barrier = Barrier(2)
+
+    def admit_in_worker(worker_request):
+        store = make_store(db_path)
+        try:
+            barrier.wait(timeout=10)
+            return FinancialAdmissionBoundary(store).admit(worker_request)
+        finally:
+            store.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(admit_in_worker, request)
+        second_future = executor.submit(admit_in_worker, equivalent_request)
+        results = (first_future.result(timeout=20), second_future.result(timeout=20))
+
+    assert {result.status for result in results} == {
+        FinancialAdmissionStatus.ADMITTED,
+        FinancialAdmissionStatus.ALREADY_ADMITTED,
+    }
+    reservations = tuple(result.reservation for result in results)
+    assert reservations[0] is not None
+    assert reservations[1] is not None
+    assert reservations[0].reservation_id == reservations[1].reservation_id
+
+    store = make_store(db_path)
+    try:
+        rows = store.list_for_proposal(request.proposal.proposal_id)
+        assert len(rows) == 1
+        assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (1,)
+        assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (1,)
+        assert store.get_authorization_binding(rows[0].reservation_id) is not None
+    finally:
+        store.close()
 
 
 def test_legacy_tables_are_migrated_without_backfilling_binding(tmp_path):
