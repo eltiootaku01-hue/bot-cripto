@@ -428,6 +428,15 @@ class FinancialAdmissionBoundary:
             raise TypeError("request must be FinancialAdmissionRequest")
 
         try:
+            request.__post_init__()
+        except Exception:
+            return FinancialAdmissionResult(
+                status=FinancialAdmissionStatus.REJECTED,
+                reservation=None,
+                reason="ADMISSION_PRECONDITION_REJECTED",
+            )
+
+        try:
             existing = self._matching_prior_reservation(request)
         except Exception as exc:
             return FinancialAdmissionResult(
