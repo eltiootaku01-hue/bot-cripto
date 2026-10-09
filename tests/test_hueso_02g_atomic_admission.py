@@ -16,6 +16,7 @@ from bot_obrero.effective_capacity import (
 from bot_obrero.reservation import (
     ReservationAdmissionBusy,
     ReservationAdmissionRejected,
+    ReservationAuthorizationBindingInput,
     ReservationConflict,
     ReservationResourceKind,
     ReservationSchemaConflict,
@@ -29,6 +30,7 @@ from bot_obrero.risk_contracts import (
     Completeness,
     RiskDecision,
     RiskDecisionOutcome,
+    RiskEvidenceRef,
 )
 from bot_obrero.trade_proposal import (
     PricePolicy,
@@ -86,13 +88,45 @@ def make_risk_decision(
     outcome: RiskDecisionOutcome = RiskDecisionOutcome.APPROVED,
     risk_decision_id: str | None = None,
 ) -> RiskDecision:
-    return RiskDecision.from_trade_proposal(
-        proposal=proposal,
-        risk_decision_id=risk_decision_id or f"risk-{proposal.proposal_id}",
+    decision_id = risk_decision_id or f"risk-{proposal.proposal_id}"
+    return RiskDecision(
+        risk_decision_id=decision_id,
+        proposal_id=proposal.proposal_id,
+        signal_id=proposal.signal_id,
         outcome=outcome,
         reason="G1 reservation admission test",
         decision_timestamp=BASE,
-        risk_evidence=(),
+        risk_evidence=(
+            RiskEvidenceRef(
+                kind="G1_TEST",
+                reference_id=decision_id,
+                as_of=BASE,
+            ),
+        ),
+        correlation_id=proposal.correlation_id,
+        evaluation_context_id=f"g1-context-{proposal.proposal_id}",
+        policy_id="g1-test-policy",
+        policy_version="1.0.0",
+    )
+
+
+def make_binding(
+    proposal: TradeProposal,
+    risk_decision: RiskDecision | None = None,
+) -> ReservationAuthorizationBindingInput:
+    decision = make_risk_decision(proposal) if risk_decision is None else risk_decision
+    return ReservationAuthorizationBindingInput(
+        authorization_id=f"g1-auth-{decision.risk_decision_id}",
+        semantic_fingerprint="risk-authorization-semantic-v1:" + ("0" * 64),
+        risk_decision_id=decision.risk_decision_id,
+        proposal_id=proposal.proposal_id,
+        signal_id=proposal.signal_id,
+        correlation_id=proposal.correlation_id,
+        evaluation_context_id=decision.evaluation_context_id,
+        policy_id=decision.policy_id,
+        policy_version=decision.policy_version,
+        decision_timestamp=decision.decision_timestamp,
+        risk_evidence=decision.risk_evidence,
     )
 
 
@@ -145,6 +179,7 @@ def admit(
         proposal=proposal,
         risk_decision=make_risk_decision(proposal),
         account_id=ACCOUNT,
+        authorization_binding=make_binding(proposal),
         resource_kind=RESOURCE,
         asset=ASSET,
         reserved_amount=Decimal(amount),
@@ -243,6 +278,11 @@ def test_admission_preserves_creation_evidence_timestamp_invariant(tmp_path):
             proposal=proposal,
             risk_decision=make_risk_decision(proposal),
             account_id=ACCOUNT,
+            authorization_binding=make_binding(proposal),
+            authorization_binding=make_binding(proposal),
+            authorization_binding=make_binding(proposal),
+            authorization_binding=make_binding(proposal),
+            authorization_binding=make_binding(proposal),
             resource_kind=RESOURCE,
             asset=ASSET,
             reserved_amount=Decimal("10"),
@@ -391,6 +431,7 @@ def test_unknown_reservation_remains_protected(tmp_path):
             proposal=other,
             risk_decision=make_risk_decision(other),
             account_id=ACCOUNT,
+            authorization_binding=make_binding(other),
             resource_kind=RESOURCE,
             asset=ASSET,
             reserved_amount=Decimal("31"),
@@ -473,6 +514,7 @@ def test_risk_rejection_rolls_back_and_does_not_persist(tmp_path):
             proposal=proposal,
             risk_decision=rejected,
             account_id=ACCOUNT,
+            authorization_binding=make_binding(proposal, rejected),
             resource_kind=RESOURCE,
             asset=ASSET,
             reserved_amount=Decimal("10"),
