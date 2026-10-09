@@ -86,13 +86,6 @@ class FinancialAdmissionRequest:
             raise FinancialAdmissionContractError("context must be RiskEvaluationContext")
         if not isinstance(self.policy, RiskEvaluationPolicy):
             raise FinancialAdmissionContractError("policy must be RiskEvaluationPolicy")
-        if not isinstance(self.authorization, RiskAuthorization):
-            raise FinancialAdmissionContractError("authorization must be RiskAuthorization")
-        if self.authorization.status is not RiskAuthorizationStatus.AUTHORIZED:
-            raise FinancialAdmissionContractError(
-                "financial admission requires AUTHORIZED RiskAuthorization"
-            )
-
         decision = self.risk_decision
         authorization = self.authorization
         context = self.context
@@ -120,6 +113,14 @@ class FinancialAdmissionRequest:
             raise FinancialAdmissionContractError("signal_id mismatch")
         if proposal.correlation_id != decision.correlation_id:
             raise FinancialAdmissionContractError("correlation_id mismatch")
+        if authorization.risk_decision_id != decision.risk_decision_id:
+            raise FinancialAdmissionContractError("authorization risk_decision_id mismatch")
+        if not isinstance(authorization, RiskAuthorization):
+            raise FinancialAdmissionContractError("authorization must be RiskAuthorization")
+        if authorization.status is not RiskAuthorizationStatus.AUTHORIZED:
+            raise FinancialAdmissionContractError(
+                "financial admission requires AUTHORIZED RiskAuthorization"
+            )
         if authorization.risk_decision_id != decision.risk_decision_id:
             raise FinancialAdmissionContractError("authorization risk_decision_id mismatch")
         if (
