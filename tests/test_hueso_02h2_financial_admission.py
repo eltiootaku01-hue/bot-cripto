@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import FrozenInstanceError
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -135,7 +135,7 @@ def make_context(
                 metric="MAX_NOTIONAL",
                 threshold=Decimal("1000"),
                 unit="USDT",
-                effective_from=BASE.replace(minute=BASE.minute - 1),
+                effective_from=BASE - timedelta(minutes=1),
                 effective_until=None,
                 provenance=Provenance("h2-limit", ArtifactNature.OBSERVED),
             ),
