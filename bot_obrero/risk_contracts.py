@@ -225,12 +225,12 @@ class RiskEvidenceRef:
 
 @dataclass(frozen=True)
 class RiskDecision:
-    """Immutable risk evaluation decision with a proposal-bound construction path.
+    """Immutable risk decision with proposal and evaluation provenance.
 
     The primitive dataclass constructor remains available for the existing
-    transport contract. The from_trade_proposal constructor is the
-    identity-safe path that derives proposal_id, signal_id, and correlation_id
-    directly from one concrete TradeProposal.
+    transport contract. A decision produced from a concrete RiskEvaluationContext
+    and RiskEvaluationPolicy must use from_risk_evaluation(), which derives the
+    provenance binding directly from those objects.
     """
 
     risk_decision_id: str
@@ -241,6 +241,9 @@ class RiskDecision:
     decision_timestamp: datetime
     risk_evidence: tuple[RiskEvidenceRef, ...]
     correlation_id: str
+    evaluation_context_id: str | None = None
+    policy_id: str | None = None
+    policy_version: str | None = None
 
     @classmethod
     def from_trade_proposal(
@@ -267,6 +270,49 @@ class RiskDecision:
             correlation_id=proposal.correlation_id,
         )
 
+    @classmethod
+    def from_risk_evaluation(
+        cls,
+        *,
+        proposal: TradeProposal,
+        context,
+        policy,
+        risk_decision_id: str,
+        outcome: RiskDecisionOutcome,
+        reason: str,
+        risk_evidence: tuple[RiskEvidenceRef, ...],
+    ) -> "RiskDecision":
+        """Build a decision whose provenance binding is derived from context/policy."""
+        from .risk_evaluation_context import RiskEvaluationContext
+        from .risk_evaluation_policy import RiskEvaluationPolicy
+
+        if not isinstance(proposal, TradeProposal):
+            raise TypeError("proposal must be TradeProposal")
+        if not isinstance(context, RiskEvaluationContext):
+            raise TypeError("context must be RiskEvaluationContext")
+        if not isinstance(policy, RiskEvaluationPolicy):
+            raise TypeError("policy must be RiskEvaluationPolicy")
+        if context.trade_proposal != proposal:
+            raise ValueError("context.trade_proposal must match proposal")
+        if context.decision_timestamp != proposal.decision_timestamp:
+            raise ValueError(
+                "context.decision_timestamp must match proposal.decision_timestamp"
+            )
+
+        return cls(
+            risk_decision_id=risk_decision_id,
+            proposal_id=proposal.proposal_id,
+            signal_id=proposal.signal_id,
+            outcome=outcome,
+            reason=reason,
+            decision_timestamp=proposal.decision_timestamp,
+            risk_evidence=risk_evidence,
+            correlation_id=proposal.correlation_id,
+            evaluation_context_id=context.evaluation_context_id,
+            policy_id=policy.policy_id,
+            policy_version=policy.policy_version,
+        )
+
     def __post_init__(self) -> None:
         _nonempty(self.risk_decision_id, "risk_decision_id")
         _nonempty(self.proposal_id, "proposal_id")
@@ -288,6 +334,19 @@ class RiskDecision:
             raise ValueError(
                 "correlation_id must differ from risk_decision_id, proposal_id, and signal_id"
             )
+        binding = (
+            self.evaluation_context_id,
+            self.policy_id,
+            self.policy_version,
+        )
+        binding_present = tuple(value is not None for value in binding)
+        if any(binding_present) and not all(binding_present):
+            raise ValueError("risk provenance binding must be complete")
+        if all(binding_present):
+            _nonempty(self.evaluation_context_id, "evaluation_context_id")
+            _nonempty(self.policy_id, "policy_id")
+            _nonempty(self.policy_version, "policy_version")
+
         evidence = tuple(self.risk_evidence)
         if not all(isinstance(item, RiskEvidenceRef) for item in evidence):
             raise ValueError("risk_evidence must contain only RiskEvidenceRef values")
