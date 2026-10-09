@@ -732,3 +732,38 @@ def test_request_rejects_each_cross_object_provenance_mismatch():
         replace(request, authorization=changed_evidence_auth)
 
 
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("risk_decision_id", "different-decision", "authorization risk_decision_id mismatch"),
+        ("proposal_id", "different-proposal", "authorization proposal/signal/correlation binding mismatch"),
+        ("signal_id", "different-signal", "authorization proposal/signal/correlation binding mismatch"),
+        ("correlation_id", "different-correlation", "authorization proposal/signal/correlation binding mismatch"),
+        ("evaluation_context_id", "different-context", "authorization evaluation_context_id mismatch"),
+        ("policy_id", "different-policy", "authorization policy binding mismatch"),
+        ("policy_version", "9.9.9", "authorization policy binding mismatch"),
+        ("decision_timestamp", BASE + timedelta(seconds=1), "decision_timestamp mismatch"),
+        (
+            "risk_evidence",
+            (RiskEvidenceRef(kind="OTHER", reference_id="discordant", as_of=BASE),),
+            "authorization evidence",
+        ),
+    ],
+)
+def test_request_rejects_each_authorization_binding_mismatch(field, value, message):
+    request = make_request()
+    mismatched_authorization = replace(request.authorization, **{field: value})
+
+    with pytest.raises(FinancialAdmissionContractError, match=message):
+        replace(request, authorization=mismatched_authorization)
+
+
+def test_incomplete_risk_evaluation_context_cannot_enter_admission():
+    request = make_request()
+    incomplete_context = replace(request.context, availability_bindings=())
+
+    with pytest.raises(FinancialAdmissionContractError, match="context must be COMPLETE"):
+        replace(request, context=incomplete_context)
+
