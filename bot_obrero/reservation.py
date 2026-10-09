@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
+import json
 import sqlite3
 from uuid import uuid4
 
@@ -20,6 +21,7 @@ from .risk_contracts import (
     Completeness,
     RiskDecision,
     RiskDecisionOutcome,
+    RiskEvidenceRef,
 )
 from .trade_proposal import TradeProposal
 
@@ -116,6 +118,103 @@ class ReservationTransitionEvidence:
         _nonempty(self.kind, "kind")
         _nonempty(self.reference_id, "reference_id")
         _aware(self.occurred_at, "occurred_at")
+
+
+def _canonical_utc_datetime(value: datetime) -> str:
+    _aware(value, "decision_timestamp")
+    if value.utcoffset() is None:
+        raise ReservationContractError("decision_timestamp must be timezone-aware")
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _canonical_evidence_json(evidence: tuple[RiskEvidenceRef, ...]) -> str:
+    payload = [
+        {
+            "kind": item.kind,
+            "reference_id": item.reference_id,
+            "as_of": _canonical_utc_datetime(item.as_of),
+        }
+        for item in evidence
+    ]
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+@dataclass(frozen=True)
+class ReservationAuthorizationBindingInput:
+    """Low-level, immutable domain values for atomic authorization-binding persistence.
+
+    This DTO is not a cryptographic credential. FinancialAdmission constructs it
+    only after checking the complete RiskAuthorization/context/policy binding.
+    """
+
+    authorization_id: str
+    semantic_fingerprint: str
+    risk_decision_id: str
+    proposal_id: str
+    signal_id: str
+    correlation_id: str
+    evaluation_context_id: str
+    policy_id: str
+    policy_version: str
+    decision_timestamp: datetime
+    risk_evidence: tuple[RiskEvidenceRef, ...]
+
+    def __post_init__(self) -> None:
+        for name in (
+            "authorization_id", "risk_decision_id", "proposal_id", "signal_id",
+            "correlation_id", "evaluation_context_id", "policy_id", "policy_version",
+        ):
+            _nonempty(getattr(self, name), name)
+        _nonempty(self.semantic_fingerprint, "semantic_fingerprint")
+        prefix, separator, digest = self.semantic_fingerprint.partition(":")
+        if (
+            prefix != "risk-authorization-semantic-v1"
+            or separator != ":"
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            raise ReservationContractError("semantic_fingerprint must be canonical SHA-256")
+        _canonical_utc_datetime(self.decision_timestamp)
+        evidence = tuple(self.risk_evidence)
+        if not evidence or not all(isinstance(item, RiskEvidenceRef) for item in evidence):
+            raise ReservationContractError(
+                "risk_evidence must be a non-empty tuple of RiskEvidenceRef values"
+            )
+        object.__setattr__(self, "risk_evidence", evidence)
+
+
+@dataclass(frozen=True)
+class PersistedReservationAuthorizationBinding:
+    """Typed read model for the authorization binding persisted for one Reservation."""
+
+    reservation_id: str
+    authorization_id: str
+    semantic_fingerprint: str
+    risk_decision_id: str
+    proposal_id: str
+    signal_id: str
+    correlation_id: str
+    evaluation_context_id: str
+    policy_id: str
+    policy_version: str
+    decision_timestamp: datetime
+    risk_evidence: tuple[RiskEvidenceRef, ...]
+
+    def __post_init__(self) -> None:
+        _nonempty(self.reservation_id, "reservation_id")
+        ReservationAuthorizationBindingInput(
+            authorization_id=self.authorization_id,
+            semantic_fingerprint=self.semantic_fingerprint,
+            risk_decision_id=self.risk_decision_id,
+            proposal_id=self.proposal_id,
+            signal_id=self.signal_id,
+            correlation_id=self.correlation_id,
+            evaluation_context_id=self.evaluation_context_id,
+            policy_id=self.policy_id,
+            policy_version=self.policy_version,
+            decision_timestamp=self.decision_timestamp,
+            risk_evidence=self.risk_evidence,
+        )
 
 
 @dataclass(frozen=True)
@@ -520,6 +619,25 @@ class SQLiteReservationStore:
             )
             """
         )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reservation_authorization_bindings (
+                reservation_id TEXT PRIMARY KEY,
+                authorization_id TEXT NOT NULL,
+                semantic_fingerprint TEXT NOT NULL,
+                risk_decision_id TEXT NOT NULL,
+                proposal_id TEXT NOT NULL,
+                signal_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                evaluation_context_id TEXT NOT NULL,
+                policy_id TEXT NOT NULL,
+                policy_version TEXT NOT NULL,
+                decision_timestamp TEXT NOT NULL,
+                risk_evidence_json TEXT NOT NULL,
+                FOREIGN KEY(reservation_id) REFERENCES reservations(reservation_id)
+            )
+            """
+        )
         self._ensure_non_terminal_proposal_index()
         self._connection.commit()
 
@@ -644,6 +762,7 @@ class SQLiteReservationStore:
         reserved_amount: Decimal,
         canonical_account_state: CanonicalAccountState,
         created_at: datetime,
+        authorization_binding: ReservationAuthorizationBindingInput,
         reservation_id: str | None = None,
         client_order_id: str | None = None,
         exchange_order_id: str | None = None,
@@ -668,6 +787,15 @@ class SQLiteReservationStore:
             _nonempty(asset, "asset")
             _aware(created_at, "created_at")
             _decimal(reserved_amount, "reserved_amount")
+            if not isinstance(authorization_binding, ReservationAuthorizationBindingInput):
+                raise TypeError(
+                    "authorization_binding must be ReservationAuthorizationBindingInput"
+                )
+            self._validate_authorization_binding(
+                authorization_binding,
+                proposal=proposal,
+                risk_decision=risk_decision,
+            )
             if reserved_amount <= 0:
                 raise ReservationAdmissionRejected(
                     "reserved_amount must be greater than zero for admission"
@@ -751,6 +879,10 @@ class SQLiteReservationStore:
                 reservation=reservation,
                 evidence=transition_evidence,
             )
+            self._insert_authorization_binding(
+                reservation_id=reservation.reservation_id,
+                binding=authorization_binding,
+            )
             self._connection.commit()
             return reservation
         except sqlite3.OperationalError as exc:
@@ -809,6 +941,110 @@ class SQLiteReservationStore:
             (reservation_id,),
         ).fetchone()
         return None if row is None else self._from_row(row)
+
+
+    @staticmethod
+    def _validate_authorization_binding(
+        binding: ReservationAuthorizationBindingInput,
+        *,
+        proposal: TradeProposal,
+        risk_decision: RiskDecision,
+    ) -> None:
+        expected = (
+            binding.risk_decision_id == risk_decision.risk_decision_id,
+            binding.proposal_id == proposal.proposal_id == risk_decision.proposal_id,
+            binding.signal_id == proposal.signal_id == risk_decision.signal_id,
+            binding.correlation_id == proposal.correlation_id == risk_decision.correlation_id,
+            binding.evaluation_context_id == risk_decision.evaluation_context_id,
+            binding.policy_id == risk_decision.policy_id,
+            binding.policy_version == risk_decision.policy_version,
+            binding.decision_timestamp == risk_decision.decision_timestamp,
+            binding.risk_evidence == risk_decision.risk_evidence,
+        )
+        if not all(expected) or any(
+            value is None
+            for value in (
+                risk_decision.evaluation_context_id,
+                risk_decision.policy_id,
+                risk_decision.policy_version,
+            )
+        ):
+            raise ReservationAdmissionRejected(
+                "authorization binding is inconsistent with proposal or risk decision"
+            )
+
+    def _insert_authorization_binding(
+        self,
+        *,
+        reservation_id: str,
+        binding: ReservationAuthorizationBindingInput,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO reservation_authorization_bindings(
+                reservation_id, authorization_id, semantic_fingerprint,
+                risk_decision_id, proposal_id, signal_id, correlation_id,
+                evaluation_context_id, policy_id, policy_version,
+                decision_timestamp, risk_evidence_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reservation_id,
+                binding.authorization_id,
+                binding.semantic_fingerprint,
+                binding.risk_decision_id,
+                binding.proposal_id,
+                binding.signal_id,
+                binding.correlation_id,
+                binding.evaluation_context_id,
+                binding.policy_id,
+                binding.policy_version,
+                _canonical_utc_datetime(binding.decision_timestamp),
+                _canonical_evidence_json(binding.risk_evidence),
+            ),
+        )
+
+    def get_authorization_binding(
+        self,
+        reservation_id: str,
+    ) -> PersistedReservationAuthorizationBinding | None:
+        _nonempty(reservation_id, "reservation_id")
+        row = self._connection.execute(
+            "SELECT * FROM reservation_authorization_bindings WHERE reservation_id = ?",
+            (reservation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row[11])
+            if not isinstance(payload, list):
+                raise ValueError("evidence payload must be a list")
+            evidence = tuple(
+                RiskEvidenceRef(
+                    kind=item["kind"],
+                    reference_id=item["reference_id"],
+                    as_of=datetime.fromisoformat(item["as_of"]),
+                )
+                for item in payload
+            )
+            return PersistedReservationAuthorizationBinding(
+                reservation_id=row[0],
+                authorization_id=row[1],
+                semantic_fingerprint=row[2],
+                risk_decision_id=row[3],
+                proposal_id=row[4],
+                signal_id=row[5],
+                correlation_id=row[6],
+                evaluation_context_id=row[7],
+                policy_id=row[8],
+                policy_version=row[9],
+                decision_timestamp=datetime.fromisoformat(row[10]),
+                risk_evidence=evidence,
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ReservationContractError(
+                "persisted authorization binding is malformed"
+            ) from exc
 
     def list_for_proposal(self, proposal_id: str) -> tuple[Reservation, ...]:
         _nonempty(proposal_id, "proposal_id")
@@ -1038,6 +1274,8 @@ __all__ = [
     "ReservationAdmissionBusy",
     "ReservationAdmissionError",
     "ReservationAdmissionRejected",
+    "ReservationAuthorizationBindingInput",
+    "PersistedReservationAuthorizationBinding",
     "NON_TERMINAL_STATES",
     "Reservation",
     "ReservationConflict",
