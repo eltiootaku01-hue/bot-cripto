@@ -374,7 +374,7 @@ def test_unbound_reservation_writers_are_internal_fixture_only():
             for node in ast.walk(method)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         ]
-        assert not any("INSERT INTO reservations" in value.upper() for value in string_constants), (
+        assert not any("INSERT INTO RESERVATIONS" in value.upper() for value in string_constants), (
             f"public ReservationStore method {method.name} inserts reservations directly"
         )
 
