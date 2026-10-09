@@ -78,7 +78,9 @@ class FinancialAdmissionRequest:
             raise FinancialAdmissionContractError("proposal must be TradeProposal")
         if not isinstance(self.risk_decision, RiskDecision):
             raise FinancialAdmissionContractError("risk_decision must be RiskDecision")
-        if self.risk_decision.outcome is not RiskDecisionOutcome.APPROVED:
+        decision = self.risk_decision
+        proposal = self.proposal
+        if decision.outcome is not RiskDecisionOutcome.APPROVED:
             raise FinancialAdmissionContractError(
                 "financial admission requires RiskDecisionOutcome.APPROVED"
             )
@@ -86,11 +88,23 @@ class FinancialAdmissionRequest:
             raise FinancialAdmissionContractError("context must be RiskEvaluationContext")
         if not isinstance(self.policy, RiskEvaluationPolicy):
             raise FinancialAdmissionContractError("policy must be RiskEvaluationPolicy")
-        decision = self.risk_decision
-        authorization = self.authorization
         context = self.context
         policy = self.policy
-        proposal = self.proposal
+
+        if type(self.account_id) is not str or not self.account_id.strip():
+            raise FinancialAdmissionContractError("account_id must be a non-empty str")
+        if not isinstance(self.canonical_account_state, CanonicalAccountState):
+            raise FinancialAdmissionContractError(
+                "canonical_account_state must be CanonicalAccountState"
+            )
+        if self.canonical_account_state.account_id != self.account_id:
+            raise FinancialAdmissionContractError(
+                "canonical_account_state.account_id must match account_id"
+            )
+        if self.canonical_account_state.completeness is not Completeness.COMPLETE:
+            raise FinancialAdmissionContractError(
+                "canonical_account_state.completeness must be COMPLETE"
+            )
 
         if context.trade_proposal != proposal:
             raise FinancialAdmissionContractError(
@@ -113,10 +127,27 @@ class FinancialAdmissionRequest:
             raise FinancialAdmissionContractError("signal_id mismatch")
         if proposal.correlation_id != decision.correlation_id:
             raise FinancialAdmissionContractError("correlation_id mismatch")
-        if authorization.risk_decision_id != decision.risk_decision_id:
-            raise FinancialAdmissionContractError("authorization risk_decision_id mismatch")
-        if not isinstance(authorization, RiskAuthorization):
+        context_id = context.evaluation_context_id
+        if not context_id or decision.evaluation_context_id != context_id:
+            raise FinancialAdmissionContractError(
+                "evaluation_context_id mismatch or missing decision binding"
+            )
+        if (
+            not decision.policy_id
+            or not decision.policy_version
+            or decision.policy_id != policy.policy_id
+            or decision.policy_version != policy.policy_version
+        ):
+            raise FinancialAdmissionContractError(
+                "policy_id/policy_version mismatch or missing decision binding"
+            )
+        decision_timestamp = decision.decision_timestamp
+        if proposal.decision_timestamp != context.decision_timestamp:
+            raise FinancialAdmissionContractError("context decision_timestamp mismatch")
+
+        if not isinstance(self.authorization, RiskAuthorization):
             raise FinancialAdmissionContractError("authorization must be RiskAuthorization")
+        authorization = self.authorization
         if authorization.status is not RiskAuthorizationStatus.AUTHORIZED:
             raise FinancialAdmissionContractError(
                 "financial admission requires AUTHORIZED RiskAuthorization"
@@ -131,30 +162,15 @@ class FinancialAdmissionRequest:
             raise FinancialAdmissionContractError(
                 "authorization proposal/signal/correlation binding mismatch"
             )
-
-        context_id = context.evaluation_context_id
-        if not context_id or decision.evaluation_context_id != context_id:
-            raise FinancialAdmissionContractError(
-                "evaluation_context_id mismatch or missing decision binding"
-            )
         if authorization.evaluation_context_id != context_id:
-            raise FinancialAdmissionContractError("authorization evaluation_context_id mismatch")
-        if (
-            not decision.policy_id
-            or not decision.policy_version
-            or decision.policy_id != policy.policy_id
-            or decision.policy_version != policy.policy_version
-        ):
             raise FinancialAdmissionContractError(
-                "policy_id/policy_version mismatch or missing decision binding"
+                "authorization evaluation_context_id mismatch"
             )
         if (
             authorization.policy_id != policy.policy_id
             or authorization.policy_version != policy.policy_version
         ):
             raise FinancialAdmissionContractError("authorization policy binding mismatch")
-
-        decision_timestamp = decision.decision_timestamp
         if not (
             proposal.decision_timestamp
             == context.decision_timestamp
@@ -182,8 +198,6 @@ class FinancialAdmissionRequest:
             )
         object.__setattr__(self, "evidence", evidence)
 
-        if type(self.account_id) is not str or not self.account_id.strip():
-            raise FinancialAdmissionContractError("account_id must be a non-empty str")
         if not isinstance(self.resource_kind, ReservationResourceKind):
             raise FinancialAdmissionContractError(
                 "resource_kind must be ReservationResourceKind"
@@ -200,18 +214,6 @@ class FinancialAdmissionRequest:
         ):
             raise FinancialAdmissionContractError(
                 "approved_reserved_amount must be finite and greater than zero"
-            )
-        if not isinstance(self.canonical_account_state, CanonicalAccountState):
-            raise FinancialAdmissionContractError(
-                "canonical_account_state must be CanonicalAccountState"
-            )
-        if self.canonical_account_state.account_id != self.account_id:
-            raise FinancialAdmissionContractError(
-                "canonical_account_state.account_id must match account_id"
-            )
-        if self.canonical_account_state.completeness is not Completeness.COMPLETE:
-            raise FinancialAdmissionContractError(
-                "canonical_account_state.completeness must be COMPLETE"
             )
         if (
             not isinstance(self.created_at, datetime)
