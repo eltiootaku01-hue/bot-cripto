@@ -145,6 +145,20 @@ class FinancialAdmissionRequest:
         if proposal.decision_timestamp != context.decision_timestamp:
             raise FinancialAdmissionContractError("context decision_timestamp mismatch")
 
+        evidence = tuple(self.evidence)
+        if not evidence:
+            raise FinancialAdmissionContractError(
+                "financial admission requires explicit risk evidence"
+            )
+        if not all(isinstance(item, RiskEvidenceRef) for item in evidence):
+            raise FinancialAdmissionContractError(
+                "evidence must contain only RiskEvidenceRef values"
+            )
+        if evidence != decision.risk_evidence:
+            raise FinancialAdmissionContractError(
+                "evidence must match risk_decision.risk_evidence exactly"
+            )
+
         if not isinstance(self.authorization, RiskAuthorization):
             raise FinancialAdmissionContractError("authorization must be RiskAuthorization")
         authorization = self.authorization
@@ -178,20 +192,6 @@ class FinancialAdmissionRequest:
             == authorization.decision_timestamp
         ):
             raise FinancialAdmissionContractError("decision_timestamp mismatch")
-
-        evidence = tuple(self.evidence)
-        if not evidence:
-            raise FinancialAdmissionContractError(
-                "financial admission requires explicit risk evidence"
-            )
-        if not all(isinstance(item, RiskEvidenceRef) for item in evidence):
-            raise FinancialAdmissionContractError(
-                "evidence must contain only RiskEvidenceRef values"
-            )
-        if evidence != decision.risk_evidence:
-            raise FinancialAdmissionContractError(
-                "evidence must match risk_decision.risk_evidence exactly"
-            )
         if evidence != authorization.risk_evidence:
             raise FinancialAdmissionContractError(
                 "authorization evidence must match risk_decision evidence exactly"
