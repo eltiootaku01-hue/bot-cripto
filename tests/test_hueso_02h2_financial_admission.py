@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from bot_obrero.analysis_contracts import ArtifactNature, Provenance
+from bot_obrero.evidence_binding import AvailabilityBinding, AvailabilitySubjectKind
 from bot_obrero.financial_admission import (
     FinancialAdmissionBoundary,
     FinancialAdmissionContractError,
@@ -16,12 +17,18 @@ from bot_obrero.financial_admission import (
     FinancialAdmissionStatus,
     build_admission_idempotency_key,
 )
+from bot_obrero.market_data import InstrumentIdentity
 from bot_obrero.reservation import (
     Reservation,
     ReservationAdmissionBusy,
     ReservationResourceKind,
     SQLiteReservationStore,
     ReservationTransitionEvidence,
+)
+from bot_obrero.risk_authorization import (
+    RiskAuthorizationStatus,
+    authorize_risk_decision,
+    risk_authorization_semantic_fingerprint,
 )
 from bot_obrero.risk_contracts import (
     BalanceSnapshot,
@@ -30,13 +37,19 @@ from bot_obrero.risk_contracts import (
     RiskDecision,
     RiskDecisionOutcome,
     RiskEvidenceRef,
+    RiskLimit,
+    RiskLimitSet,
 )
+from bot_obrero.risk_evaluation_context import RiskEvaluationContext
+from bot_obrero.risk_evaluation_policy import RiskEvaluationPolicy
+from bot_obrero.risk_limit_applicability import RiskLimitApplicabilityResolver
 from bot_obrero.trade_proposal import (
     PricePolicy,
     TradeOrderType,
     TradeProposal,
     TradeSide,
 )
+from dataclasses import replace
 
 UTC = timezone.utc
 BASE = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
@@ -50,6 +63,7 @@ def make_proposal(
     proposal_id: str = "proposal-h2",
     signal_id: str = "signal-h2",
     correlation_id: str = "correlation-h2",
+    max_quote_spend: Decimal = Decimal("25"),
 ) -> TradeProposal:
     proposal = TradeProposal(
         signal_id=signal_id,
@@ -57,7 +71,7 @@ def make_proposal(
         side=TradeSide.BUY,
         requested_quantity=Decimal("1"),
         requested_price=None,
-        max_quote_spend=Decimal("100"),
+        max_quote_spend=max_quote_spend,
         price_policy=PricePolicy.MARKET_REFERENCE,
         order_type=TradeOrderType.MARKET,
         strategy_identity="strategy.test",
@@ -67,42 +81,6 @@ def make_proposal(
     )
     object.__setattr__(proposal, "proposal_id", proposal_id)
     return proposal
-
-
-def make_decision(
-    proposal: TradeProposal,
-    *,
-    outcome: RiskDecisionOutcome = RiskDecisionOutcome.APPROVED,
-    risk_decision_id: str = "risk-h2",
-    proposal_id: str | None = None,
-    signal_id: str | None = None,
-    correlation_id: str | None = None,
-    evidence: tuple[RiskEvidenceRef, ...] | None = None,
-) -> RiskDecision:
-    return RiskDecision(
-        risk_decision_id=risk_decision_id,
-        proposal_id=proposal.proposal_id if proposal_id is None else proposal_id,
-        signal_id=proposal.signal_id if signal_id is None else signal_id,
-        outcome=outcome,
-        reason="HUESO 02-H2 test",
-        decision_timestamp=BASE,
-        risk_evidence=(
-            (
-                RiskEvidenceRef(
-                    kind="RISK_DECISION",
-                    reference_id=risk_decision_id,
-                    as_of=BASE,
-                ),
-            )
-            if evidence is None
-            else evidence
-        ),
-        correlation_id=(
-            proposal.correlation_id
-            if correlation_id is None
-            else correlation_id
-        ),
-    )
 
 
 def make_state(
@@ -129,6 +107,125 @@ def make_state(
     )
 
 
+def make_policy() -> RiskEvaluationPolicy:
+    return RiskEvaluationPolicy(
+        policy_id="risk-policy-h2",
+        policy_version="1.0.0",
+        required_availability_subjects=(
+            AvailabilitySubjectKind.ACCOUNT_STATE,
+            AvailabilitySubjectKind.RISK_LIMIT_SET,
+        ),
+        require_context_complete=True,
+        require_risk_evidence_for_approval=True,
+        max_valuation_age=None,
+    )
+
+
+def make_context(
+    proposal: TradeProposal,
+    account_state: CanonicalAccountState | None = None,
+) -> RiskEvaluationContext:
+    account_state = make_state() if account_state is None else account_state
+    limit_set = RiskLimitSet(
+        risk_limit_set_id="h2-limits",
+        limits=(
+            RiskLimit(
+                risk_limit_id="h2-limit",
+                scope="ACCOUNT",
+                metric="MAX_NOTIONAL",
+                threshold=Decimal("1000"),
+                unit="USDT",
+                effective_from=BASE.replace(minute=BASE.minute - 1),
+                effective_until=None,
+                provenance=Provenance("h2-limit", ArtifactNature.OBSERVED),
+            ),
+        ),
+        as_of=BASE,
+        provenance=Provenance("h2-limit-set", ArtifactNature.OBSERVED),
+    )
+    resolution = RiskLimitApplicabilityResolver().resolve(
+        limit_set,
+        scope="ACCOUNT",
+        metric="MAX_NOTIONAL",
+        evaluation_timestamp=BASE.replace(second=30),
+    )
+    bindings = (
+        AvailabilityBinding(
+            subject_kind=AvailabilitySubjectKind.ACCOUNT_STATE,
+            subject_id=account_state.account_state_id,
+            available_at=BASE,
+            source="synthetic",
+            evidence_reference="account",
+        ),
+        AvailabilityBinding(
+            subject_kind=AvailabilitySubjectKind.RISK_LIMIT_SET,
+            subject_id=limit_set.risk_limit_set_id,
+            available_at=BASE,
+            source="synthetic",
+            evidence_reference="limits",
+        ),
+    )
+    return RiskEvaluationContext(
+        trade_proposal=proposal,
+        instrument=InstrumentIdentity(
+            instrument_id="h2-instrument-btcusdt",
+            symbol="BTC/USDT",
+            market="TEST",
+            base_asset="BTC",
+            quote_asset="USDT",
+        ),
+        canonical_account_state=account_state,
+        risk_limit_set=limit_set,
+        evaluation_timestamp=BASE.replace(second=30),
+        availability_bindings=bindings,
+        risk_limit_resolution=resolution,
+    )
+
+
+def make_decision(
+    proposal: TradeProposal,
+    *,
+    outcome: RiskDecisionOutcome = RiskDecisionOutcome.APPROVED,
+    risk_decision_id: str = "risk-h2",
+    proposal_id: str | None = None,
+    signal_id: str | None = None,
+    correlation_id: str | None = None,
+    evidence: tuple[RiskEvidenceRef, ...] | None = None,
+    context: RiskEvaluationContext | None = None,
+    policy: RiskEvaluationPolicy | None = None,
+) -> RiskDecision:
+    policy = make_policy() if policy is None else policy
+    context = make_context(proposal) if context is None else context
+    resolved_evidence = (
+        (
+            RiskEvidenceRef(
+                kind="RISK_DECISION",
+                reference_id=risk_decision_id,
+                as_of=BASE,
+            ),
+        )
+        if evidence is None
+        else evidence
+    )
+    decision = RiskDecision.from_risk_evaluation(
+        proposal=proposal,
+        context=context,
+        policy=policy,
+        risk_decision_id=risk_decision_id,
+        outcome=outcome,
+        reason="HUESO 02-H2 test",
+        risk_evidence=resolved_evidence,
+    )
+    changes = {}
+    if proposal_id is not None:
+        changes["proposal_id"] = proposal_id
+    if signal_id is not None:
+        changes["signal_id"] = signal_id
+    if correlation_id is not None:
+        changes["correlation_id"] = correlation_id
+    return replace(decision, **changes) if changes else decision
+
+
 def make_request(
     *,
     proposal: TradeProposal | None = None,
@@ -142,8 +239,33 @@ def make_request(
     key: str | None = None,
     evidence: tuple[RiskEvidenceRef, ...] | None = None,
 ) -> FinancialAdmissionRequest:
-    proposal = make_proposal() if proposal is None else proposal
-    decision = make_decision(proposal) if decision is None else decision
+    if proposal is None:
+        default_limit = (
+            amount
+            if type(amount) is Decimal and amount.is_finite() and amount > 0
+            else Decimal("25")
+        )
+        proposal = make_proposal(max_quote_spend=default_limit)
+    state = make_state(account_id=account_id) if state is None else state
+    context = make_context(proposal, state)
+    policy = make_policy()
+    decision = (
+        make_decision(proposal, context=context, policy=policy)
+        if decision is None
+        else decision
+    )
+    authorization_result = authorize_risk_decision(
+        proposal=proposal,
+        risk_decision=decision,
+        context=context,
+        policy=policy,
+    )
+    authorization = authorization_result.authorization
+    fingerprint = (
+        risk_authorization_semantic_fingerprint(authorization)
+        if authorization is not None
+        else "risk-authorization-semantic-v1:" + ("0" * 64)
+    )
     final_key = (
         build_admission_idempotency_key(
             risk_decision_id=decision.risk_decision_id,
@@ -153,6 +275,7 @@ def make_request(
             asset=asset,
             approved_reserved_amount=amount,
             correlation_id=proposal.correlation_id,
+            authorization_fingerprint=fingerprint,
         )
         if key is None
         else key
@@ -160,13 +283,14 @@ def make_request(
     return FinancialAdmissionRequest(
         proposal=proposal,
         risk_decision=decision,
+        context=context,
+        policy=policy,
+        authorization=authorization,
         account_id=account_id,
         resource_kind=resource_kind,
         asset=asset,
         approved_reserved_amount=amount,
-        canonical_account_state=make_state(account_id=account_id)
-        if state is None
-        else state,
+        canonical_account_state=state,
         created_at=created_at,
         admission_idempotency_key=final_key,
         evidence=decision.risk_evidence if evidence is None else evidence,
@@ -308,6 +432,7 @@ def test_idempotency_key_binds_full_context():
         asset=request.asset,
         approved_reserved_amount=request.approved_reserved_amount,
         correlation_id=request.proposal.correlation_id,
+        authorization_fingerprint=request.authorization_fingerprint,
     )
     assert request.admission_idempotency_key == expected
 
@@ -317,7 +442,7 @@ def test_idempotency_key_binds_full_context():
 
 def test_same_key_with_different_amount_is_rejected():
     first = make_request(amount=Decimal("25"))
-    with pytest.raises(FinancialAdmissionContractError, match="bind"):
+    with pytest.raises(FinancialAdmissionContractError, match="bind|economic terms"):
         make_request(
             proposal=first.proposal,
             decision=first.risk_decision,
@@ -437,7 +562,7 @@ def test_different_risk_decision_after_terminal_reuse_is_allowed(tmp_path):
     second_request = make_request(
         proposal=proposal,
         decision=second_decision,
-        amount=Decimal("20"),
+        amount=Decimal("25"),
     )
 
     second = boundary.admit(second_request)
@@ -445,7 +570,7 @@ def test_different_risk_decision_after_terminal_reuse_is_allowed(tmp_path):
     assert second.status is FinancialAdmissionStatus.ADMITTED
     assert second.reservation is not None
     assert second.reservation.risk_decision_id == "risk-h2-second"
-    assert second.reservation.reserved_amount == Decimal("20")
+    assert second.reservation.reserved_amount == Decimal("25")
     store.close()
 
 
@@ -578,7 +703,7 @@ def test_fail_closed_when_existing_same_decision_context_differs():
 
     assert result.status is FinancialAdmissionStatus.REJECTED
     assert result.reservation is None
-    assert result.reason == "IDEMPOTENCY_CONTEXT_CONFLICT"
+    assert result.reason == "EXISTING_RESERVATION_AUTHORIZATION_UNKNOWN"
 
 
 def test_provider_neutrality_and_architecture_guards():
