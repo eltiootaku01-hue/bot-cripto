@@ -672,6 +672,7 @@ def test_store_creates_separate_tables(tmp_path):
     }
     assert "reservations" in names
     assert "reservation_transitions" in names
+    assert "reservation_authorization_bindings" in names
     assert "idempotency_ledger" not in names
     store.close()
 
