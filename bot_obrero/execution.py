@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from threading import Lock
 from typing import Any, Mapping
 
 from .temporal import EvidenceTimestamp
@@ -205,11 +206,13 @@ class ExecutionBoundary:
         adapter: ExchangeAdapter,
         *,
         reservation_bridge=None,
-        submission_authority=None,
     ):
         self._adapter = adapter
         self.__reservation_bridge = reservation_bridge
-        self.__submission_authority = submission_authority
+        # The public constructor never accepts or installs a caller-chosen authority.
+        self.__submission_authority = None
+        self.__consumed_submissions: set[tuple[str, str, str]] = set()
+        self.__dispatch_lock = Lock()
 
     def submit(self, prepared, *, _submission_authority=None):
         # The orchestrator's private capability is necessary but not sufficient:
@@ -242,6 +245,20 @@ class ExecutionBoundary:
                 "PERSISTED_RESERVATION_SUBMISSION_NOT_AUTHORIZED"
             ) from exc
 
+        # A persisted marker is necessary but not sufficient: each binding gets
+        # at most one physical adapter invocation from this boundary instance.
+        dispatch_key = (
+            binding.reservation_id,
+            binding.client_order_id,
+            binding.intent_hash,
+        )
+        with self.__dispatch_lock:
+            if dispatch_key in self.__consumed_submissions:
+                raise _BoundaryAuthorizationError("EXECUTION_DISPATCH_ALREADY_CONSUMED")
+            # Consume before the effect so exceptions and ambiguous outcomes cannot
+            # authorize a second call on this boundary.
+            self.__consumed_submissions.add(dispatch_key)
+
         # Never send caller-supplied economics. The adapter sees only terms
         # reloaded and verified from the persistent reservation binding.
         return self._adapter.submit(canonical_intent, _permit=_BOUNDARY_PERMIT)
@@ -249,6 +266,14 @@ class ExecutionBoundary:
     def cancel(self, order):
         # Cancellation semantics intentionally remain unchanged by HUESO 05-E-R1.
         return self._adapter.cancel(order, _permit=_BOUNDARY_PERMIT)
+
+
+class _OrchestratedExecutionBoundary(ExecutionBoundary):
+    """Private boundary variant whose capability is installed only by the orchestrator."""
+
+    def __init__(self, adapter, *, reservation_bridge, submission_authority):
+        super().__init__(adapter, reservation_bridge=reservation_bridge)
+        self._ExecutionBoundary__submission_authority = submission_authority
 
 
 class ExecutionOrchestrator:
@@ -261,7 +286,7 @@ class ExecutionOrchestrator:
         self.murphy = murphy_guard
         self.reservation_bridge = reservation_bridge
         self.__submission_authority = object() if reservation_bridge is not None else None
-        self.boundary = ExecutionBoundary(
+        self.boundary = _OrchestratedExecutionBoundary(
             adapter,
             reservation_bridge=reservation_bridge,
             submission_authority=self.__submission_authority,
