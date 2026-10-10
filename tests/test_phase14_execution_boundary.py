@@ -64,13 +64,13 @@ def build(tmp_path, adapter=None, guard=None):
     )
 
 
-def test_01_happy_path_crosses_boundary_after_guards(tmp_path):
+def test_01_generic_intent_is_rejected_without_persisted_reservation_binding(tmp_path):
     adapter = FakeAdapter()
     orch, ledger = build(tmp_path, adapter=adapter)
     result = orch.execute(intent(), evidence())
-    assert result.allowed and result.reason == "SUBMITTED" and adapter.submits == 1
-    assert ledger.get("order-1").result == "SUBMITTED"
-
+    assert not result.allowed and result.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
+    assert ledger.get("order-1") is None
 
 def test_02_readiness_false_blocks(tmp_path):
     adapter = FakeAdapter()
@@ -102,32 +102,32 @@ def test_05_murphy_not_ready_blocks_when_provenance_cannot_authorize(tmp_path):
     assert not result.allowed and guard.state is GuardState.FROZEN and adapter.submits == 0
 
 
-def test_06_duplicate_intent_never_submits_twice(tmp_path):
+def test_06_generic_duplicate_intents_never_reach_ledger_or_adapter(tmp_path):
     adapter = FakeAdapter()
-    orch, _ = build(tmp_path, adapter=adapter)
-    assert orch.execute(intent(), evidence()).allowed
-    assert orch.execute(intent(), evidence()).reason == "DUPLICATE"
-    assert adapter.submits == 1
+    orch, ledger = build(tmp_path, adapter=adapter)
+    first = orch.execute(intent(), evidence())
+    second = orch.execute(intent(), evidence())
+    assert first.reason == second.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
+    assert ledger.get("order-1") is None
 
-
-def test_07_idempotency_conflict_blocks(tmp_path):
+def test_07_generic_client_order_id_reuse_cannot_reach_ledger(tmp_path):
     adapter = FakeAdapter()
-    orch, _ = build(tmp_path, adapter=adapter)
-    assert orch.execute(intent(), evidence()).allowed
+    orch, ledger = build(tmp_path, adapter=adapter)
+    first = orch.execute(intent(), evidence())
     conflict = OrderIntent("order-1", {"symbol": "BTCUSDT", "quantity": "2"}, "corr-1")
-    with pytest.raises(IdempotencyConflict, match="INTENT_MISMATCH"):
-        orch.execute(conflict, evidence())
-    assert adapter.submits == 1
+    second = orch.execute(conflict, evidence())
+    assert first.reason == second.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
+    assert ledger.get("order-1") is None
 
-
-def test_08_timeout_becomes_unknown_without_retry(tmp_path):
+def test_08_generic_timeout_intent_is_rejected_before_adapter_invocation(tmp_path):
     adapter = FakeAdapter(TimeoutError())
     orch, ledger = build(tmp_path, adapter=adapter)
     result = orch.execute(intent(), evidence())
-    assert not result.allowed and result.reason == "UNKNOWN"
-    assert ledger.get("order-1").result == "ORDER_RESULT_UNKNOWN"
-    assert orch.murphy.state is GuardState.FROZEN
-
+    assert not result.allowed and result.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
+    assert ledger.get("order-1") is None
 
 def test_09_protection_requires_valid_evidence():
     protection = PositionProtection()
@@ -162,33 +162,28 @@ def test_10_duplicate_fill_does_not_mutate_twice(tmp_path):
     ledger.close()
 
 
-def test_11_restart_preserves_order_and_fill_idempotency(tmp_path):
+def test_11_restart_does_not_restore_generic_order_send_path(tmp_path):
     path = tmp_path / "ledger.sqlite"
     adapter = FakeAdapter()
     ledger = SQLiteIdempotencyLedger(path)
     orch = ExecutionOrchestrator(
-        adapter=adapter,
-        ledger=ledger,
-        murphy_guard=MurphyGuard(),
+        adapter=adapter, ledger=ledger, murphy_guard=MurphyGuard(),
         clock=lambda: T + timedelta(seconds=1),
     )
-    assert orch.execute(intent(), evidence()).allowed
-    order = LifecycleOrder("order-1", Decimal("1"))
-    order.acknowledge("venue-1")
-    assert orch.apply_external_fill(order, "fill-1", Decimal("0.4"), Decimal("100"))
+    result = orch.execute(intent(), evidence())
+    assert result.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
+    assert ledger.get("order-1") is None
     ledger.close()
 
     restarted_ledger = SQLiteIdempotencyLedger(path)
     restarted = ExecutionOrchestrator(
-        adapter=FakeAdapter(),
-        ledger=restarted_ledger,
-        murphy_guard=MurphyGuard(),
+        adapter=FakeAdapter(), ledger=restarted_ledger, murphy_guard=MurphyGuard(),
         clock=lambda: T + timedelta(seconds=2),
     )
-    assert restarted_ledger.get("order-1").result == "SUBMITTED"
-    assert not restarted.apply_external_fill(order, "fill-1", Decimal("0.4"), Decimal("100"))
-    assert order.filled_qty == Decimal("0.4")
-
+    assert restarted_ledger.get("order-1") is None
+    assert restarted.execute(intent(), evidence()).reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    restarted_ledger.close()
 
 def test_12_bypass_is_rejected_by_public_adapter_interface():
     adapter = FakeAdapter()
@@ -208,41 +203,38 @@ def test_12_bypass_is_rejected_by_public_adapter_interface():
                 return None
 
 
-def test_13_compound_failure_and_terminal_lifecycle_fail_closed(tmp_path):
+def test_13_generic_intent_cannot_create_ambiguous_execution_state(tmp_path):
     path = tmp_path / "ledger.sqlite"
     ledger = SQLiteIdempotencyLedger(path)
+    adapter = FakeAdapter(TimeoutError())
     first = ExecutionOrchestrator(
-        adapter=FakeAdapter(TimeoutError()),
-        ledger=ledger,
-        murphy_guard=MurphyGuard(),
+        adapter=adapter, ledger=ledger, murphy_guard=MurphyGuard(),
         clock=lambda: T + timedelta(seconds=1),
     )
-    assert first.execute(intent(), evidence()).reason == "UNKNOWN"
+    result = first.execute(intent(), evidence())
+    assert result.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
+    assert ledger.get("order-1") is None
     ledger.close()
 
     restarted_ledger = SQLiteIdempotencyLedger(path)
     restarted = ExecutionOrchestrator(
-        adapter=FakeAdapter(),
-        ledger=restarted_ledger,
-        murphy_guard=MurphyGuard(),
+        adapter=FakeAdapter(), ledger=restarted_ledger, murphy_guard=MurphyGuard(),
         clock=lambda: T + timedelta(seconds=2),
     )
     stale_uncertain = evidence(expires=T + timedelta(seconds=0.5), reconciliation=False)
-    result = restarted.execute(intent(), stale_uncertain)
-    assert not result.allowed and result.reason == "FAIL_CLOSED"
+    assert restarted.execute(intent(), stale_uncertain).reason == "FAIL_CLOSED"
+    assert restarted_ledger.get("order-1") is None
+    restarted_ledger.close()
 
     order = LifecycleOrder(
-        "terminal",
-        Decimal("1"),
-        Decimal("1"),
-        Decimal("0"),
+        "terminal", Decimal("1"), Decimal("1"), Decimal("0"),
         status=LifecycleStatus.FILLED,
     )
     before = order.filled_qty
     with pytest.raises(ValueError):
         order.apply_fill("0.1", "100")
     assert order.filled_qty == before
-
 
 def test_14_naked_readiness_inputs_cannot_cross_execution_boundary(tmp_path):
     adapter = FakeAdapter()
@@ -253,13 +245,12 @@ def test_14_naked_readiness_inputs_cannot_cross_execution_boundary(tmp_path):
     assert adapter.submits == 0
 
 
-def test_15_matching_evidence_and_intent_correlations_are_accepted(tmp_path):
+def test_15_matching_generic_correlation_does_not_replace_reservation_binding(tmp_path):
     adapter = FakeAdapter()
     orch, _ = build(tmp_path, adapter=adapter)
     result = orch.execute(intent("corr-1"), evidence(correlation_id="corr-1"))
-    assert result.allowed and result.reason == "SUBMITTED"
-    assert adapter.submits == 1
-
+    assert result.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
 
 def test_16_mismatched_intent_and_bundle_correlation_fails_closed(tmp_path):
     adapter = FakeAdapter()
@@ -279,15 +270,15 @@ def test_17_internally_consistent_records_cannot_authorize_wrong_bundle_context(
     assert adapter.submits == 0
 
 
-def test_18_multiple_records_share_the_same_correlation_context(tmp_path):
+def test_18_complete_evidence_bundle_cannot_authorize_generic_intent(tmp_path):
     adapter = FakeAdapter()
     orch, _ = build(tmp_path, adapter=adapter)
     bundle = evidence(correlation_id="corr-1")
     assert len(bundle.records) == len(REQUIRED)
     assert all(record.correlation_id == bundle.correlation_id for record in bundle.records)
     result = orch.execute(intent("corr-1"), bundle)
-    assert result.allowed and adapter.submits == 1
-
+    assert result.reason == "RESERVATION_EXECUTION_BINDING_REQUIRED"
+    assert adapter.submits == 0
 
 def test_19_protection_state_is_read_only_through_public_api():
     protection = PositionProtection()

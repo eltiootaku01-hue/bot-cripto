@@ -207,66 +207,216 @@ class ExecutionBoundary:
 
 
 class ExecutionOrchestrator:
-    """Mandatory pre-effect pipeline for simulated/external execution adapters."""
+    """Pre-effect execution pipeline requiring a persisted Reservation bridge binding."""
 
-    def __init__(self, *, adapter, ledger, murphy_guard, readiness_gate=None, clock=None):
+    def __init__(self, *, adapter, ledger, murphy_guard, reservation_bridge=None, readiness_gate=None, clock=None):
         from .order_lifecycle import LifecycleOrder
 
         self.boundary = ExecutionBoundary(adapter)
         self.ledger = ledger
         self.murphy = murphy_guard
+        self.reservation_bridge = reservation_bridge
         self.readiness = readiness_gate or ReadinessGate()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._LifecycleOrder = LifecycleOrder
 
-    @staticmethod
-    def _validate_intent(intent: OrderIntent) -> None:
-        quantity = intent.payload.get("quantity")
-        if quantity is None or float(quantity) <= 0:
-            raise ValueError("INVALID_ORDER_INTENT_QUANTITY")
+    def execute(self, intent, evidence: EvidenceBundle) -> ExecutionDecision:
+        from .reservation_execution_bridge import (
+            ExecutionBridgeBlocked,
+            ExecutionBridgeConflict,
+            ExecutionBridgeRejected,
+            PreparedExecutionIntent,
+        )
 
-    def execute(self, intent: OrderIntent, evidence: EvidenceBundle) -> ExecutionDecision:
-        self._validate_intent(intent)
         if not isinstance(evidence, EvidenceBundle):
             self.murphy.freeze()
             return ExecutionDecision(False, "FAIL_CLOSED")
-        if evidence.correlation_id != intent.correlation_id:
+        now = self.clock()
+        if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
             self.murphy.freeze()
             return ExecutionDecision(False, "FAIL_CLOSED")
-        now = self.clock()
-        readiness = self.readiness.evaluate_evidence(evidence, intent.client_order_id, now)
+
+        canonical_payload = None
+        if type(intent) is PreparedExecutionIntent:
+            if self.reservation_bridge is None:
+                self.murphy.freeze()
+                return ExecutionDecision(False, "RESERVATION_EXECUTION_BRIDGE_REQUIRED")
+            try:
+                persisted = self.reservation_bridge.verify_prepared(intent)
+            except ExecutionBridgeConflict:
+                self.murphy.freeze()
+                return ExecutionDecision(False, "RESERVATION_EXECUTION_BINDING_CONFLICT")
+            except ExecutionBridgeBlocked:
+                self.murphy.freeze()
+                return ExecutionDecision(False, "UNKNOWN_OR_INTEGRITY_BLOCKED")
+            except ExecutionBridgeRejected:
+                self.murphy.freeze()
+                return ExecutionDecision(False, "RESERVATION_EXECUTION_BINDING_REJECTED")
+            canonical_payload = persisted.payload
+            client_order_id = persisted.client_order_id
+            correlation_id = canonical_payload.get("correlation_id")
+        else:
+            # Legacy/generic OrderIntent objects are never upgraded from caller payloads.
+            client_order_id = getattr(intent, "client_order_id", "")
+            correlation_id = getattr(intent, "correlation_id", "")
+
+        if not isinstance(client_order_id, str) or not client_order_id:
+            self.murphy.freeze()
+            return ExecutionDecision(False, "RESERVATION_EXECUTION_BINDING_REQUIRED")
+        if not isinstance(correlation_id, str) or not correlation_id:
+            self.murphy.freeze()
+            return ExecutionDecision(False, "RESERVATION_EXECUTION_BINDING_REQUIRED")
+        if evidence.correlation_id != correlation_id:
+            self.murphy.freeze()
+            return ExecutionDecision(False, "FAIL_CLOSED")
+
+        readiness = self.readiness.evaluate_evidence(evidence, client_order_id, now)
         if not readiness.allowed:
             self.murphy.freeze()
             return readiness
+        if canonical_payload is None:
+            self.murphy.freeze()
+            return ExecutionDecision(False, "RESERVATION_EXECUTION_BINDING_REQUIRED")
 
-        risk = RiskGuard(self.murphy, self.readiness)
-        risk_decision = risk.authorize_new_entry(ReadinessEvidence())
+        # The prior evidence bundle was checked record-by-record. Propagate those
+        # exact booleans to Murphy instead of constructing favorable defaults.
+        validated_readiness = ReadinessInputs(**{
+            name: evidence.record(name).value is True
+            for name in self.readiness.REQUIRED
+        })
+        risk_decision = RiskGuard(self.murphy, self.readiness).authorize_new_entry(validated_readiness)
         if not risk_decision.allowed:
             return risk_decision
 
         try:
-            registered = self.ledger.register(intent.client_order_id, dict(intent.payload))
+            self.reservation_bridge.begin_submission(intent, occurred_at=now)
         except Exception:
             self.murphy.freeze()
-            raise
+            return ExecutionDecision(False, "BLOCKED")
+
+        try:
+            registered = self.ledger.register(client_order_id, canonical_payload)
+        except Exception:
+            try:
+                self.reservation_bridge.finish_submission(
+                    intent,
+                    outcome="BLOCKED",
+                    occurred_at=self.clock(),
+                    error="LEDGER_REGISTER_FAILED_BEFORE_ADAPTER",
+                )
+            except Exception:
+                pass
+            self.murphy.freeze()
+            return ExecutionDecision(False, "BLOCKED")
         if not registered:
+            try:
+                self.reservation_bridge.finish_submission(
+                    intent,
+                    outcome="BLOCKED",
+                    occurred_at=self.clock(),
+                    error="LEDGER_ALREADY_CONTAINS_CLIENT_ORDER_ID",
+                )
+            except Exception:
+                pass
+            self.murphy.freeze()
             return ExecutionDecision(False, "DUPLICATE")
 
-        order = self._LifecycleOrder(intent.client_order_id, intent.payload["quantity"])
-        order.submit()
+        # This OrderIntent is created only internally from reloaded persisted terms.
+        canonical_intent = OrderIntent(
+            client_order_id=client_order_id,
+            payload=canonical_payload,
+            correlation_id=correlation_id,
+        )
         try:
-            self.boundary.submit(intent)
-        except TimeoutError:
-            self.ledger.mark_result(intent.client_order_id, "ORDER_RESULT_UNKNOWN")
-            self.murphy.freeze()
-            return ExecutionDecision(False, "UNKNOWN")
-        except Exception:
-            self.ledger.mark_result(intent.client_order_id, "ORDER_RESULT_UNKNOWN")
+            self.boundary.submit(canonical_intent)
+        except Exception as exc:
+            try:
+                self.reservation_bridge.finish_submission(
+                    intent,
+                    outcome="UNKNOWN",
+                    occurred_at=self.clock(),
+                    error=(type(exc).__name__ + ":" + str(exc)[:256]),
+                )
+            except Exception:
+                # SUBMISSION_STARTED is durable evidence that a send may have happened;
+                # recovery will conservatively convert it to UNKNOWN and never resend.
+                pass
+            try:
+                self.ledger.mark_result(client_order_id, "ORDER_RESULT_UNKNOWN")
+            except Exception:
+                pass
             self.murphy.freeze()
             return ExecutionDecision(False, "UNKNOWN")
 
-        self.ledger.mark_result(intent.client_order_id, "SUBMITTED")
+        try:
+            self.reservation_bridge.finish_submission(
+                intent, outcome="SUBMITTED", occurred_at=self.clock()
+            )
+        except Exception:
+            try:
+                self.ledger.mark_result(client_order_id, "ORDER_RESULT_UNKNOWN")
+            except Exception:
+                pass
+            self.murphy.freeze()
+            return ExecutionDecision(False, "UNKNOWN")
+
+        try:
+            self.ledger.mark_result(client_order_id, "SUBMITTED")
+        except Exception:
+            # The canonical binding already records SUBMITTED; the separate ledger can
+            # be repaired on restart without reissuing an external call.
+            self.murphy.freeze()
+            return ExecutionDecision(False, "UNKNOWN")
         return ExecutionDecision(True, "SUBMITTED")
+
+    def recover_projection(self, reservation_id: str) -> ExecutionDecision:
+        """Repair the separate ledger from canonical binding state; never contacts exchange."""
+        if self.reservation_bridge is None:
+            self.murphy.freeze()
+            return ExecutionDecision(False, "BLOCKED")
+        try:
+            binding = self.reservation_bridge.recover_ambiguous(
+                reservation_id, occurred_at=self.clock()
+            )
+            if binding is None:
+                return ExecutionDecision(False, "RESERVATION_EXECUTION_BINDING_NOT_FOUND")
+            if binding.state == "PREPARED":
+                # No attempt marker means no authorized adapter invocation was started.
+                return ExecutionDecision(False, "NO_SUBMISSION_PROJECTION_REQUIRED")
+            ledger_result = {
+                "SUBMISSION_STARTED": "ORDER_RESULT_UNKNOWN",
+                "UNKNOWN": "ORDER_RESULT_UNKNOWN",
+                "SUBMITTED": "SUBMITTED",
+                "BLOCKED": "BLOCKED",
+            }.get(binding.state)
+            if ledger_result is None:
+                self.murphy.freeze()
+                return ExecutionDecision(False, "BLOCKED")
+            self.ledger.synchronize_projection(
+                binding.client_order_id, binding.payload, ledger_result
+            )
+            if binding.state in {"UNKNOWN", "SUBMISSION_STARTED"}:
+                self.murphy.freeze()
+                return ExecutionDecision(False, "UNKNOWN")
+            return ExecutionDecision(False, "PROJECTION_REPAIRED")
+        except Exception:
+            self.murphy.freeze()
+            return ExecutionDecision(False, "BLOCKED")
+
+
+
+    def apply_external_fill(self, order, fill_id: str, quantity, price) -> bool:
+        """Apply a venue fill only once; identity is persisted in the same SQLite ledger."""
+        registered = self.ledger.register_fill(fill_id, order.client_order_id)
+        if not registered:
+            return False
+        try:
+            order.apply_fill(quantity, price)
+        except Exception:
+            self.ledger.unregister_fill(fill_id)
+            raise
+        return True
+
 
     def apply_external_fill(self, order, fill_id: str, quantity, price) -> bool:
         """Apply a venue fill only once; identity is persisted in the same SQLite ledger."""
