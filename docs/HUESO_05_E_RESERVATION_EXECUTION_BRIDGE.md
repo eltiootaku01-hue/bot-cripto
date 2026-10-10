@@ -46,9 +46,20 @@ ExecutionOrchestrator no construye ReadinessEvidence con valores favorables por 
 
 No se añade TTL para RiskAuthorization. El decision_timestamp se conserva como provenance; la política formal de vigencia sigue pendiente de una decisión independiente de CEREBRO.
 
-## Pruebas y estado
+## Pruebas y evidencia observada
 
-El alcance de pruebas nuevo está en tests/test_hueso_05e_reservation_execution_bridge.py. La suite heredada de la frontera genérica se ajusta para demostrar que OrderIntent sin una vinculación persistida no llega al adaptador. Los resultados de tests y workflows solo se considerarán verificados cuando se observen en CI para un commit concreto de esta rama.
+El alcance nuevo está en tests/test_hueso_05e_reservation_execution_bridge.py. La regresión de tests/test_phase14_execution_boundary.py demuestra que OrderIntent sin una vinculación persistida no llega al adaptador. tests/test_hueso_02e1_reservation_read_set.py fue actualizado únicamente para reconocer la nueva tabla de snapshot obligatoria en el esquema del store.
+
+Evidencia de CI para el HEAD verificado 1b8688eca36097c09e8c973d993eb96c9d6f1cba:
+
+- Workflow tests (push): run 38051249231; job pytest; conclusión success; 1313 passed in 8.47s.
+- Workflow tests (pull_request): run 38051252265; job pytest; conclusión success.
+- Workflow phase1.31-sma-real-e2e (pull_request): run 38051252259; conclusión success.
+- Workflow phase1.34-indicators-real-e2e (pull_request): run 38051252190; conclusión success.
+
+En una iteración anterior, el run 38051052520 terminó con 4 fallos y 1306 aprobados: una expectativa de tablas del test de read-set y la transición desde SUBMISSION_STARTED. Ambos problemas se corrigieron en commits posteriores; las cuatro ejecuciones de arriba pertenecen al HEAD final de esta iteración y terminaron satisfactoriamente.
+
+La suite fue ejecutada en el runner GitHub Actions con Python 3.12, mediante el workflow normal tests. Esta evidencia no equivale a reconciliación de exchange ni a aprobación/merge de la PR.
 
 ## Pendientes de HUESO 05-F / CEREBRO
 
