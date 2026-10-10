@@ -428,7 +428,9 @@ class ReservationExecutionBridge:
             client_id, _, intent_json, intent_hash = self._derive_intent(reservation, snapshot, auth_binding)
             existing = self._load_binding(reservation_id)
             if existing is not None:
-                self._verify_binding(existing, allow_non_prepared=True)
+                # Compare candidate terms to the already-persisted binding first so
+                # a valid but different reuse is reported as a typed CONFLICT.
+                # Only an identity-equal candidate proceeds to full integrity verification.
                 if (
                     existing.client_order_id != client_id
                     or existing.intent_hash != intent_hash
@@ -441,6 +443,7 @@ class ReservationExecutionBridge:
                 if reservation.client_order_id != existing.client_order_id:
                     connection.rollback()
                     return ExecutionBridgePreparation(ExecutionBridgeStatus.BLOCKED, None, "RESERVATION_CLIENT_ORDER_BINDING_MISMATCH")
+                self._verify_binding(existing, allow_non_prepared=True)
                 connection.commit()
                 prepared = PreparedExecutionIntent(reservation_id, existing.client_order_id, existing.intent_hash)
                 if existing.state in {"UNKNOWN", "SUBMISSION_STARTED"} or reservation.state is ReservationState.UNKNOWN:

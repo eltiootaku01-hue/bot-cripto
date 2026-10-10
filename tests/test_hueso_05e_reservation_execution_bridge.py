@@ -426,3 +426,77 @@ def test_19_local_recovery_does_not_claim_exchange_reconciliation():
     source = Path("bot_obrero/reservation_execution_bridge.py").read_text(encoding="utf-8")
     assert "does not contact or reconcile an exchange" in source
     assert "recover_ambiguous" in source
+
+
+def test_20_changed_valid_terms_after_preparation_return_typed_conflict(tmp_path):
+    store, reservation_id, _ = admit(tmp_path / "reservation.sqlite")
+    bridge = ReservationExecutionBridge(store)
+    prepared = bridge.prepare(reservation_id)
+    assert prepared.status is ExecutionBridgeStatus.PREPARED
+
+    row = store._connection.execute(
+        "SELECT canonical_json FROM reservation_trade_terms_snapshots WHERE reservation_id=?",
+        (reservation_id,),
+    ).fetchone()
+    terms = json.loads(row[0])
+    terms["strategy_identity"] = "strategy.changed-after-prepare"
+    canonical = json.dumps(terms, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    store._connection.execute(
+        "UPDATE reservation_trade_terms_snapshots SET canonical_json=?, terms_hash=? WHERE reservation_id=?",
+        (canonical, digest, reservation_id),
+    )
+    store._connection.commit()
+
+    result = bridge.prepare(reservation_id)
+    assert result.status is ExecutionBridgeStatus.CONFLICT
+    assert result.intent is None
+    store.close()
+
+
+def test_21_authorization_fingerprint_disagreement_blocks_preparation(tmp_path):
+    store, reservation_id, _ = admit(tmp_path / "reservation.sqlite")
+    store._connection.execute(
+        "UPDATE reservation_authorization_bindings SET semantic_fingerprint=? WHERE reservation_id=?",
+        ("risk-authorization-semantic-v1:" + "0" * 64, reservation_id),
+    )
+    store._connection.commit()
+
+    result = ReservationExecutionBridge(store).prepare(reservation_id)
+    assert result.status is ExecutionBridgeStatus.BLOCKED
+    assert result.intent is None
+    store.close()
+
+
+def test_22_preparation_and_repetition_do_not_mutate_canonical_snapshot(tmp_path):
+    store, reservation_id, request = admit(tmp_path / "reservation.sqlite")
+    before = store.get_trade_terms_snapshot(reservation_id)
+    original_proposal = (
+        request.proposal.proposal_id,
+        request.proposal.signal_id,
+        request.proposal.symbol,
+        request.proposal.requested_quantity,
+        request.proposal.requested_price,
+        request.proposal.max_quote_spend,
+        request.proposal.correlation_id,
+    )
+    bridge = ReservationExecutionBridge(store)
+    first = bridge.prepare(reservation_id)
+    second = bridge.prepare(reservation_id)
+    after = store.get_trade_terms_snapshot(reservation_id)
+
+    assert first.status is ExecutionBridgeStatus.PREPARED
+    assert second.status is ExecutionBridgeStatus.ALREADY_PREPARED
+    assert first.intent == second.intent
+    assert before.canonical_json == after.canonical_json
+    assert before.terms_hash == after.terms_hash
+    assert original_proposal == (
+        request.proposal.proposal_id,
+        request.proposal.signal_id,
+        request.proposal.symbol,
+        request.proposal.requested_quantity,
+        request.proposal.requested_price,
+        request.proposal.max_quote_spend,
+        request.proposal.correlation_id,
+    )
+    store.close()
