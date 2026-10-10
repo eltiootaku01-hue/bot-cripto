@@ -500,3 +500,49 @@ def test_22_preparation_and_repetition_do_not_mutate_canonical_snapshot(tmp_path
         request.proposal.correlation_id,
     )
     store.close()
+
+
+def test_23_post_adapter_persistence_failure_recovers_as_unknown_without_resend(tmp_path, monkeypatch):
+    reservation_path = tmp_path / "reservations.sqlite"
+    store, reservation_id, _, bridge, prepared, ledger, adapter, guard, orch, evidence = setup_orchestrator(
+        tmp_path, store_path=reservation_path
+    )
+    original_finish = bridge.finish_submission
+
+    def fail_after_external_return(prepared_intent, *, outcome, occurred_at, error=None):
+        if outcome == "SUBMITTED":
+            raise OSError("injected result persistence failure after adapter return")
+        return original_finish(
+            prepared_intent, outcome=outcome, occurred_at=occurred_at, error=error
+        )
+
+    monkeypatch.setattr(bridge, "finish_submission", fail_after_external_return)
+    result = orch.execute(prepared, evidence)
+    assert not result.allowed and result.reason == "UNKNOWN"
+    assert adapter.submits == 1
+    assert bridge.get_binding(reservation_id).state == "SUBMISSION_STARTED"
+    assert store.get(reservation_id).state is ReservationState.ACTIVE
+    assert ledger.get(prepared.client_order_id).result == "ORDER_RESULT_UNKNOWN"
+    store.close()
+    ledger.close()
+
+    reopened = SQLiteReservationStore(reservation_path)
+    restarted_bridge = ReservationExecutionBridge(reopened)
+    recovery_ledger = SQLiteIdempotencyLedger(tmp_path / "recovery-ledger.sqlite")
+    recovery_adapter = FakeAdapter()
+    restarted = ExecutionOrchestrator(
+        adapter=recovery_adapter,
+        ledger=recovery_ledger,
+        murphy_guard=MurphyGuard(),
+        reservation_bridge=restarted_bridge,
+        clock=lambda: NOW + timedelta(seconds=2),
+    )
+    recovery = restarted.recover_projection(reservation_id)
+    assert not recovery.allowed and recovery.reason == "UNKNOWN"
+    assert reopened.get(reservation_id).state is ReservationState.UNKNOWN
+    assert restarted_bridge.get_binding(reservation_id).state == "UNKNOWN"
+    assert recovery_ledger.get(prepared.client_order_id).result == "ORDER_RESULT_UNKNOWN"
+    assert adapter.submits == 1
+    assert recovery_adapter.submits == 0
+    reopened.close()
+    recovery_ledger.close()
