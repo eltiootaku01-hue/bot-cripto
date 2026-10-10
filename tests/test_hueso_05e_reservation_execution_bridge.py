@@ -368,13 +368,17 @@ def test_16_crash_left_submission_marker_recovers_as_unknown_and_repairs_ledger(
     reopened = SQLiteReservationStore(reservation_path)
     restarted_bridge = ReservationExecutionBridge(reopened)
     repaired_ledger = SQLiteIdempotencyLedger(tmp_path / "repaired-ledger.sqlite")
+    recovery_adapter = FakeAdapter()
     restarted = ExecutionOrchestrator(
-        adapter=FakeAdapter(),
+        adapter=recovery_adapter,
         ledger=repaired_ledger,
         murphy_guard=MurphyGuard(),
         reservation_bridge=restarted_bridge,
         clock=lambda: NOW + timedelta(seconds=2),
     )
+    with pytest.raises(PermissionError, match="PERSISTED_RESERVATION_SUBMISSION_AUTHORITY_REQUIRED"):
+        restarted.boundary.submit(prepared)
+    assert recovery_adapter.submits == 0
     result = restarted.recover_projection(reservation_id)
     assert not result.allowed and result.reason == "UNKNOWN"
     assert reopened.get(reservation_id).state is ReservationState.UNKNOWN
@@ -392,6 +396,9 @@ def test_17_successful_local_submission_can_repair_missing_ledger_projection(tmp
     assert result.allowed and result.reason == "SUBMITTED"
     assert adapter.submits == 1
     assert bridge.get_binding(reservation_id).state == "SUBMITTED"
+    repeated = orch.execute(prepared, evidence)
+    assert not repeated.allowed
+    assert adapter.submits == 1
     ledger.close()
 
     repaired_ledger = SQLiteIdempotencyLedger(tmp_path / "empty-ledger.sqlite")
@@ -546,3 +553,50 @@ def test_23_post_adapter_persistence_failure_recovers_as_unknown_without_resend(
     assert recovery_adapter.submits == 0
     reopened.close()
     recovery_ledger.close()
+
+
+def test_24_direct_boundary_cannot_bypass_binding_and_authorized_flow_still_submits(tmp_path):
+    store, reservation_id, _, bridge, prepared, ledger, adapter, _, orch, evidence = setup_orchestrator(tmp_path)
+
+    with pytest.raises(PermissionError, match="PERSISTED_RESERVATION_SUBMISSION_AUTHORITY_REQUIRED"):
+        orch.boundary.submit(prepared)
+    assert adapter.submits == 0
+    assert bridge.get_binding(reservation_id).state == "PREPARED"
+
+    # Even if the internal capability is exposed accidentally, generic caller
+    # economics are not accepted by the physical invocation layer.
+    persisted_payload = bridge.verify_prepared(prepared).payload
+    generic = OrderIntent(
+        prepared.client_order_id,
+        {"symbol": persisted_payload["symbol"], "quantity": "999999"},
+        persisted_payload["correlation_id"],
+    )
+    leaked_authority = orch._ExecutionOrchestrator__submission_authority
+    with pytest.raises(PermissionError, match="PREPARED_EXECUTION_INTENT_REQUIRED"):
+        orch.boundary.submit(generic, _submission_authority=leaked_authority)
+    assert adapter.submits == 0
+    assert bridge.get_binding(reservation_id).state == "PREPARED"
+
+    result = orch.execute(prepared, evidence)
+    assert result.allowed and result.reason == "SUBMITTED"
+    assert bridge.get_binding(reservation_id).state == "SUBMITTED"
+    assert adapter.submits == 1
+    store.close()
+    ledger.close()
+
+
+def test_25_altered_prepared_hash_is_rejected_before_adapter_invocation(tmp_path):
+    store, reservation_id, _, bridge, prepared, ledger, adapter, _, orch, evidence = setup_orchestrator(tmp_path)
+    altered = PreparedExecutionIntent(
+        prepared.reservation_id,
+        prepared.client_order_id,
+        "0" * 64,
+    )
+
+    result = orch.execute(altered, evidence)
+    assert not result.allowed
+    assert result.reason == "RESERVATION_EXECUTION_BINDING_CONFLICT"
+    assert adapter.submits == 0
+    assert bridge.get_binding(reservation_id).state == "PREPARED"
+    store.close()
+    ledger.close()

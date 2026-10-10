@@ -30,6 +30,10 @@ Una repetición compatible devuelve ALREADY_PREPARED con la misma identidad. Con
 
 ## Antes y después del efecto externo
 
+La propia ExecutionBoundary actúa como segunda frontera obligatoria para el envío de una orden nueva. No acepta una OrderIntent genérica como orden ejecutable: exige la capacidad interna del orquestador y un PreparedExecutionIntent. Inmediatamente antes del efecto externo vuelve a cargar y verificar el binding autoritativo, la identidad, los hashes, los términos canónicos, la autorización y el estado persistido SUBMISSION_STARTED. La frontera reconstruye la OrderIntent enviada usando exclusivamente el payload recuperado de ese binding. Un intento directo por orchestrator.boundary.submit(...) sin la capacidad interna falla cerrado y no llega al adaptador. La semántica de cancelación permanece sin cambios.
+
+Esta defensa cubre las rutas de API soportadas dentro del proceso Python; no constituye aislamiento frente a código arbitrario hostil que pueda inspeccionar objetos privados dentro del mismo proceso.
+
 Antes de la llamada al adaptador, se guarda SUBMISSION_STARTED en la base autoritativa. Si falla esa escritura, no se llama al adaptador. Después de una excepción del adaptador, el bridge intenta registrar UNKNOWN y cambia la reserva ACTIVE a UNKNOWN dentro de una transacción local; el recurso protegido permanece reservado. Si el proceso cae y no se puede escribir UNKNOWN, SUBMISSION_STARTED es evidencia durable conservadora y recover_ambiguous la convierte a UNKNOWN tras reinicio.
 
 No se reenvía automáticamente una orden cuyo resultado sea UNKNOWN. El bridge no inventa rechazo del exchange a partir de una excepción.

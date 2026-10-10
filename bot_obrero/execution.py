@@ -123,6 +123,10 @@ class ReadinessEvidence:
 _BOUNDARY_PERMIT = object()
 
 
+class _BoundaryAuthorizationError(PermissionError):
+    """Fail-closed rejection before an adapter is invoked."""
+
+
 class ExchangeAdapter(ABC):
     """External-effect interface whose public execution methods are boundary-controlled."""
 
@@ -194,15 +198,56 @@ class RiskGuard:
 
 
 class ExecutionBoundary:
-    """The only object authorized to cross from the internal flow to an adapter."""
+    """Final admission gate for a new order immediately before adapter invocation."""
 
-    def __init__(self, adapter: ExchangeAdapter):
+    def __init__(
+        self,
+        adapter: ExchangeAdapter,
+        *,
+        reservation_bridge=None,
+        submission_authority=None,
+    ):
         self._adapter = adapter
+        self.__reservation_bridge = reservation_bridge
+        self.__submission_authority = submission_authority
 
-    def submit(self, order):
-        return self._adapter.submit(order, _permit=_BOUNDARY_PERMIT)
+    def submit(self, prepared, *, _submission_authority=None):
+        # The orchestrator's private capability is necessary but not sufficient:
+        # independently revalidate the authoritative persisted binding and state.
+        if (
+            self.__submission_authority is None
+            or _submission_authority is not self.__submission_authority
+        ):
+            raise _BoundaryAuthorizationError(
+                "PERSISTED_RESERVATION_SUBMISSION_AUTHORITY_REQUIRED"
+            )
+        if self.__reservation_bridge is None:
+            raise _BoundaryAuthorizationError("PERSISTED_RESERVATION_BINDING_REQUIRED")
+
+        from .reservation_execution_bridge import PreparedExecutionIntent
+
+        if type(prepared) is not PreparedExecutionIntent:
+            raise _BoundaryAuthorizationError("PREPARED_EXECUTION_INTENT_REQUIRED")
+        try:
+            binding = self.__reservation_bridge.verify_submission_started(prepared)
+            payload = binding.payload
+            correlation_id = payload.get("correlation_id")
+            canonical_intent = OrderIntent(
+                client_order_id=binding.client_order_id,
+                payload=payload,
+                correlation_id=correlation_id,
+            )
+        except Exception as exc:
+            raise _BoundaryAuthorizationError(
+                "PERSISTED_RESERVATION_SUBMISSION_NOT_AUTHORIZED"
+            ) from exc
+
+        # Never send caller-supplied economics. The adapter sees only terms
+        # reloaded and verified from the persistent reservation binding.
+        return self._adapter.submit(canonical_intent, _permit=_BOUNDARY_PERMIT)
 
     def cancel(self, order):
+        # Cancellation semantics intentionally remain unchanged by HUESO 05-E-R1.
         return self._adapter.cancel(order, _permit=_BOUNDARY_PERMIT)
 
 
@@ -212,10 +257,15 @@ class ExecutionOrchestrator:
     def __init__(self, *, adapter, ledger, murphy_guard, reservation_bridge=None, readiness_gate=None, clock=None):
         from .order_lifecycle import LifecycleOrder
 
-        self.boundary = ExecutionBoundary(adapter)
         self.ledger = ledger
         self.murphy = murphy_guard
         self.reservation_bridge = reservation_bridge
+        self.__submission_authority = object() if reservation_bridge is not None else None
+        self.boundary = ExecutionBoundary(
+            adapter,
+            reservation_bridge=reservation_bridge,
+            submission_authority=self.__submission_authority,
+        )
         self.readiness = readiness_gate or ReadinessGate()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._LifecycleOrder = LifecycleOrder
@@ -321,14 +371,29 @@ class ExecutionOrchestrator:
             self.murphy.freeze()
             return ExecutionDecision(False, "DUPLICATE")
 
-        # This OrderIntent is created only internally from reloaded persisted terms.
-        canonical_intent = OrderIntent(
-            client_order_id=client_order_id,
-            payload=canonical_payload,
-            correlation_id=correlation_id,
-        )
         try:
-            self.boundary.submit(canonical_intent)
+            # The boundary re-reads the persisted binding and reconstructs the
+            # outgoing OrderIntent itself; this capability is not part of the public API.
+            self.boundary.submit(
+                intent,
+                _submission_authority=self.__submission_authority,
+            )
+        except _BoundaryAuthorizationError as exc:
+            try:
+                self.reservation_bridge.finish_submission(
+                    intent,
+                    outcome="BLOCKED",
+                    occurred_at=self.clock(),
+                    error=(type(exc).__name__ + ":" + str(exc)[:256]),
+                )
+            except Exception:
+                pass
+            try:
+                self.ledger.mark_result(client_order_id, "BLOCKED")
+            except Exception:
+                pass
+            self.murphy.freeze()
+            return ExecutionDecision(False, "BLOCKED")
         except Exception as exc:
             try:
                 self.reservation_bridge.finish_submission(
@@ -403,19 +468,6 @@ class ExecutionOrchestrator:
             self.murphy.freeze()
             return ExecutionDecision(False, "BLOCKED")
 
-
-
-    def apply_external_fill(self, order, fill_id: str, quantity, price) -> bool:
-        """Apply a venue fill only once; identity is persisted in the same SQLite ledger."""
-        registered = self.ledger.register_fill(fill_id, order.client_order_id)
-        if not registered:
-            return False
-        try:
-            order.apply_fill(quantity, price)
-        except Exception:
-            self.ledger.unregister_fill(fill_id)
-            raise
-        return True
 
 
     def apply_external_fill(self, order, fill_id: str, quantity, price) -> bool:

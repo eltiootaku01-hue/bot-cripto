@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import pytest
 
-from bot_obrero.execution import EvidenceBundle, EvidenceRecord, ExchangeAdapter, ExecutionOrchestrator, OrderIntent, ReadinessInputs
+from bot_obrero.execution import EvidenceBundle, EvidenceRecord, ExchangeAdapter, ExecutionBoundary, ExecutionOrchestrator, OrderIntent, ReadinessInputs
 from bot_obrero.murphy import GuardState, MurphyGuard, ProtectionState
 from bot_obrero.order_lifecycle import LifecycleOrder, LifecycleStatus
 from bot_obrero.persistent_ledger import IdempotencyConflict, SQLiteIdempotencyLedger
@@ -287,3 +287,19 @@ def test_19_protection_state_is_read_only_through_public_api():
     assert not protection.safe()
     protection.submit()
     assert protection.state is ProtectionState.PROTECTION_PENDING
+
+
+def test_20_direct_execution_boundary_cannot_submit_generic_intent(tmp_path):
+    adapter = FakeAdapter()
+    boundary = ExecutionBoundary(adapter)
+
+    with pytest.raises(PermissionError, match="PERSISTED_RESERVATION_SUBMISSION_AUTHORITY_REQUIRED"):
+        boundary.submit(intent())
+    assert adapter.submits == 0
+
+    orchestrator, ledger = build(tmp_path, adapter=adapter)
+    with pytest.raises(PermissionError, match="PERSISTED_RESERVATION_SUBMISSION_AUTHORITY_REQUIRED"):
+        orchestrator.boundary.submit(intent())
+    assert adapter.submits == 0
+    assert ledger.get("order-1") is None
+    ledger.close()

@@ -520,7 +520,7 @@ class ReservationExecutionBridge:
             if binding.state in {"UNKNOWN", "SUBMISSION_STARTED"}:
                 raise ExecutionBridgeBlocked("execution result is UNKNOWN; automatic resubmission prohibited")
             raise ExecutionBridgeRejected("execution binding is not PREPARED")
-        if binding.state == "PREPARED" and reservation.state is not ReservationState.ACTIVE:
+        if binding.state in {"PREPARED", "SUBMISSION_STARTED"} and reservation.state is not ReservationState.ACTIVE:
             raise ExecutionBridgeRejected("reservation state is not ACTIVE")
         return binding
 
@@ -533,6 +533,24 @@ class ReservationExecutionBridge:
         if binding.client_order_id != prepared.client_order_id or binding.intent_hash != prepared.intent_hash:
             raise ExecutionBridgeConflict("PREPARED_INTENT_DOES_NOT_MATCH_AUTHORITATIVE_BINDING")
         return self._verify_binding(binding)
+
+    def verify_submission_started(
+        self,
+        prepared: PreparedExecutionIntent,
+    ) -> PersistedExecutionBinding:
+        """Revalidate authoritative binding immediately before the external effect."""
+        if type(prepared) is not PreparedExecutionIntent:
+            raise ExecutionBridgeRejected("PREPARED_EXECUTION_INTENT_REQUIRED")
+        binding = self._load_binding(prepared.reservation_id)
+        if binding is None:
+            raise ExecutionBridgeRejected("PERSISTED_EXECUTION_BINDING_NOT_FOUND")
+        if binding.client_order_id != prepared.client_order_id or binding.intent_hash != prepared.intent_hash:
+            raise ExecutionBridgeConflict("PREPARED_INTENT_DOES_NOT_MATCH_AUTHORITATIVE_BINDING")
+        return self._verify_binding(
+            binding,
+            allow_non_prepared=True,
+            expected_state="SUBMISSION_STARTED",
+        )
 
     def begin_submission(
         self,
