@@ -48,18 +48,19 @@ No se añade TTL para RiskAuthorization. El decision_timestamp se conserva como 
 
 ## Pruebas y evidencia observada
 
-El alcance nuevo está en tests/test_hueso_05e_reservation_execution_bridge.py. La regresión de tests/test_phase14_execution_boundary.py demuestra que OrderIntent sin una vinculación persistida no llega al adaptador. tests/test_hueso_02e1_reservation_read_set.py fue actualizado únicamente para reconocer la nueva tabla de snapshot obligatoria en el esquema del store.
+El alcance nuevo está en tests/test_hueso_05e_reservation_execution_bridge.py. La regresión de tests/test_phase14_execution_boundary.py demuestra que OrderIntent sin una vinculación persistida no llega al adaptador. tests/test_hueso_02e1_reservation_read_set.py fue actualizado únicamente para reconocer la tabla de snapshot obligatoria en el esquema del store. La suite cubre rollback de admisión, preparación tras reinicio, estados prohibidos, conflicto de términos, fingerprint incompatible, concurrencia, ruta genérica bloqueada, fallos pre-envío, timeout/UNKNOWN, reparación del ledger y fallo al persistir el resultado después de invocar al adaptador.
 
-Evidencia de CI para el HEAD verificado 1b8688eca36097c09e8c973d993eb96c9d6f1cba:
+Evidencia de CI para el commit funcional probado 902060fdbed1c4131ecc1d306b78587c8a90deab:
 
-- Workflow tests (push): run 38051249231; job pytest; conclusión success; 1313 passed in 8.47s.
-- Workflow tests (pull_request): run 38051252265; job pytest; conclusión success.
-- Workflow phase1.31-sma-real-e2e (pull_request): run 38051252259; conclusión success.
-- Workflow phase1.34-indicators-real-e2e (pull_request): run 38051252190; conclusión success.
+- Instalación: python -m pip install -e ".[test]" — success.
+- Workflow tests (push), run 38051391526; job pytest; conclusión success; comando pytest -q; resultado 1314 passed in 8.75s.
+- Workflow tests (pull_request), run 38051394654; job pytest; conclusión success.
+- Workflow phase1.31-sma-real-e2e (pull_request), run 38051394636; conclusión success.
+- Workflow phase1.34-indicators-real-e2e (pull_request), run 38051394856; conclusión success.
 
-En una iteración anterior, el run 38051052520 terminó con 4 fallos y 1306 aprobados: una expectativa de tablas del test de read-set y la transición desde SUBMISSION_STARTED. Ambos problemas se corrigieron en commits posteriores; las cuatro ejecuciones de arriba pertenecen al HEAD final de esta iteración y terminaron satisfactoriamente.
+En la iteración inicial, run 38051052520 terminó con 4 fallos y 1306 aprobados: una expectativa de tablas del test de read-set y tres resultados relacionados con la transición de envío. Se corrigieron con commits posteriores y se añadieron pruebas para fingerprint, conflicto tipado y recuperación después de un fallo al persistir el resultado post-adaptador. Los runs verdes arriba corresponden al commit funcional con esa cobertura.
 
-La suite fue ejecutada en el runner GitHub Actions con Python 3.12, mediante el workflow normal tests. Esta evidencia no equivale a reconciliación de exchange ni a aprobación/merge de la PR.
+La suite fue ejecutada en GitHub Actions con Python 3.12. Esta evidencia no equivale a reconciliación de exchange, autenticación criptográfica del origen de EvidenceRecord ni aprobación/merge de la PR.
 
 ## Pendientes de HUESO 05-F / CEREBRO
 
