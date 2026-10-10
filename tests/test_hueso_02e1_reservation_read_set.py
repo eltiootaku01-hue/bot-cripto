@@ -411,7 +411,7 @@ def test_read_set_rejects_foreign_account_reservations():
         )
 
 
-def test_read_set_is_ephemeral_and_no_new_sqlite_table_is_created(tmp_path):
+def test_read_set_is_ephemeral_and_does_not_create_incidental_tables(tmp_path):
     store = make_store(tmp_path)
     make_reservation(store, reservation_id="r1")
 
@@ -428,6 +428,7 @@ def test_read_set_is_ephemeral_and_no_new_sqlite_table_is_created(tmp_path):
         "reservations",
         "reservation_transitions",
         "reservation_authorization_bindings",
+        "reservation_trade_terms_snapshots",
     }
     store.close()
 

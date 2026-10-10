@@ -96,6 +96,37 @@ class SQLiteIdempotencyLedger:
         ).fetchone()
         return None if row is None else LedgerRecord(*row)
 
+    def synchronize_projection(self, client_order_id: str, intent: Any, result: str) -> LedgerRecord:
+        """Repair this separate ledger projection from authoritative local binding state.
+
+        This is idempotent for matching identity/hash and never claims a transaction
+        shared with the Reservation database or verifies an exchange outcome.
+        """
+        if not client_order_id or type(result) is not str or not result:
+            raise ValueError("INVALID_LEDGER_PROJECTION")
+        digest = self._intent_hash(intent)
+        with self._connection:
+            row = self._connection.execute(
+                "SELECT intent_hash FROM idempotency_ledger WHERE client_order_id=?",
+                (client_order_id,),
+            ).fetchone()
+            if row is None:
+                self._connection.execute(
+                    "INSERT INTO idempotency_ledger(client_order_id,intent_hash,result) VALUES (?, ?, ?)",
+                    (client_order_id, digest, result),
+                )
+            elif row[0] != digest:
+                raise IdempotencyConflict("CLIENT_ORDER_ID_INTENT_MISMATCH")
+            else:
+                self._connection.execute(
+                    "UPDATE idempotency_ledger SET result=? WHERE client_order_id=?",
+                    (result, client_order_id),
+                )
+        record = self.get(client_order_id)
+        if record is None:
+            raise KeyError("LEDGER_PROJECTION_REPAIR_FAILED")
+        return record
+
     def register_fill(self, fill_id: str, client_order_id: str) -> bool:
         if not fill_id or not client_order_id:
             raise ValueError("INVALID_FILL_IDENTITY")
