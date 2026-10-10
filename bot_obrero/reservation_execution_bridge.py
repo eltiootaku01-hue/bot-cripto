@@ -584,7 +584,7 @@ class ReservationExecutionBridge:
                 raise ExecutionBridgeRejected("PERSISTED_EXECUTION_BINDING_NOT_FOUND")
             if current.client_order_id != prepared.client_order_id or current.intent_hash != prepared.intent_hash:
                 raise ExecutionBridgeConflict("PREPARED_INTENT_DOES_NOT_MATCH_AUTHORITATIVE_BINDING")
-            self._verify_binding(current, expected_state="SUBMISSION_STARTED")
+            self._verify_binding(current, allow_non_prepared=True, expected_state="SUBMISSION_STARTED")
             occurred_text = _utc(occurred_at)
             cursor = connection.execute(
                 """
