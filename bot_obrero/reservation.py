@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
+import hashlib
 import json
 import sqlite3
 from uuid import uuid4
@@ -139,6 +140,20 @@ def _canonical_evidence_json(evidence: tuple[RiskEvidenceRef, ...]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _canonical_decimal_text(value: Decimal, field_name: str) -> str:
+    _decimal(value, field_name)
+    if not value.is_finite():
+        raise ReservationContractError(f"{field_name} must be finite")
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in {"", "-0"} else text
+
+
+def _canonical_json(payload: dict) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
 @dataclass(frozen=True)
 class ReservationAuthorizationBindingInput:
     """Low-level, immutable domain values for atomic authorization-binding persistence.
@@ -215,6 +230,45 @@ class PersistedReservationAuthorizationBinding:
             decision_timestamp=self.decision_timestamp,
             risk_evidence=self.risk_evidence,
         )
+
+
+@dataclass(frozen=True)
+class PersistedReservationTradeTermsSnapshot:
+    """Immutable envelope for canonical trade terms stored with a Reservation.
+
+    SHA-256 detects inconsistency between the JSON and stored digest. It is not
+    a cryptographic signature and does not authenticate the storage origin.
+    """
+
+    reservation_id: str
+    terms_hash: str
+    canonical_json: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        _nonempty(self.reservation_id, "reservation_id")
+        if type(self.canonical_json) is not str or not self.canonical_json:
+            raise ReservationContractError("canonical_json must be non-empty")
+        expected = hashlib.sha256(self.canonical_json.encode("utf-8")).hexdigest()
+        if expected != self.terms_hash:
+            raise ReservationContractError("persisted trade-terms snapshot hash mismatch")
+        try:
+            payload = json.loads(self.canonical_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ReservationContractError("persisted trade-terms snapshot is malformed") from exc
+        if not isinstance(payload, dict) or payload.get("reservation_id") != self.reservation_id:
+            raise ReservationContractError("persisted trade-terms snapshot identity mismatch")
+        _aware(self.created_at, "created_at")
+        if self.created_at.utcoffset() is None:
+            raise ReservationContractError("created_at must be timezone-aware")
+
+    @property
+    def terms(self) -> dict:
+        """Return a fresh decoded mapping so callers cannot mutate stored state."""
+        payload = json.loads(self.canonical_json)
+        if not isinstance(payload, dict):
+            raise ReservationContractError("persisted trade-terms snapshot is malformed")
+        return payload
 
 
 @dataclass(frozen=True)
@@ -638,6 +692,17 @@ class SQLiteReservationStore:
             )
             """
         )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reservation_trade_terms_snapshots (
+                reservation_id TEXT PRIMARY KEY,
+                terms_hash TEXT NOT NULL,
+                canonical_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(reservation_id) REFERENCES reservations(reservation_id)
+            )
+            """
+        )
         self._ensure_non_terminal_proposal_index()
         self._connection.commit()
 
@@ -879,6 +944,13 @@ class SQLiteReservationStore:
                 reservation_id=reservation.reservation_id,
                 binding=authorization_binding,
             )
+            # Persist the complete terms snapshot in the same admission transaction.
+            self._insert_trade_terms_snapshot(
+                request=request,
+                reservation=reservation,
+                validated=validated,
+                binding=authorization_binding,
+            )
             self._connection.commit()
             return reservation
         except sqlite3.OperationalError as exc:
@@ -1000,6 +1072,103 @@ class SQLiteReservationStore:
                 _canonical_evidence_json(binding.risk_evidence),
             ),
         )
+
+    def _insert_trade_terms_snapshot(
+        self,
+        *,
+        request: "FinancialAdmissionRequest",
+        reservation: Reservation,
+        validated,
+        binding: ReservationAuthorizationBindingInput,
+    ) -> PersistedReservationTradeTermsSnapshot:
+        """Persist and read-back verify the immutable proposal terms snapshot."""
+        proposal = request.proposal
+        instrument = request.context.instrument
+        instrument_type = getattr(instrument.instrument_type, "value", instrument.instrument_type)
+        payload = {
+            "schema": "reservation-trade-terms-v1",
+            "reservation_id": reservation.reservation_id,
+            "proposal_id": proposal.proposal_id,
+            "signal_id": proposal.signal_id,
+            "symbol": proposal.symbol,
+            "instrument": {
+                "instrument_id": instrument.instrument_id,
+                "symbol": instrument.symbol,
+                "market": instrument.market,
+                "instrument_type": instrument_type,
+                "base_asset": instrument.base_asset,
+                "quote_asset": instrument.quote_asset,
+            },
+            "side": proposal.side.value,
+            "order_type": proposal.order_type.value,
+            "requested_quantity": _canonical_decimal_text(proposal.requested_quantity, "requested_quantity"),
+            "requested_price": None if proposal.requested_price is None else _canonical_decimal_text(proposal.requested_price, "requested_price"),
+            "max_quote_spend": None if proposal.max_quote_spend is None else _canonical_decimal_text(proposal.max_quote_spend, "max_quote_spend"),
+            "price_policy": proposal.price_policy.value,
+            "strategy_identity": proposal.strategy_identity,
+            "strategy_version": proposal.strategy_version,
+            "decision_timestamp": _canonical_utc_datetime(proposal.decision_timestamp),
+            "correlation_id": proposal.correlation_id,
+            "account_id": reservation.account_id,
+            "canonical_account_state_id": request.canonical_account_state.account_state_id,
+            "resource_kind": validated.resource_kind.value,
+            "asset": validated.asset,
+            "reserved_amount": _canonical_decimal_text(validated.reserved_amount, "reserved_amount"),
+            "risk_decision_id": request.risk_decision.risk_decision_id,
+            "authorization": {
+                "authorization_id": binding.authorization_id,
+                "semantic_fingerprint": binding.semantic_fingerprint,
+                "risk_decision_id": binding.risk_decision_id,
+                "proposal_id": binding.proposal_id,
+                "signal_id": binding.signal_id,
+                "correlation_id": binding.correlation_id,
+                "evaluation_context_id": binding.evaluation_context_id,
+                "policy_id": binding.policy_id,
+                "policy_version": binding.policy_version,
+                "decision_timestamp": _canonical_utc_datetime(binding.decision_timestamp),
+                "risk_evidence": json.loads(_canonical_evidence_json(binding.risk_evidence)),
+            },
+        }
+        canonical = _canonical_json(payload)
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        created_at = _canonical_utc_datetime(reservation.created_at)
+        self._connection.execute(
+            """
+            INSERT INTO reservation_trade_terms_snapshots(
+                reservation_id, terms_hash, canonical_json, created_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (reservation.reservation_id, digest, canonical, created_at),
+        )
+        persisted = self.get_trade_terms_snapshot(reservation.reservation_id)
+        if persisted is None or persisted.terms_hash != digest or persisted.terms != payload:
+            raise ReservationContractError("trade-terms snapshot failed read-back verification")
+        return persisted
+
+    def get_trade_terms_snapshot(
+        self,
+        reservation_id: str,
+    ) -> PersistedReservationTradeTermsSnapshot | None:
+        _nonempty(reservation_id, "reservation_id")
+        row = self._connection.execute(
+            """
+            SELECT reservation_id, terms_hash, canonical_json, created_at
+            FROM reservation_trade_terms_snapshots
+            WHERE reservation_id = ?
+            """,
+            (reservation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return PersistedReservationTradeTermsSnapshot(
+                reservation_id=row[0],
+                terms_hash=row[1],
+                canonical_json=row[2],
+                created_at=datetime.fromisoformat(row[3]),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ReservationContractError("persisted trade-terms snapshot is invalid") from exc
 
     def get_authorization_binding(
         self,
@@ -1273,6 +1442,7 @@ __all__ = [
     "ReservationAdmissionRejected",
     "ReservationAuthorizationBindingInput",
     "PersistedReservationAuthorizationBinding",
+    "PersistedReservationTradeTermsSnapshot",
     "NON_TERMINAL_STATES",
     "Reservation",
     "ReservationConflict",
