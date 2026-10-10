@@ -7,9 +7,11 @@ import hashlib
 import json
 from pathlib import Path
 from threading import Barrier
+import inspect
 
 import pytest
 
+import bot_obrero.execution as execution_module
 from bot_obrero.execution import EvidenceBundle, EvidenceRecord, ExecutionBoundary, ExecutionOrchestrator, OrderIntent, ExchangeAdapter
 from bot_obrero.financial_admission import FinancialAdmissionBoundary, FinancialAdmissionStatus
 from bot_obrero.murphy import GuardState, MurphyGuard
@@ -669,5 +671,59 @@ def test_27_ambiguous_dispatch_cannot_be_repeated_on_same_boundary(tmp_path, mon
     assert store.get(reservation_id).state is ReservationState.UNKNOWN
     assert ledger.get(prepared.client_order_id).result == "ORDER_RESULT_UNKNOWN"
     assert adapter.submits == 1
+    store.close()
+    ledger.close()
+
+
+def test_28_no_caller_constructible_authorized_boundary_after_submission_marker(tmp_path):
+    store, reservation_id, _, bridge, prepared, ledger, adapter, _, orch, _ = setup_orchestrator(tmp_path)
+
+    marker = bridge.begin_submission(prepared, occurred_at=NOW + timedelta(seconds=1))
+    assert marker.state == "SUBMISSION_STARTED"
+    assert bridge.get_binding(reservation_id).state == "SUBMISSION_STARTED"
+    assert store.get(reservation_id).state is ReservationState.ACTIVE
+
+    # The vulnerable module-level constructor must not be a supported symbol.
+    assert not hasattr(execution_module, "_OrchestratedExecutionBoundary")
+
+    # Prevent an equivalent module-level subclass from exposing caller-chosen
+    # authority through an ordinary constructor parameter.
+    for name, candidate in vars(execution_module).items():
+        if (
+            isinstance(candidate, type)
+            and candidate is not ExecutionBoundary
+            and candidate.__module__ == execution_module.__name__
+            and issubclass(candidate, ExecutionBoundary)
+        ):
+            assert "submission_authority" not in inspect.signature(candidate.__init__).parameters, name
+
+    # The authorized variant is local to the orchestrator construction. A caller
+    # cannot install an authority by guessing a construction permit or token.
+    boundary_type = type(orch.boundary)
+    assert "submission_authority" not in inspect.signature(boundary_type.__init__).parameters
+    with pytest.raises(PermissionError, match="ORCHESTRATOR_ONLY_BOUNDARY_CONSTRUCTION"):
+        boundary_type(
+            adapter,
+            reservation_bridge=bridge,
+            _construction_permit=object(),
+        )
+    with pytest.raises(TypeError, match="submission_authority"):
+        boundary_type(
+            adapter,
+            reservation_bridge=bridge,
+            submission_authority=object(),
+            _construction_permit=object(),
+        )
+
+    # A public caller-created boundary remains unable to authorize dispatch even
+    # after SUBMISSION_STARTED has been persisted.
+    alternative = ExecutionBoundary(adapter, reservation_bridge=bridge)
+    with pytest.raises(PermissionError, match="PERSISTED_RESERVATION_SUBMISSION_AUTHORITY_REQUIRED"):
+        alternative.submit(prepared, _submission_authority=object())
+
+    assert adapter.submits == 0
+    assert store.get(reservation_id).state is ReservationState.ACTIVE
+    assert bridge.get_binding(reservation_id).state == "SUBMISSION_STARTED"
+    assert ledger.get(prepared.client_order_id) is None
     store.close()
     ledger.close()

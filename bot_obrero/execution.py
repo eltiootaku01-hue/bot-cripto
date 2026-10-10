@@ -268,14 +268,6 @@ class ExecutionBoundary:
         return self._adapter.cancel(order, _permit=_BOUNDARY_PERMIT)
 
 
-class _OrchestratedExecutionBoundary(ExecutionBoundary):
-    """Private boundary variant whose capability is installed only by the orchestrator."""
-
-    def __init__(self, adapter, *, reservation_bridge, submission_authority):
-        super().__init__(adapter, reservation_bridge=reservation_bridge)
-        self._ExecutionBoundary__submission_authority = submission_authority
-
-
 class ExecutionOrchestrator:
     """Pre-effect execution pipeline requiring a persisted Reservation bridge binding."""
 
@@ -286,11 +278,34 @@ class ExecutionOrchestrator:
         self.murphy = murphy_guard
         self.reservation_bridge = reservation_bridge
         self.__submission_authority = object() if reservation_bridge is not None else None
-        self.boundary = _OrchestratedExecutionBoundary(
-            adapter,
-            reservation_bridge=reservation_bridge,
-            submission_authority=self.__submission_authority,
-        )
+        if reservation_bridge is None:
+            self.boundary = ExecutionBoundary(adapter)
+        else:
+            # The authorized variant exists only in this construction path.
+            # Ordinary callers cannot supply either the authority or its permit.
+            construction_permit = object()
+            submission_authority = self.__submission_authority
+
+            class OrchestratedExecutionBoundary(ExecutionBoundary):
+                def __init__(
+                    self,
+                    adapter,
+                    *,
+                    reservation_bridge,
+                    _construction_permit,
+                ):
+                    if _construction_permit is not construction_permit:
+                        raise _BoundaryAuthorizationError(
+                            "ORCHESTRATOR_ONLY_BOUNDARY_CONSTRUCTION"
+                        )
+                    super().__init__(adapter, reservation_bridge=reservation_bridge)
+                    self._ExecutionBoundary__submission_authority = submission_authority
+
+            self.boundary = OrchestratedExecutionBoundary(
+                adapter,
+                reservation_bridge=reservation_bridge,
+                _construction_permit=construction_permit,
+            )
         self.readiness = readiness_gate or ReadinessGate()
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self._LifecycleOrder = LifecycleOrder
