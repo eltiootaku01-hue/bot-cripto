@@ -2,7 +2,7 @@
 
 ## ÚLTIMA ACTUALIZACIÓN VERIFICADA
 
-Fecha de referencia: 2026-10-09
+Fecha de referencia: 2026-10-10
 
 Repository:
 
@@ -14,15 +14,15 @@ Branch principal:
 
 DOCUMENTATION BASIS HEAD:
 
-`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+`e21a129f146f2af8f889c09a094fba5cd78ba41c`
 
 Este SHA identifica el commit de `main` usado como base para esta actualización documental. Es una referencia histórica, no un puntero vivo al HEAD.
 
 LAST FUNCTIONAL CHECKPOINT:
 
-`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+`e21a129f146f2af8f889c09a094fba5cd78ba41c`
 
-Este SHA es el último checkpoint funcional confirmado para esta actualización. Es una referencia histórica y no representa necesariamente el HEAD actual de `main`.
+Este SHA es el último checkpoint funcional confirmado para esta actualización, después del merge de HUESO 05-D y su CI post-merge exitoso. Es una referencia histórica y no representa necesariamente el HEAD actual de `main`.
 
 ### Estado de continuidad
 
@@ -512,6 +512,72 @@ Esta implementación no equivale a `FinalAdmission`, no integra `Reservation →
 
 ---
 
+# HUESO 05-D — AUTHORIZATION-ENFORCED FINANCIAL ADMISSION V1.0
+
+Estado:
+
+**MERGED / CLOSED — POST-MERGE VERIFIED**
+
+PR:
+
+`#55`
+
+URL:
+
+[HUESO 05-D en GitHub](https://github.com/eltiootaku01-hue/bot-cripto/pull/55)
+
+Merge commit / último HEAD funcional confirmado por esta fase:
+
+`e21a129f146f2af8f889c09a094fba5cd78ba41c`
+
+### Implementación observada en `main`
+
+Archivos y contratos inspeccionados:
+
+- `bot_obrero/financial_admission.py`
+- `bot_obrero/reservation.py`
+- `bot_obrero/risk_authorization.py`
+- `tests/test_hueso_05d_final_admission.py`
+- `FinancialAdmissionRequest`
+- `FinancialAdmissionBoundary`
+- `RiskAuthorization` con vínculo semántico validado contra la decisión, propuesta, contexto, política, timestamp y evidencia de riesgo.
+
+Propiedades verificadas en el código y los tests:
+
+- La solicitud de admisión es inmutable y exige `RiskDecision.APPROVED`, autorización `AUTHORIZED`, contexto/política consistentes, cuenta canónica completa y evidencia explícita coincidente.
+- El fingerprint semántico SHA-256 de la autorización se incorpora a la clave de idempotencia financiera v2 junto con la identidad y los términos económicos de la reserva.
+- Los términos canónicos de reserva se derivan a partir de la propuesta y el instrumento canónico usando `Decimal`; la validación rechaza una cantidad, activo o tipo de recurso que no coincida con los términos económicos admitidos.
+- En el punto de escritura, `SQLiteReservationStore.admit()` abre la transacción atómica `BEGIN IMMEDIATE` y ejecuta la validación canónica de la clase `FinancialAdmissionRequest`, no una validación sustituida por una instancia.
+- La reserva, su transición inicial y el vínculo persistido en `reservation_authorization_bindings` se escriben en la misma operación atómica; los tests verifican rollback ante fallo de escritura del vínculo.
+- Se rechazan subclases de `FinancialAdmissionRequest` con validación sobrescrita; las pruebas también cubren la sustitución de `validate` por instancia y muestran que la escritura vuelve a aplicar la validación canónica.
+- Una reserva histórica sin vínculo de autorización válido no se considera autorizada: la admisión falla de forma cerrada con estado `REJECTED` y motivo `EXISTING_RESERVATION_AUTHORIZATION_UNKNOWN`.
+- La suite incluye cobertura de idempotencia tras reiniciar el store, conflicto de contexto de idempotencia, atomicidad/rollback y llamadas concurrentes equivalentes que convergen en una sola reserva.
+
+### CI post-merge
+
+- Workflow: `tests`
+- Run ID: `38034655787`
+- Evento: `push`
+- Rama: `main`
+- Commit SHA: `e21a129f146f2af8f889c09a094fba5cd78ba41c`
+- Job: `pytest`
+- Python: `3.12.15`
+- Resultado: `1286 passed in 8.13s`
+- Conclusión: `success`
+
+[CI post-merge HUESO 05-D](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38034655787)
+
+### Limitaciones explícitas
+
+- No estima ni reserva comisiones implícitas.
+- No conecta la reserva con Execution.
+- No demuestra un runtime autónomo integrado de producción.
+- El fingerprint SHA-256 es un vínculo semántico determinista, no una firma criptográfica.
+
+El título histórico “Final Admission” no convierte a `FinancialAdmissionBoundary` en un runtime autónomo de admisión final. Esta fase registra únicamente la frontera financiera de admisión actualmente implementada.
+
+---
+
 # BUG-001
 
 Estado:
@@ -614,11 +680,27 @@ Estas incertidumbres no se registran como BUG-001 y no se implementan correccion
 
 DOCUMENTATION BASIS HEAD:
 
-`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+`e21a129f146f2af8f889c09a094fba5cd78ba41c`
 
 Este es el commit de `main` usado como base para esta actualización documental. El HEAD vivo no se persiste como un campo permanente.
 
-### Evidencia CI posterior al merge de HUESO 05-C
+### Evidencia CI posterior al merge de HUESO 05-D
+
+- Workflow: `tests`
+- Run ID: `38034655787`
+- Evento: `push`
+- Branch: `main`
+- Commit SHA: `e21a129f146f2af8f889c09a094fba5cd78ba41c`
+- Job: `pytest`
+- Python: `3.12.15`
+- Conclusion: `success`
+- Tests: `1286 passed in 8.13s`
+
+[Run de CI post-merge HUESO 05-D](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38034655787)
+
+Esta ejecución verifica el checkpoint funcional indicado. No es evidencia de CI del commit documental que se cree posteriormente y no demuestra por sí sola una nueva ejecución E2E real de Binance.
+
+### Evidencia CI posterior al merge de HUESO 05-C — histórica
 
 - Workflow: `tests`
 - Run ID: `37881330778`
@@ -629,9 +711,9 @@ Este es el commit de `main` usado como base para esta actualización documental.
 - Conclusion: `success`
 - Tests: `1242 passed in 7.78s`
 
-[Run de CI post-merge](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/37881330778)
+[Run histórico de CI post-merge HUESO 05-C](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/37881330778)
 
-Esta ejecución es evidencia de tests del commit post-merge indicado; no demuestra una nueva ejecución E2E real de Binance.
+Esta ejecución pertenece al checkpoint funcional de HUESO 05-C y permanece como evidencia histórica. No atribuirla a HUESO 05-D ni a un commit documental posterior.
 
 ### Evidencia CI anterior conocida — histórica
 
@@ -645,7 +727,7 @@ Esta ejecución es evidencia de tests del commit post-merge indicado; no demuest
 
 [Run histórico de CI](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/37831334656)
 
-Esta ejecución corresponde a un commit anterior y no debe asociarse al documentation basis head ni reemplazar la evidencia post-merge de HUESO 05-C.
+Esta ejecución corresponde a un commit anterior y no debe asociarse al documentation basis head ni reemplazar la evidencia post-merge de HUESO 05-D.
 
 ### Estado E2E actual
 
@@ -694,39 +776,33 @@ Alcance observado de `RiskAuthorization`:
 
 ## Admisión financiera local
 
-La frontera de admisión actualmente implementada es:
+La frontera de admisión financiera observada después de HUESO 05-D es:
 
 ```
-TradeProposal
-      ↓
-RiskDecision.APPROVED
+TradeProposal + RiskDecision.APPROVED + RiskAuthorization.AUTHORIZED
+      ↓ (vínculos de decisión, propuesta, contexto, política y evidencia)
+FinancialAdmissionRequest
       ↓
 FinancialAdmissionBoundary
       ↓
 SQLiteReservationStore.admit()
-      ↓
-Reservation
+      ↓ (validación canónica + transacción BEGIN IMMEDIATE)
+Reservation + transición inicial + vínculo persistido de autorización
 ```
 
 Componentes observados:
 
-- TradeProposal
-- RiskEvaluationContext
-- RiskEvaluationPolicy
-- RiskLimitApplicabilityResolver
-- RiskEngine
-- RiskDecision
-- Reservation
-- ReservationReadSet
-- EffectiveCapacity
-- atomic Reservation admission
-- FinancialAdmissionRequest
-- FinancialAdmissionBoundary
-- FinancialAdmissionResult
+- `FinancialAdmissionRequest` inmutable, con vinculación semántica explícita de `RiskAuthorization`.
+- `FinancialAdmissionBoundary`, como frontera local después de una autorización explícita.
+- `SQLiteReservationStore.admit()`, que vuelve a validar la solicitud en el límite de escritura.
+- Derivación de términos de reserva a partir de la propuesta y el instrumento canónico usando `Decimal`.
+- Clave de idempotencia v2 enlazada con los términos económicos y el fingerprint semántico de autorización.
+- Persistencia atómica de Reservation, transición inicial y vínculo de autorización.
+- Tratamiento fail-closed de reservas históricas que carecen de vínculo de autorización válido.
 
 ### Frontera importante
 
-`FinancialAdmissionBoundary` sigue siendo una barrera de admisión financiera local. Este flujo se documenta por separado de `RiskDecision → RiskAuthorization`; la coexistencia de ambos componentes no demuestra una cadena runtime integrada entre autorización, admisión, Reservation y Execution. `FinancialAdmissionBoundary` no es `FinalAdmission` ni Execution integration.
+HUESO 05-D incorpora admisión financiera con autorización vinculada; no crea un `FinalAdmission` autónomo distinto de `FinancialAdmissionBoundary`. Tampoco conecta la reserva con Execution, no implementa reconciliation runtime y no demuestra un runtime autónomo integrado de producción. No estima ni reserva comisiones implícitas. El fingerprint SHA-256 constituye un vínculo semántico, no una firma criptográfica.
 
 ---
 
@@ -734,9 +810,9 @@ Componentes observados:
 
 No declarar como implementados:
 
-### FinalAdmission
+### FinalAdmission autónomo distinto de `FinancialAdmissionBoundary`
 
-**NOT IMPLEMENTED**
+**NOT IMPLEMENTED — no hay evidencia de un runtime autónomo separado**
 
 ### Reservation → Execution runtime
 
@@ -780,17 +856,17 @@ La documentación persistente anterior registraba estados históricos que ya no 
 
 El punto de continuidad funcional vigente para esta memoria es:
 
-**HUESO 05-C — MERGED / CLOSED**
+**HUESO 05-D — MERGED / CLOSED — POST-MERGE VERIFIED**
 
-Último checkpoint funcional confirmado:
+Último checkpoint funcional confirmado por esta actualización:
 
-`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+`e21a129f146f2af8f889c09a094fba5cd78ba41c`
 
 La base documental de esta actualización es:
 
-`f9b6785ab322d99f503b438ee5d504a9b0eab2c8`
+`e21a129f146f2af8f889c09a094fba5cd78ba41c`
 
-Este archivo no afirma que `f9b6785ab322d99f503b438ee5d504a9b0eab2c8` siga siendo el HEAD vivo después de futuros merges documentales o funcionales.
+Ambos SHA son referencias históricas para esta actualización; el primero identifica el último checkpoint funcional confirmado y el segundo el `main` exacto usado como base documental. Ninguno representa un puntero vivo permanente de `main`.
 
 ---
 
@@ -831,10 +907,11 @@ Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 
 # ESTADO DE CONFIANZA
 
-- Documentation basis head: **OBSERVED — `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`**
-- Último functional checkpoint: **OBSERVED — `f9b6785ab322d99f503b438ee5d504a9b0eab2c8`**
+- Documentation basis head: **OBSERVED — `e21a129f146f2af8f889c09a094fba5cd78ba41c`**
+- Último functional checkpoint: **OBSERVED — `e21a129f146f2af8f889c09a094fba5cd78ba41c` (HUESO 05-D; CI post-merge success)**
 - Current main HEAD: **NOT STORED — QUERY GITHUB DIRECTLY**
-- CI del documentation basis head: **OBSERVED — `tests`, run `37881330778`, success, `1242 passed in 7.78s`**
+- CI del documentation basis head / HUESO 05-D: **OBSERVED — `tests`, run `38034655787`, success, `1286 passed in 8.13s`**
+- CI post-merge HUESO 05-C: **HISTORICAL — `tests`, run `37881330778`, success, `1242 passed in 7.78s`**
 - Continuidad: **REPAIRED — LIVE HEAD QUERIED DIRECTLY**
 - HUESO 01 / TradeProposal: **OBSERVED — MERGED / CLOSED**
 - 02-C: **OBSERVED — MERGED / CLOSED**
@@ -859,6 +936,11 @@ Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 - RiskEngine: **OBSERVED — IMPLEMENTED**
 - HUESO 05-C: **OBSERVED — MERGED / CLOSED**
 - RiskAuthorization: **OBSERVED — IMPLEMENTED — HUESO 05-C**
+- HUESO 05-D / PR #55: **OBSERVED — MERGED / CLOSED — POST-MERGE VERIFIED**
+- FinancialAdmissionRequest: **OBSERVED — IMPLEMENTED**
+- FinancialAdmissionBoundary: **OBSERVED — IMPLEMENTED — local authorization-enforced admission**
+- Authorization fingerprint / idempotency v2: **OBSERVED — semantic SHA-256 binding; not a cryptographic signature**
+- HUESO 05-D CI post-merge: **TESTED — success, 1286 passed in 8.13s**
 - FASE 1.34: **HISTORICALLY VERIFIED — E2E SUCCESS**
 - SMA post-merge E2E: **UNKNOWN**
 - Indicators post-merge E2E: **HISTORICALLY VERIFIED — CURRENT-MAIN POST-MERGE E2E UNKNOWN**
