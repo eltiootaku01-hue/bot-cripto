@@ -8,6 +8,7 @@ from threading import Barrier
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -925,3 +926,97 @@ def test_incomplete_risk_evaluation_context_cannot_enter_admission():
     with pytest.raises(FinancialAdmissionContractError, match="context must be COMPLETE"):
         replace(request, context=incomplete_context)
 
+
+
+
+def test_direct_store_uses_canonical_validation_when_instance_method_is_overridden(tmp_path):
+    request = make_request()
+    canonical_fingerprint = risk_authorization_semantic_fingerprint(request.authorization)
+    forged_fingerprint = "risk-authorization-semantic-v1:" + ("0" * 64)
+    if forged_fingerprint == canonical_fingerprint:
+        forged_fingerprint = "risk-authorization-semantic-v1:" + ("1" * 64)
+    assert forged_fingerprint != canonical_fingerprint
+
+    authorization = request.authorization
+    forged_binding = ReservationAuthorizationBindingInput(
+        authorization_id=authorization.authorization_id,
+        semantic_fingerprint=forged_fingerprint,
+        risk_decision_id=authorization.risk_decision_id,
+        proposal_id=authorization.proposal_id,
+        signal_id=authorization.signal_id,
+        correlation_id=authorization.correlation_id,
+        evaluation_context_id=authorization.evaluation_context_id,
+        policy_id=authorization.policy_id,
+        policy_version=authorization.policy_version,
+        decision_timestamp=authorization.decision_timestamp,
+        risk_evidence=request.evidence,
+    )
+    forged_validation = SimpleNamespace(
+        resource_kind=request.resource_kind,
+        asset=request.asset,
+        reserved_amount=request.approved_reserved_amount,
+        authorization_fingerprint=forged_fingerprint,
+        authorization_binding=forged_binding,
+    )
+
+    # Frozen dataclasses can still be deliberately tampered with via object.__setattr__;
+    # the direct write boundary must not trust this substituted instance method.
+    object.__setattr__(request, "validate", lambda: forged_validation)
+
+    store = make_store(tmp_path / "instance-validation-override.sqlite3")
+    try:
+        reservation = store.admit(request=request)
+        persisted = store.get_authorization_binding(reservation.reservation_id)
+
+        assert persisted is not None
+        assert persisted.semantic_fingerprint == canonical_fingerprint
+        assert persisted.semantic_fingerprint != forged_fingerprint
+        assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (1,)
+        assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (1,)
+        assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (1,)
+    finally:
+        store.close()
+
+
+def test_boundary_and_direct_store_reject_subclass_with_overridden_validation(tmp_path):
+    base_request = make_request()
+    forged_fingerprint = "risk-authorization-semantic-v1:" + ("0" * 64)
+    authorization = base_request.authorization
+    forged_binding = ReservationAuthorizationBindingInput(
+        authorization_id=authorization.authorization_id,
+        semantic_fingerprint=forged_fingerprint,
+        risk_decision_id=authorization.risk_decision_id,
+        proposal_id=authorization.proposal_id,
+        signal_id=authorization.signal_id,
+        correlation_id=authorization.correlation_id,
+        evaluation_context_id=authorization.evaluation_context_id,
+        policy_id=authorization.policy_id,
+        policy_version=authorization.policy_version,
+        decision_timestamp=authorization.decision_timestamp,
+        risk_evidence=base_request.evidence,
+    )
+    forged_validation = SimpleNamespace(
+        resource_kind=base_request.resource_kind,
+        asset=base_request.asset,
+        reserved_amount=base_request.approved_reserved_amount,
+        authorization_fingerprint=forged_fingerprint,
+        authorization_binding=forged_binding,
+    )
+
+    class ForgedFinancialAdmissionRequest(FinancialAdmissionRequest):
+        def validate(self):
+            return forged_validation
+
+    subclass_request = ForgedFinancialAdmissionRequest(**base_request.__dict__)
+    store = make_store(tmp_path / "request-subclass-override.sqlite3")
+    try:
+        with pytest.raises(TypeError, match="exact FinancialAdmissionRequest"):
+            store.admit(request=subclass_request)
+        with pytest.raises(TypeError, match="exact FinancialAdmissionRequest"):
+            FinancialAdmissionBoundary(store).admit(subclass_request)
+
+        assert store._connection.execute("SELECT COUNT(*) FROM reservations").fetchone() == (0,)
+        assert store._connection.execute("SELECT COUNT(*) FROM reservation_transitions").fetchone() == (0,)
+        assert store._connection.execute("SELECT COUNT(*) FROM reservation_authorization_bindings").fetchone() == (0,)
+    finally:
+        store.close()

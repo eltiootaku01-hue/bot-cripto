@@ -771,10 +771,11 @@ class SQLiteReservationStore:
         try:
             from .financial_admission import FinancialAdmissionRequest
 
-            if not isinstance(request, FinancialAdmissionRequest):
-                raise TypeError("request must be FinancialAdmissionRequest")
+            if type(request) is not FinancialAdmissionRequest:
+                raise TypeError("request must be exact FinancialAdmissionRequest")
             try:
-                validated = request.validate()
+                # Invoke the canonical class implementation, not an instance override.
+                validated = FinancialAdmissionRequest.validate(request)
             except Exception as exc:
                 raise ReservationAdmissionRejected(
                     "financial admission request failed canonical semantic validation"

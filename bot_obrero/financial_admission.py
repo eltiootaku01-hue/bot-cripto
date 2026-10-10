@@ -480,11 +480,11 @@ class FinancialAdmissionBoundary:
         self._store = store
 
     def admit(self, request: FinancialAdmissionRequest) -> FinancialAdmissionResult:
-        if not isinstance(request, FinancialAdmissionRequest):
-            raise TypeError("request must be FinancialAdmissionRequest")
+        if type(request) is not FinancialAdmissionRequest:
+            raise TypeError("request must be exact FinancialAdmissionRequest")
 
         try:
-            request.validate()
+            FinancialAdmissionRequest.validate(request)
         except Exception:
             return FinancialAdmissionResult(
                 status=FinancialAdmissionStatus.REJECTED,
