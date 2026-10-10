@@ -426,7 +426,7 @@ def test_persistence_survives_reload_and_preserves_transition_evidence(tmp_path)
     store = make_store(tmp_path)
     proposal = make_proposal()
     decision = make_risk_decision(proposal)
-    reservation = store.create_from_trade_proposal_and_risk_decision(
+    reservation = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=decision,
         account_id="account-01",
@@ -477,7 +477,7 @@ def test_proposal_multiplicity_rejects_two_non_terminal_reservations(tmp_path):
     store = make_store(tmp_path)
     proposal = make_proposal()
     decision = make_risk_decision(proposal, risk_decision_id="risk-1")
-    first = store.create_from_trade_proposal_and_risk_decision(
+    first = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=decision,
         account_id="account-01",
@@ -488,7 +488,7 @@ def test_proposal_multiplicity_rejects_two_non_terminal_reservations(tmp_path):
     )
 
     with pytest.raises(ReservationConflict):
-        store.create_from_trade_proposal_and_risk_decision(
+        store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
             proposal=proposal,
             risk_decision=make_risk_decision(
                 proposal, risk_decision_id="risk-2"
@@ -507,7 +507,7 @@ def test_proposal_multiplicity_rejects_two_non_terminal_reservations(tmp_path):
 def test_proposal_multiplicity_allows_new_active_after_release(tmp_path):
     store = make_store(tmp_path)
     proposal = make_proposal()
-    first = store.create_from_trade_proposal_and_risk_decision(
+    first = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=make_risk_decision(proposal, risk_decision_id="risk-1"),
         account_id="account-01",
@@ -521,7 +521,7 @@ def test_proposal_multiplicity_allows_new_active_after_release(tmp_path):
         evidence=evidence("ORDER", "release", seconds=1),
     )
 
-    second = store.create_from_trade_proposal_and_risk_decision(
+    second = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=make_risk_decision(proposal, risk_decision_id="risk-2"),
         account_id="account-01",
@@ -541,7 +541,7 @@ def test_proposal_multiplicity_allows_new_active_after_release(tmp_path):
 def test_proposal_multiplicity_allows_new_active_after_consumed(tmp_path):
     store = make_store(tmp_path)
     proposal = make_proposal()
-    first = store.create_from_trade_proposal_and_risk_decision(
+    first = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=make_risk_decision(proposal, risk_decision_id="risk-1"),
         account_id="account-01",
@@ -556,7 +556,7 @@ def test_proposal_multiplicity_allows_new_active_after_consumed(tmp_path):
         evidence=evidence("FILL", "fill-100", seconds=1),
     )
 
-    second = store.create_from_trade_proposal_and_risk_decision(
+    second = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=make_risk_decision(proposal, risk_decision_id="risk-2"),
         account_id="account-01",
@@ -572,7 +572,7 @@ def test_proposal_multiplicity_allows_new_active_after_consumed(tmp_path):
 def test_proposal_multiplicity_blocks_unknown_reservation(tmp_path):
     store = make_store(tmp_path)
     proposal = make_proposal()
-    first = store.create_from_trade_proposal_and_risk_decision(
+    first = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=make_risk_decision(proposal, risk_decision_id="risk-1"),
         account_id="account-01",
@@ -587,7 +587,7 @@ def test_proposal_multiplicity_blocks_unknown_reservation(tmp_path):
     )
 
     with pytest.raises(ReservationConflict):
-        store.create_from_trade_proposal_and_risk_decision(
+        store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
             proposal=proposal,
             risk_decision=make_risk_decision(proposal, risk_decision_id="risk-2"),
             account_id="account-01",
@@ -672,6 +672,7 @@ def test_store_creates_separate_tables(tmp_path):
     }
     assert "reservations" in names
     assert "reservation_transitions" in names
+    assert "reservation_authorization_bindings" in names
     assert "idempotency_ledger" not in names
     store.close()
 
@@ -679,12 +680,12 @@ def test_store_creates_separate_tables(tmp_path):
 def test_store_rejects_duplicate_reservation_id(tmp_path):
     store = make_store(tmp_path)
     reservation = make_reservation()
-    store.create(
+    store._insert_unbound_fixture(
         reservation,
         evidence=evidence("RISK", reservation.risk_decision_id),
     )
     with pytest.raises(ReservationContractError):
-        store.create(
+        store._insert_unbound_fixture(
             reservation,
             evidence=evidence("RISK", reservation.risk_decision_id),
         )
@@ -694,7 +695,7 @@ def test_store_rejects_duplicate_reservation_id(tmp_path):
 def test_store_protected_capacity_terminal_states_is_zero(tmp_path):
     store = make_store(tmp_path)
     proposal = make_proposal()
-    reservation = store.create_from_trade_proposal_and_risk_decision(
+    reservation = store._create_unbound_fixture_from_trade_proposal_and_risk_decision(
         proposal=proposal,
         risk_decision=make_risk_decision(proposal),
         account_id="account-01",

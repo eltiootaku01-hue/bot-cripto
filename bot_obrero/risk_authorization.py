@@ -8,8 +8,10 @@ re-evaluates risk or reaches external state.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+import hashlib
+import json
 from uuid import uuid4
 
 from .risk_contracts import RiskDecision, RiskDecisionOutcome, RiskEvidenceRef
@@ -118,6 +120,55 @@ def _result(
         reason=reason,
     )
 
+
+
+def risk_authorization_semantic_fingerprint(
+    authorization: RiskAuthorization,
+) -> str:
+    """Return a stable semantic SHA-256 fingerprint, excluding random authorization_id.
+
+    Datetimes are normalized to UTC and evidence order is preserved as contractual.
+    This fingerprint is a domain binding, not a cryptographic signature.
+    """
+    if not isinstance(authorization, RiskAuthorization):
+        raise RiskAuthorizationContractError(
+            "authorization must be RiskAuthorization"
+        )
+
+    def canonical_datetime(value: datetime) -> str:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise RiskAuthorizationContractError(
+                "authorization datetime must be timezone-aware"
+            )
+        return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+    payload = {
+        "status": authorization.status.value,
+        "risk_decision_id": authorization.risk_decision_id,
+        "proposal_id": authorization.proposal_id,
+        "signal_id": authorization.signal_id,
+        "correlation_id": authorization.correlation_id,
+        "evaluation_context_id": authorization.evaluation_context_id,
+        "policy_id": authorization.policy_id,
+        "policy_version": authorization.policy_version,
+        "decision_timestamp": canonical_datetime(authorization.decision_timestamp),
+        "risk_evidence": [
+            {
+                "kind": item.kind,
+                "reference_id": item.reference_id,
+                "as_of": canonical_datetime(item.as_of),
+            }
+            for item in authorization.risk_evidence
+        ],
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"risk-authorization-semantic-v1:{digest}"
 
 def authorize_risk_decision(
     *,
@@ -241,4 +292,5 @@ __all__ = [
     "RiskAuthorizationResult",
     "RiskAuthorizationStatus",
     "authorize_risk_decision",
+    "risk_authorization_semantic_fingerprint",
 ]
