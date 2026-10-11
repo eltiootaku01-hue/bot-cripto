@@ -15,11 +15,5 @@ jobs:
         run: pytest -q tests/test_hueso_02h2_financial_admission.py
       - name: PRE1-R1 — final admission regression
         run: pytest -q tests/test_hueso_05d_final_admission.py
-      - name: HUESO 05-F-R1 — financial execution runtime
-        run: pytest -q tests/test_hueso_05f_financial_execution_runtime.py
-      - name: HUESO 05-F-R1 — reservation execution bridge
-        run: pytest -q tests/test_hueso_05e_reservation_execution_bridge.py
-      - name: HUESO 05-F-R1 — execution boundary regression
-        run: pytest -q tests/test_phase14_execution_boundary.py
       - name: Full regression suite
         run: pytest -q
