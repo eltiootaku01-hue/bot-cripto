@@ -264,6 +264,8 @@ def test_resume_reuses_persisted_binding_without_risk_or_admission(tmp_path, mon
     request = make_request(proposal=proposal, account_id=state.account_id, state=state)
     admitted = runtime.admission_boundary.admit(request)
     reservation_id = admitted.reservation.reservation_id
+    prepared_before_restart = bridge.prepare(reservation_id)
+    assert prepared_before_restart.status.value == "PREPARED"
     # Simulate process restart: close both SQLite handles and compose new objects.
     close_all(store, ledger)
     runtime2, store2, bridge2, ledger2, adapter2 = compose(tmp_path)
