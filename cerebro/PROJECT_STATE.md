@@ -1177,10 +1177,10 @@ Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 
 # ESTADO DE CONFIANZA
 
-- Documentation basis head: **OBSERVED — `b9481f5690c6db6f831660da56399163218576ea` (base documental histórica de esta sincronización)**
-- Último functional checkpoint: **OBSERVED — `b9481f5690c6db6f831660da56399163218576ea` (HUESO 05-E; CI post-merge success)**
+- Documentation basis head: **OBSERVED — `d7900c640f0e4a565a304c0ff1b640b19e7f832e` (base documental histórica de esta actualización; no es un puntero vivo)**
+- Último functional checkpoint: **OBSERVED — `d7900c640f0e4a565a304c0ff1b640b19e7f832e` (HUESO 05-F-R1; CI post-merge success, `1366 passed in 8.99s`)**
 - Current main HEAD: **NOT STORED — QUERY GITHUB DIRECTLY**
-- CI del documentation basis head / HUESO 05-E: **OBSERVED — `tests`, run `38060502389`, success, `1320 passed in 7.23s`**
+- CI post-merge HUESO 05-F-R1: **OBSERVED — `tests`, run `38143957021`, SHA probado `d7900c640f0e4a565a304c0ff1b640b19e7f832e`, success, `1366 passed in 8.99s`**
 - CI post-merge HUESO 05-D: **HISTORICAL — `tests`, run `38034655787`, success, `1286 passed in 8.13s`**
 - CI post-merge HUESO 05-C: **HISTORICAL — `tests`, run `37881330778`, success, `1242 passed in 7.78s`**
 - Continuidad: **REPAIRED — LIVE HEAD QUERIED DIRECTLY**
