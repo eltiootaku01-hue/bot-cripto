@@ -100,14 +100,10 @@ def test_factory_uses_canonical_terms_for_all_order_shapes(
 
 def test_factory_fails_closed_on_mismatched_authorization():
     request = build()
-    other_proposal = make_proposal()
-    other_context = make_context(other_proposal, make_state())
-    other_policy = make_policy()
-    other_decision = make_decision(other_proposal, context=other_context, policy=other_policy)
-    other_auth = authorize_risk_decision(
-        proposal=other_proposal, risk_decision=other_decision,
-        context=other_context, policy=other_policy,
-    ).authorization
+    other_auth = replace(
+        request.authorization,
+        risk_decision_id="different-risk-decision",
+    )
     with pytest.raises(FinancialAdmissionContractError):
         build_financial_admission_request(
             proposal=request.proposal, risk_decision=request.risk_decision,
