@@ -33,11 +33,13 @@ from .reservation_execution_bridge import (
     ReservationExecutionBridge,
 )
 from .risk_authorization import (
+    RiskAuthorizationResult,
     RiskAuthorizationStatus,
     authorize_risk_decision,
 )
 from .risk_contracts import (
     CanonicalAccountState,
+    RiskDecision,
     RiskDecisionOutcome,
 )
 from .risk_engine import RiskEngine
@@ -246,19 +248,25 @@ class FinancialExecutionRuntime:
                 f"RISK_EVALUATION_FAILED:{type(exc).__name__}",
                 proposal_id=proposal.proposal_id,
             )
-        if getattr(decision, "outcome", None) is RiskDecisionOutcome.REJECTED:
+        if not isinstance(decision, RiskDecision):
+            return self._result(
+                FinancialExecutionRuntimeStatus.RISK_UNKNOWN,
+                "RISK_DECISION_CONTRACT_INVALID",
+                proposal_id=proposal.proposal_id,
+            )
+        if decision.outcome is RiskDecisionOutcome.REJECTED:
             return self._result(
                 FinancialExecutionRuntimeStatus.RISK_REJECTED,
                 getattr(decision, "reason", "RISK_REJECTED"),
                 proposal_id=proposal.proposal_id,
             )
-        if getattr(decision, "outcome", None) is RiskDecisionOutcome.UNKNOWN:
+        if decision.outcome is RiskDecisionOutcome.UNKNOWN:
             return self._result(
                 FinancialExecutionRuntimeStatus.RISK_UNKNOWN,
                 getattr(decision, "reason", "RISK_UNKNOWN"),
                 proposal_id=proposal.proposal_id,
             )
-        if getattr(decision, "outcome", None) is not RiskDecisionOutcome.APPROVED:
+        if decision.outcome is not RiskDecisionOutcome.APPROVED:
             return self._result(
                 FinancialExecutionRuntimeStatus.RISK_UNKNOWN,
                 "RISK_DECISION_OUTCOME_INVALID",
@@ -276,6 +284,12 @@ class FinancialExecutionRuntime:
             return self._result(
                 FinancialExecutionRuntimeStatus.UNKNOWN,
                 f"RISK_AUTHORIZATION_FAILED:{type(exc).__name__}",
+                proposal_id=proposal.proposal_id,
+            )
+        if not isinstance(authorization_result, RiskAuthorizationResult):
+            return self._result(
+                FinancialExecutionRuntimeStatus.UNKNOWN,
+                "RISK_AUTHORIZATION_RESULT_CONTRACT_INVALID",
                 proposal_id=proposal.proposal_id,
             )
         if (
@@ -318,6 +332,11 @@ class FinancialExecutionRuntime:
                 proposal.proposal_id, None, f"ADMISSION_EXCEPTION:{type(exc).__name__}"
             )
 
+        from .financial_admission import FinancialAdmissionResult
+        if not isinstance(admission, FinancialAdmissionResult):
+            return self._admission_failure(
+                proposal.proposal_id, None, "ADMISSION_RESULT_CONTRACT_INVALID"
+            )
         if admission.status is FinancialAdmissionStatus.ALREADY_ADMITTED:
             reservation = admission.reservation
             return self._result(
@@ -551,6 +570,22 @@ class FinancialExecutionRuntime:
                 reservation_id=reservation_id,
             )
         try:
+            persisted_execution_binding = self.reservation_bridge.get_binding(reservation_id)
+        except Exception as exc:
+            return self._result(
+                FinancialExecutionRuntimeStatus.BLOCKED,
+                f"EXECUTION_BINDING_LOOKUP_FAILED:{type(exc).__name__}",
+                proposal_id=reservation.proposal_id,
+                reservation_id=reservation_id,
+            )
+        if persisted_execution_binding is None:
+            return self._result(
+                FinancialExecutionRuntimeStatus.BLOCKED,
+                "PERSISTED_EXECUTION_BINDING_MISSING",
+                proposal_id=reservation.proposal_id,
+                reservation_id=reservation_id,
+            )
+        try:
             preparation = self.reservation_bridge.prepare(reservation_id)
         except Exception as exc:
             return self._result(
@@ -564,6 +599,14 @@ class FinancialExecutionRuntime:
         # before returning any of these persisted execution states.
         binding = self.reservation_bridge.get_binding(reservation_id)
         if binding is not None and binding.state == "SUBMITTED":
+            projection = self.execution_orchestrator.recover_projection(reservation_id)
+            if projection.reason == "BLOCKED":
+                return self._result(
+                    FinancialExecutionRuntimeStatus.BLOCKED,
+                    "SUBMITTED_LEDGER_PROJECTION_REPAIR_FAILED",
+                    proposal_id=reservation.proposal_id,
+                    reservation_id=reservation_id,
+                )
             if preparation.reason != "ORDER_ALREADY_SUBMITTED":
                 return self._result(
                     FinancialExecutionRuntimeStatus.BLOCKED,
