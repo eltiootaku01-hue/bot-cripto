@@ -101,9 +101,22 @@ execution boundary and SQLite ledger. No retry loop is added here.
 
 ## Validation record
 
-The following commands are required against the exact branch HEAD. Results are deliberately
-not pre-populated: record counts, durations and links only after the corresponding GitHub
-Actions logs have completed. A pending or failed run is not a passing result.
+Observed branch-push CI:
+- Run: [38136237545](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38136237545)
+- Tested HEAD: `f32a58d9b255bdd4d41daede8c5ede11a026a5e2`
+- Conclusion: `success`
+- PRE1 request-factory suite: 14 passed in 0.15s
+- Financial-admission 02-H2 suite: 36 passed in 0.18s
+- Final-admission 05-D suite: 44 passed in 0.38s
+- Full suite, including the new runtime tests: 1359 passed in 8.56s
+
+The existing protected workflow runs those three named legacy suites individually and then
+runs `pytest -q`. It does not invoke the new runtime test file, bridge suite, or execution
+boundary suite as separate commands. Those tests are included in the successful full suite,
+but their isolated command durations have **not** been observed. The workflow was not
+modified because workflow changes are outside this phase's authorization.
+
+Required isolated commands for a future authorized validation run:
 
 ```bash
 pytest -q tests/test_hueso_05f_financial_execution_runtime.py
