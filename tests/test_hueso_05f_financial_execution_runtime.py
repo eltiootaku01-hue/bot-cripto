@@ -8,12 +8,12 @@ from threading import Lock
 import pytest
 
 from bot_obrero.execution import EvidenceBundle, EvidenceRecord, ExecutionOrchestrator, ExchangeAdapter
-from bot_obrero.financial_admission import FinancialAdmissionBoundary
+from bot_obrero.financial_admission import (\n    FinancialAdmissionBoundary,\n    FinancialAdmissionResult,\n    FinancialAdmissionStatus,\n)
 from bot_obrero.murphy import MurphyGuard
 from bot_obrero.persistent_ledger import SQLiteIdempotencyLedger
 from bot_obrero.reservation import ReservationState, SQLiteReservationStore
-from bot_obrero.reservation_execution_bridge import ReservationExecutionBridge
-from bot_obrero.risk_contracts import RiskDecisionOutcome
+from bot_obrero.reservation_execution_bridge import (\n    ExecutionBridgePreparation,\n    ExecutionBridgeStatus,\n    ReservationExecutionBridge,\n)
+from bot_obrero.risk_authorization import RiskAuthorizationResult, RiskAuthorizationStatus\nfrom bot_obrero.risk_contracts import RiskDecisionOutcome
 from bot_obrero.risk_engine import RiskEngine
 from bot_obrero.risk_limit_applicability import RiskLimitApplicabilityResolver
 from bot_obrero.financial_execution_runtime import (
@@ -434,4 +434,91 @@ def test_resume_blocks_missing_persisted_integrity_record(tmp_path, missing):
     result = runtime.resume(reservation_id, evidence_provider=evidence_provider(runtime))
     assert result.status is Status.BLOCKED
     assert adapter.submits == 0
+    close_all(store, ledger)
+
+
+@pytest.mark.parametrize(
+    ("admission_status", "expected"),
+    [
+        (FinancialAdmissionStatus.BUSY, Status.ADMISSION_BUSY),
+        (FinancialAdmissionStatus.REJECTED, Status.ADMISSION_REJECTED),
+    ],
+)
+def test_admission_busy_and_rejected_never_fall_back_to_execution(
+    tmp_path, monkeypatch, admission_status, expected
+):
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-admission-" + admission_status.value)
+    monkeypatch.setattr(
+        runtime.admission_boundary,
+        "admit",
+        lambda request: FinancialAdmissionResult(admission_status, None, "TEST_ADMISSION_" + admission_status.value),
+    )
+    result = start(runtime, proposal, state, context, policy)
+    assert result.status is expected
+    assert store.list_for_proposal(proposal.proposal_id) == ()
+    assert adapter.submits == 0
+    close_all(store, ledger)
+
+
+def test_admission_exception_fails_closed_without_reservation_or_send(tmp_path, monkeypatch):
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-admission-exception")
+    monkeypatch.setattr(
+        runtime.admission_boundary, "admit",
+        lambda request: (_ for _ in ()).throw(OSError("persistence unavailable")),
+    )
+    result = start(runtime, proposal, state, context, policy)
+    assert result.status is Status.ADMISSION_REJECTED
+    assert store.list_for_proposal(proposal.proposal_id) == ()
+    assert adapter.submits == 0
+    close_all(store, ledger)
+
+
+def test_non_authorized_result_never_reaches_admission(tmp_path, monkeypatch):
+    import bot_obrero.financial_execution_runtime as runtime_module
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-authorization-unknown")
+    monkeypatch.setattr(
+        runtime_module, "authorize_risk_decision",
+        lambda **kwargs: RiskAuthorizationResult(
+            status=RiskAuthorizationStatus.UNKNOWN,
+            authorization=None,
+            reason="TEST_AUTHORIZATION_UNKNOWN",
+        ),
+    )
+    monkeypatch.setattr(
+        runtime.admission_boundary, "admit",
+        lambda request: pytest.fail("non-authorized risk must not reach admission"),
+    )
+    result = start(runtime, proposal, state, context, policy)
+    assert result.status is Status.UNKNOWN
+    assert result.reason == "TEST_AUTHORIZATION_UNKNOWN"
+    assert store.list_for_proposal(proposal.proposal_id) == ()
+    assert adapter.submits == 0
+    close_all(store, ledger)
+
+
+def test_unknown_bridge_preparation_never_calls_orchestrator_or_adapter(tmp_path, monkeypatch):
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-bridge-unknown")
+    original_prepare = bridge.prepare
+
+    def prepare_then_report_unknown(reservation_id):
+        actual = original_prepare(reservation_id)
+        assert actual.intent is not None
+        return ExecutionBridgePreparation(
+            ExecutionBridgeStatus.UNKNOWN, actual.intent, "TEST_EXECUTION_STATE_UNKNOWN"
+        )
+
+    monkeypatch.setattr(bridge, "prepare", prepare_then_report_unknown)
+    monkeypatch.setattr(
+        runtime.execution_orchestrator, "execute",
+        lambda *args, **kwargs: pytest.fail("UNKNOWN preparation must not execute"),
+    )
+    result = start(runtime, proposal, state, context, policy)
+    assert result.status is Status.UNKNOWN
+    assert result.reason == "TEST_EXECUTION_STATE_UNKNOWN"
+    assert adapter.submits == 0
+    assert bridge.get_binding(result.reservation_id).state == "PREPARED"
     close_all(store, ledger)
