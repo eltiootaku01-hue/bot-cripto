@@ -2,7 +2,7 @@
 
 ## ÚLTIMA ACTUALIZACIÓN VERIFICADA
 
-Fecha de referencia: 2026-10-10
+Fecha de referencia: 2026-10-11
 
 Repository:
 
@@ -14,15 +14,15 @@ Branch principal:
 
 DOCUMENTATION BASIS HEAD:
 
-`b9481f5690c6db6f831660da56399163218576ea`
+`d7900c640f0e4a565a304c0ff1b640b19e7f832e`
 
 Este SHA identifica el commit de `main` usado como base para esta actualización documental. Es una referencia histórica, no un puntero vivo al HEAD.
 
 LAST FUNCTIONAL CHECKPOINT:
 
-`b9481f5690c6db6f831660da56399163218576ea`
+`d7900c640f0e4a565a304c0ff1b640b19e7f832e`
 
-Este SHA es el último checkpoint funcional confirmado para esta actualización, después del merge de HUESO 05-E y su CI post-merge exitoso. Es una referencia histórica y no representa necesariamente el HEAD actual de `main`.
+Este SHA es el checkpoint funcional confirmado para esta actualización tras el merge de HUESO 05-F-R1 y su CI post-merge exitoso. Es una referencia histórica y no representa necesariamente el HEAD actual de `main`.
 
 ### Estado de continuidad
 
@@ -669,6 +669,108 @@ Las siguientes ejecuciones corresponden al HEAD directo R3 o a la integración d
 
 ---
 
+# HUESO 05-F-R1 — RESERVATION-ANCHORED FINANCIAL EXECUTION RUNTIME V1.0
+
+Estado:
+
+**MERGED / CLOSED — POST-MERGE VERIFIED**
+
+PR:
+
+`#60`
+
+URL:
+
+[HUESO 05-F-R1 en GitHub](https://github.com/eltiootaku01-hue/bot-cripto/pull/60)
+
+Merge commit / checkpoint funcional:
+
+`d7900c640f0e4a565a304c0ff1b640b19e7f832e`
+
+Base `main` anterior al merge:
+
+`c3b4dee53f6bb7bcceefa44fd9f52ee79ac4f5ed`
+
+Método: merge normal de GitHub. La verificación posterior confirmó PR #60 `closed`, `merged: true`, `merge_commit_sha` igual al SHA anterior y `main` apuntando a ese commit al momento de la verificación.
+
+### Archivos incorporados por el merge
+
+El diff de base anterior a merge a merge commit contiene exactamente:
+
+- `bot_obrero/financial_execution_runtime.py`
+- `tests/test_hueso_05f_financial_execution_runtime.py`
+- `docs/HUESO_05_F_FINANCIAL_EXECUTION_RUNTIME.md`
+
+No se modificó `.github/workflows/tests.yml` en el diff neto del merge funcional.
+
+### Composición integrada observada
+
+```
+TradeProposal + RiskEvaluationContext + RiskEvaluationPolicy
+    → RiskEngine
+    → RiskDecision
+    → authorize_risk_decision(...)
+    → build_financial_admission_request(...)
+    → FinancialAdmissionBoundary
+    → SQLiteReservationStore
+      (Reservation + vínculo de autorización + snapshot canónico)
+    → ReservationExecutionBridge
+    → evidencia explícita aportada por el caller y validada por ReadinessGate
+    → ExecutionOrchestrator
+    → ExecutionBoundary
+    → adaptador
+```
+
+El runtime expone `start(...)` y `resume(reservation_id, ...)`. El control efectivo de ejecución sigue delegado a los contratos existentes; esto es una integración local persistente, no una plataforma financiera autónoma.
+
+### Propiedades implementadas y cubiertas por pruebas
+
+- Si ya existe una reserva para la propuesta, `start(...)` exige reanudación explícita; no vuelve a evaluar riesgo ni admite automáticamente esa reserva.
+- Los resultados de riesgo `REJECTED` y `UNKNOWN` no atraviesan la admisión financiera.
+- La reanudación no repite evaluación de riesgo, autorización ni admisión.
+- La evidencia de readiness debe ser explícita, vigente y coherente con la identidad de la intención y la correlación.
+- Los fallos del reloj de validación y de la segunda lectura del binding de ejecución devuelven resultados tipados conservadores.
+- La prueba sincronizada de concurrencia demuestra una reserva canónica, como máximo un envío físico al adaptador, un resultado `SUBMITTED` y otro `RESUME_REQUIRED` que referencia la misma reserva.
+- `SUBMISSION_STARTED` y `UNKNOWN` no permiten reenvío automático.
+- La recuperación/reparación de proyección repara estado local; no equivale a reconciliación externa.
+- `SUBMITTED` significa que el resultado local del adaptador/orquestador se registró; no demuestra aceptación del exchange, ejecución ni fill.
+- Los hashes SHA-256 son vínculos deterministas de integridad/consistencia, no firmas criptográficas.
+
+### Correcciones C1–C3 integradas
+
+- **C1 — Reloj no disponible:** devuelve `READINESS_BLOCKED / VALIDATION_CLOCK_UNAVAILABLE`; no usa hora alternativa ni llama al orquestador.
+- **C2 — Segunda lectura de vinculación:** `resume(...)` devuelve `BLOCKED / EXECUTION_BINDING_LOOKUP_FAILED:<ExceptionType>` ante el error de persistencia.
+- **C3 — Concurrencia:** la prueba sincronizada verifica el ganador `SUBMITTED`, el perdedor `RESUME_REQUIRED`, una única reserva compartida y una sola invocación física del adaptador.
+
+La especificación completa y la cobertura correspondiente están en [`docs/HUESO_05_F_FINANCIAL_EXECUTION_RUNTIME.md`](https://github.com/eltiootaku01-hue/bot-cripto/blob/main/docs/HUESO_05_F_FINANCIAL_EXECUTION_RUNTIME.md) y [`tests/test_hueso_05f_financial_execution_runtime.py`](https://github.com/eltiootaku01-hue/bot-cripto/blob/main/tests/test_hueso_05f_financial_execution_runtime.py).
+
+### CI post-merge — evidencia real
+
+- Workflow: `tests`
+- Run ID: `38143957021`
+- Evento: `push`
+- Rama: `main`
+- SHA probado: `d7900c640f0e4a565a304c0ff1b640b19e7f832e`
+- Job: `pytest`
+- Job ID: `114483318844`
+- Conclusión: `success`
+- Suite completa: `1366 passed in 8.99s`
+
+[CI post-merge HUESO 05-F-R1](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38143957021)
+
+El log confirma checkout del merge commit exacto, los tres pasos específicos del workflow restaurado y la finalización satisfactoria de `pytest -q`. No afirmar que este run ejecutó individualmente las siete suites de una instrumentación temporal, que pertenece a otro SHA.
+
+### C1–C3 y límites que continúan vigentes
+
+- `FinalAdmission` autónomo separado de `FinancialAdmissionBoundary`: **NOT IMPLEMENTED**.
+- Runtime de reconciliación con un exchange: **NOT IMPLEMENTED**.
+- Runtime financiero autónomo de producción: **NOT DEMONSTRATED**.
+- La autenticidad y cobertura real de la evidencia de readiness aportada por el caller no se verifican independientemente.
+- La posible pérdida de identidad de la propuesta original antes de conservar `reservation_id` sigue siendo un límite.
+- Los E2E de SMA y EMA/RSI no demuestran ejecución o reconciliación de órdenes financieras. El estado E2E post-merge sobre el `main` actual sigue registrado por separado como `UNKNOWN` mientras no se verifique una ejecución específica.
+
+---
+
 # BUG-001
 
 Estado:
@@ -771,17 +873,33 @@ Estas incertidumbres no se registran como BUG-001 y no se implementan correccion
 
 DOCUMENTATION BASIS HEAD:
 
-`b9481f5690c6db6f831660da56399163218576ea`
+`d7900c640f0e4a565a304c0ff1b640b19e7f832e`
 
 Este es el commit de `main` usado como base para esta actualización documental. El HEAD vivo no se persiste como un campo permanente.
 
-### Evidencia CI post-merge HUESO 05-E — checkpoint funcional actual
+### Evidencia CI post-merge HUESO 05-F-R1 — checkpoint funcional actual
+
+- Workflow: `tests`
+- Run ID: `38143957021`
+- Evento: `push`
+- Branch: `main`
+- Commit SHA probado: `d7900c640f0e4a565a304c0ff1b640b19e7f832e`
+- Job: `pytest`
+- Job ID: `114483318844`
+- Conclusion: `success`
+- Tests: `1366 passed in 8.99s`
+
+[CI post-merge HUESO 05-F-R1](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38143957021)
+
+El log confirma el checkout del SHA exacto del merge commit y la ejecución de `pytest -q` con la suite completa aprobada. El workflow restaurado ejecutó también sus tres pasos de regresión específicos indicados en el log. Esta evidencia no incluye la atribución al SHA de main de las siete ejecuciones individuales hechas mediante instrumentación temporal sobre otro SHA. Tampoco demuestra E2E financiero contra un exchange, aceptación de órdenes, fills ni reconciliación externa.
+
+### Evidencia CI post-merge HUESO 05-E — checkpoint histórico
 
 - Workflow: `tests`
 - Run ID: `38060502389`
 - Evento: `push`
 - Branch: `main`
-- Commit SHA: `b9481f5690c6db6f831660da56399163218576ea`
+- Commit SHA probado: `b9481f5690c6db6f831660da56399163218576ea`
 - Job: `pytest`
 - Job ID: `114237628651`
 - Conclusion: `success`
@@ -789,7 +907,7 @@ Este es el commit de `main` usado como base para esta actualización documental.
 
 [CI post-merge HUESO 05-E](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38060502389)
 
-Esta ejecución corresponde al checkpoint funcional post-merge de HUESO 05-E. No es evidencia de CI del commit documental que se cree posteriormente y no demuestra por sí sola una nueva ejecución E2E real de Binance.
+Esta ejecución conserva su valor como evidencia del checkpoint funcional post-merge de HUESO 05-E. No es evidencia del commit de HUESO 05-F-R1 ni del commit documental que se cree posteriormente, y no demuestra por sí sola una nueva ejecución E2E real de Binance.
 
 ### Evidencia CI posterior al merge de HUESO 05-D — histórica
 
@@ -911,31 +1029,74 @@ Componentes observados:
 
 En el alcance propio de HUESO 05-D se incorporó admisión financiera con autorización vinculada; aquella fase no creó un `FinalAdmission` autónomo distinto de `FinancialAdmissionBoundary`, no implementó reconciliation runtime y no demostró un runtime autónomo integrado de producción. La integración local persistente Reservation → Execution se añadió posteriormente en HUESO 05-E, documentada a continuación. HUESO 05-D no estima ni reserva comisiones implícitas. El fingerprint SHA-256 constituye un vínculo semántico, no una firma criptográfica.
 
+
+## Runtime financiero local HUESO 05-F-R1
+
+HUESO 05-F-R1 integra los contratos existentes como runtime local persistente, sin convertirlos en una plataforma financiera autónoma:
+
+```
+TradeProposal + RiskEvaluationContext + RiskEvaluationPolicy
+    → RiskEngine → RiskDecision
+    → authorize_risk_decision(...)
+    → build_financial_admission_request(...)
+    → FinancialAdmissionBoundary
+    → SQLiteReservationStore
+      (Reservation + vínculo de autorización + snapshot canónico)
+    → ReservationExecutionBridge
+    → evidencia explícita del caller validada por ReadinessGate
+    → ExecutionOrchestrator
+    → ExecutionBoundary
+    → adaptador
+```
+
+El runtime expone `start(...)` y `resume(reservation_id, ...)`; la ejecución continúa delegada a los contratos existentes. Sus propiedades y límites precisos se registran en la sección HUESO 05-F-R1 más abajo. La integración local no demuestra aceptación del exchange, ejecución o fills ni reconciliación externa.
+---
+
+# COMPONENTES FUNCIONALES IMPLEMENTADOS
+
+### HUESO 05-E — Reservation → Execution Admission Bridge v1.0
+
+**IMPLEMENTED / MERGED / CLOSED — POST-MERGE VERIFIED (checkpoint histórico).**
+
+PR #57 y merge commit `b9481f5690c6db6f831660da56399163218576ea`. La evidencia específica de CI se conserva arriba como histórica: run `38060502389`, `1320 passed in 7.23s`.
+
+### HUESO 05-F-R1 — Reservation-Anchored Financial Execution Runtime v1.0
+
+**IMPLEMENTED / MERGED / CLOSED — POST-MERGE VERIFIED.**
+
+PR [#60](https://github.com/eltiootaku01-hue/bot-cripto/pull/60), merge commit / checkpoint funcional `d7900c640f0e4a565a304c0ff1b640b19e7f832e`. CI post-merge real: [run 38143957021](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38143957021), `tests`, push a `main`, `1366 passed in 8.99s`. La sección específica de HUESO 05-F-R1 registra composición, correcciones C1–C3 y límites.
+
+La implementación es una integración local persistente. Los componentes y los contratos subyacentes siguen sujetos a los límites documentados; esta etiqueta no significa readiness de producción.
+
 ---
 
 # COMPONENTES QUE SIGUEN SIN IMPLEMENTARSE
 
-### HUESO 05-E — Reservation → Execution Admission Bridge
-
-**IMPLEMENTED / MERGED / POST-MERGE VERIFIED — puente persistente local; no es un runtime autónomo de producción ni reconciliación externa.**
-
 ### FinalAdmission autónomo distinto de `FinancialAdmissionBoundary`
 
-**NOT IMPLEMENTED — no existe evidencia de una implementación separada de `FinancialAdmissionBoundary`.**
+**NOT IMPLEMENTED** — no existe evidencia de una implementación separada de `FinancialAdmissionBoundary`.
 
 ### Autonomous integrated production runtime
 
-**NOT DEMONSTRATED — la integración local del puente no demuestra operación autónoma integrada de producción.**
+**NOT DEMONSTRATED** — la integración local de HUESO 05-E y HUESO 05-F-R1 no demuestra operación autónoma integrada de producción.
 
 ### Reconciliation runtime con un exchange
 
-**NOT IMPLEMENTED — la recuperación y reparación implementadas son locales; no prueban reconciliación externa.**
+**NOT IMPLEMENTED** — la recuperación y reparación implementadas son locales; no prueban reconciliación externa.
+
+### Autenticidad/cobertura independiente de evidencia del caller
+
+**LIMITATION / NOT INDEPENDENTLY VERIFIED** — la evidencia de readiness suministrada por el caller se valida contra los contratos de identidad, intención y correlación, pero el runtime no autentica de forma independiente su origen ni demuestra su cobertura real.
+
+### Identidad de la propuesta original antes de conservar `reservation_id`
+
+**LIMITATION** — la posible pérdida de identidad de la propuesta original antes de conservar `reservation_id` sigue siendo un límite del flujo y no se resuelve por la integración HUESO 05-F-R1.
 
 RiskEngine está implementado en HUESO 05-B y `RiskAuthorization` en HUESO 05-C.
 
-StrategyRuntime y Sizing Engine ya están implementados y cerrados en HUESO 03 y HUESO 04, respectivamente.
+StrategyRuntime y Sizing Engine están implementados y cerrados en HUESO 03 y HUESO 04, respectivamente.
 
-No confundir contratos, primitivas o motores deterministas implementados con runtimes integrados posteriores. HUESO 05-E sí implementa el puente persistente local Reservation → Execution en los límites documentados; siguen sin demostrarse un `FinalAdmission` autónomo separado, un runtime autónomo integrado de producción o un runtime de reconciliación con el exchange.
+No confundir contratos, primitivas o motores deterministas implementados con runtimes integrados posteriores. HUESO 05-E y HUESO 05-F-R1 implementan el puente/runtime local persistente Reservation → Execution en los límites documentados; siguen sin demostrarse un `FinalAdmission` autónomo separado, un runtime autónomo integrado de producción o un runtime de reconciliación con el exchange.
 
 ---
 
@@ -965,17 +1126,17 @@ La documentación persistente anterior registraba estados históricos que ya no 
 
 El punto de continuidad funcional vigente para esta memoria es:
 
-**HUESO 05-E — MERGED / CLOSED — POST-MERGE VERIFIED**
+**HUESO 05-F-R1 — MERGED / CLOSED — POST-MERGE VERIFIED**
 
 Último checkpoint funcional confirmado por esta actualización:
 
-`b9481f5690c6db6f831660da56399163218576ea`
+`d7900c640f0e4a565a304c0ff1b640b19e7f832e`
 
 La base documental de esta actualización es:
 
-`b9481f5690c6db6f831660da56399163218576ea`
+`d7900c640f0e4a565a304c0ff1b640b19e7f832e`
 
-Ambos SHA son referencias históricas para esta actualización; el primero identifica el último checkpoint funcional confirmado y el segundo el `main` exacto usado como base documental. Ninguno representa un puntero vivo permanente de `main`.
+Ambos SHA son referencias históricas para esta actualización: identifican el checkpoint funcional y el `main` exacto usado como base documental a fecha 2026-10-11. Ninguno representa un puntero vivo permanente de `main`.
 
 ---
 
