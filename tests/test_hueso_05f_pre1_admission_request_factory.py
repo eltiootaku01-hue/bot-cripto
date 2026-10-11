@@ -145,3 +145,128 @@ def test_factory_does_not_accept_noncanonical_or_empty_evidence():
             account_id=request.account_id, canonical_account_state=request.canonical_account_state,
             created_at=BASE,
         )
+
+def test_factory_rejects_proposal_context_mismatch():
+    request = build()
+    other_proposal = replace(
+        request.proposal,
+        correlation_id="different-correlation-context",
+    )
+
+    with pytest.raises(
+        FinancialAdmissionContractError,
+        match="context.trade_proposal must structurally match proposal",
+    ):
+        build_financial_admission_request(
+            proposal=other_proposal,
+            risk_decision=request.risk_decision,
+            context=request.context,
+            policy=request.policy,
+            authorization=request.authorization,
+            account_id=request.account_id,
+            canonical_account_state=request.canonical_account_state,
+            created_at=BASE,
+        )
+
+
+def test_factory_rejects_policy_mismatch_with_risk_decision():
+    request = build()
+    incompatible_policy = replace(
+        request.policy,
+        policy_id="different-risk-policy",
+    )
+
+    with pytest.raises(
+        FinancialAdmissionContractError,
+        match="policy_id/policy_version mismatch",
+    ):
+        build_financial_admission_request(
+            proposal=request.proposal,
+            risk_decision=request.risk_decision,
+            context=request.context,
+            policy=incompatible_policy,
+            authorization=request.authorization,
+            account_id=request.account_id,
+            canonical_account_state=request.canonical_account_state,
+            created_at=BASE,
+        )
+
+
+def test_factory_rejects_decision_identity_incompatible_with_authorization():
+    request = build()
+    different_decision = replace(
+        request.risk_decision,
+        risk_decision_id="different-risk-decision-identity",
+    )
+
+    with pytest.raises(
+        FinancialAdmissionContractError,
+        match="authorization risk_decision_id mismatch",
+    ):
+        build_financial_admission_request(
+            proposal=request.proposal,
+            risk_decision=different_decision,
+            context=request.context,
+            policy=request.policy,
+            authorization=request.authorization,
+            account_id=request.account_id,
+            canonical_account_state=request.canonical_account_state,
+            created_at=BASE,
+        )
+
+
+def test_factory_rejects_nonempty_evidence_contradicting_authorization():
+    request = build()
+    assert request.risk_decision.risk_evidence
+    contradictory_evidence = replace(
+        request.risk_decision.risk_evidence[0],
+        reference_id="different-evidence-reference",
+    )
+    decision_with_different_evidence = replace(
+        request.risk_decision,
+        risk_evidence=(contradictory_evidence,),
+    )
+    assert decision_with_different_evidence.risk_evidence
+    assert (
+        decision_with_different_evidence.risk_evidence
+        != request.authorization.risk_evidence
+    )
+
+    with pytest.raises(
+        FinancialAdmissionContractError,
+        match="authorization evidence must match risk_decision evidence exactly",
+    ):
+        build_financial_admission_request(
+            proposal=request.proposal,
+            risk_decision=decision_with_different_evidence,
+            context=request.context,
+            policy=request.policy,
+            authorization=request.authorization,
+            account_id=request.account_id,
+            canonical_account_state=request.canonical_account_state,
+            created_at=BASE,
+        )
+
+
+def test_factory_rejects_economic_terms_incompatible_with_canonical_instrument():
+    request = build()
+    incompatible_proposal = replace(
+        request.proposal,
+        symbol="ETH/USDT",
+    )
+
+    with pytest.raises(
+        FinancialAdmissionContractError,
+        match="proposal symbol and canonical instrument are incompatible",
+    ):
+        build_financial_admission_request(
+            proposal=incompatible_proposal,
+            risk_decision=request.risk_decision,
+            context=request.context,
+            policy=request.policy,
+            authorization=request.authorization,
+            account_id=request.account_id,
+            canonical_account_state=request.canonical_account_state,
+            created_at=BASE,
+        )
+
