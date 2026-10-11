@@ -71,6 +71,15 @@ ExecutionBoundary -> FakeAdapter in tests
 - Resume of `SUBMISSION_STARTED` or `UNKNOWN` invokes only the existing local
   `recover_projection(reservation_id)` path and returns `UNKNOWN`. It does not retry.
 - Store, snapshot, authorization binding, or intent-integrity failures stop the flow.
+- If the validation clock raises or returns a value that is not an aware `datetime`,
+  the runtime returns `READINESS_BLOCKED` with reason
+  `VALIDATION_CLOCK_UNAVAILABLE`; there is no fallback timestamp and the orchestrator
+  is not called. The already prepared intent remains persisted as `PREPARED`, with no
+  ledger entry claiming submission.
+- In `resume()`, exceptions from either read of the persisted execution binding return
+  `BLOCKED` with reason `EXECUTION_BINDING_LOOKUP_FAILED:<ExceptionType>`. Failure of
+  the post-`prepare()` read stops before evidence evaluation or execution and does not
+  recreate or infer a binding.
 
 ## Identity and idempotency
 
@@ -81,7 +90,11 @@ original proposal identity is lost before a reservation ID is known, automatic d
 is not provided.
 
 Atomic admission remains owned by `SQLiteReservationStore.admit()`. The runtime does
-not claim that concurrent risk evaluations share a stable `risk_decision_id`. Execution
+not claim that concurrent risk evaluations share a stable `risk_decision_id`. Concurrent
+`start()` calls for the same proposal are covered by a synchronized regression test:
+one succeeds as `SUBMITTED`, the competing call returns `RESUME_REQUIRED` with the
+same canonical `reservation_id`, and exactly one reservation and adapter send are
+observed. The losing call does not auto-resume the existing reservation. Execution
 idempotency and the one-send boundary remain owned by the existing bridge, orchestrator,
 execution boundary and SQLite ledger. No retry loop is added here.
 
@@ -137,3 +150,28 @@ The isolated run executed on the temporary instrumentation commit, not on the fi
 ### Scope and evidence limits
 
 These tests establish local regression results only. Tests using `FakeAdapter` are not evidence of real exchange orders. PR merge-preview checks and post-merge checks on `main` are distinct from branch-push CI. No production-readiness or architectural-approval conclusion is implied.
+
+ 
+## HUESO 05-F-R1-C1 — corrective validation record
+
+- Corrective implementation/test commit: [877a448](https://github.com/eltiootaku01-hue/bot-cripto/commit/877a448dfd287d457c702b77c1c87c81e4c220c0)
+- Temporary CI-instrumentation commit: [8c2ed43](https://github.com/eltiootaku01-hue/bot-cripto/commit/8c2ed437a8b2b0ef3e2e06facceda2b509cf8b1f); its only changed file was `.github/workflows/tests.yml`.
+- Isolated Actions run: [38143301041](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38143301041), tested HEAD `8c2ed437a8b2b0ef3e2e06facceda2b509cf8b1f`, conclusion `success`.
+- Runtime and test code at the isolated HEAD were identical to corrective commit `877a448dfd287d457c702b77c1c87c81e4c220c0`; only the workflow had temporary extra test steps.
+- Every individual command below exited 0 in run `38143301041`.
+
+| Command | Observed result | Duration | Exit |
+|---|---:|---:|---:|
+| `pytest -q tests/test_hueso_05f_pre1_admission_request_factory.py` | 14 passed | 0.35s | 0 |
+| `pytest -q tests/test_hueso_02h2_financial_admission.py` | 36 passed | 0.20s | 0 |
+| `pytest -q tests/test_hueso_05d_final_admission.py` | 44 passed | 0.44s | 0 |
+| `pytest -q tests/test_hueso_05f_financial_execution_runtime.py` | 32 passed | 0.69s | 0 |
+| `pytest -q tests/test_hueso_05e_reservation_execution_bridge.py` | 33 passed | 0.61s | 0 |
+| `pytest -q tests/test_phase14_execution_boundary.py` | 20 passed | 0.19s | 0 |
+| `pytest -q` | 1366 passed | 9.66s | 0 |
+
+The first non-instrumented branch-push run on corrective code, [38143237798](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38143237798), also completed successfully: `1366 passed in 8.13s`. The final restored HEAD's full-suite result will be recorded separately after restoration; the isolated test results above are attributed only to the instrumented SHA.
+
+The clock-failure test confirms a typed `READINESS_BLOCKED` result, a persisted `PREPARED` execution binding, no adapter invocation, and no ledger send record. The resume binding-read test confirms the second read's `OSError` returns `BLOCKED`, does not call risk/admission/evidence, and leaves the reservation/binding persisted as `ACTIVE`/`PREPARED`. The synchronized concurrent-start test asserts exactly one canonical reservation, exactly one adapter call, one `SUBMITTED`, one `RESUME_REQUIRED`, and the same reservation ID in both results.
+
+These results demonstrate local regression behavior only. No exchange acceptance, order execution, or fill is implied.
