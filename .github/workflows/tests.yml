@@ -9,4 +9,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
-      - run: pytest -q
+      - name: PRE1-R1 — admission request factory regression
+        run: pytest -q tests/test_hueso_05f_pre1_admission_request_factory.py
+      - name: PRE1-R1 — financial admission regression
+        run: pytest -q tests/test_hueso_02h2_financial_admission.py
+      - name: PRE1-R1 — final admission regression
+        run: pytest -q tests/test_hueso_05d_final_admission.py
+      - name: Full regression suite
+        run: pytest -q
