@@ -8,12 +8,21 @@ from threading import Lock
 import pytest
 
 from bot_obrero.execution import EvidenceBundle, EvidenceRecord, ExecutionOrchestrator, ExchangeAdapter
-from bot_obrero.financial_admission import (\n    FinancialAdmissionBoundary,\n    FinancialAdmissionResult,\n    FinancialAdmissionStatus,\n)
+from bot_obrero.financial_admission import (
+    FinancialAdmissionBoundary,
+    FinancialAdmissionResult,
+    FinancialAdmissionStatus,
+)
 from bot_obrero.murphy import MurphyGuard
 from bot_obrero.persistent_ledger import SQLiteIdempotencyLedger
 from bot_obrero.reservation import ReservationState, SQLiteReservationStore
-from bot_obrero.reservation_execution_bridge import (\n    ExecutionBridgePreparation,\n    ExecutionBridgeStatus,\n    ReservationExecutionBridge,\n)
-from bot_obrero.risk_authorization import RiskAuthorizationResult, RiskAuthorizationStatus\nfrom bot_obrero.risk_contracts import RiskDecisionOutcome
+from bot_obrero.reservation_execution_bridge import (
+    ExecutionBridgePreparation,
+    ExecutionBridgeStatus,
+    ReservationExecutionBridge,
+)
+from bot_obrero.risk_authorization import RiskAuthorizationResult, RiskAuthorizationStatus
+from bot_obrero.risk_contracts import RiskDecisionOutcome
 from bot_obrero.risk_engine import RiskEngine
 from bot_obrero.risk_limit_applicability import RiskLimitApplicabilityResolver
 from bot_obrero.financial_execution_runtime import (
