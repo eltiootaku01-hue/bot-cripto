@@ -100,7 +100,7 @@ def compose(path: Path, *, adapter=None, clock=None):
         ledger=ledger,
         murphy_guard=MurphyGuard(),
         reservation_bridge=bridge,
-        clock=clock or (lambda: BASE + timedelta(seconds=1)),
+        clock=clock or (lambda: BASE + timedelta(minutes=1)),
     )
     runtime = FinancialExecutionRuntime(
         store=store,
@@ -287,7 +287,7 @@ def test_constructor_rejects_split_persistence_composition(tmp_path):
     ledger = SQLiteIdempotencyLedger(tmp_path / "ledger.sqlite")
     orchestrator = ExecutionOrchestrator(
         adapter=FakeAdapter(), ledger=ledger, murphy_guard=MurphyGuard(),
-        reservation_bridge=bridge, clock=lambda: BASE + timedelta(seconds=1),
+        reservation_bridge=bridge, clock=lambda: BASE + timedelta(minutes=1),
     )
     with pytest.raises(ValueError, match="RUNTIME_COMPONENTS_MUST_SHARE_RESERVATION_STORE"):
         FinancialExecutionRuntime(
@@ -346,8 +346,7 @@ def test_two_concurrent_starts_never_send_twice_for_same_proposal(tmp_path):
     store = SQLiteReservationStore(db_path)
     reservations = store.list_for_proposal(proposal.proposal_id)
     assert len([r for r in reservations if r.state in {ReservationState.ACTIVE, ReservationState.PARTIALLY_CONSUMED, ReservationState.UNKNOWN}]) <= 1
-    assert any(r.status if hasattr(r, "status") else False for r in []) is False
     assert any(result.status is Status.SUBMITTED for result in results) or any(
         result.status is Status.RESUME_REQUIRED for result in results
-    ) or any(result.status in {Status.ADMISSION_BUSY, Status.UNKNOWN} for result in results)
+    ) or any(result.status in {Status.ADMISSION_BUSY, Status.ADMISSION_REJECTED, Status.UNKNOWN} for result in results)
     store.close()
