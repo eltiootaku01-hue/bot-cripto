@@ -66,27 +66,33 @@ class FakeAdapter(ExchangeAdapter):
         return None
 
 
-def evidence_provider(runtime, *, invalid_kind=None, wrong_order=False, raises=False):
+def evidence_provider(runtime, *, invalid_kind=None, wrong_order=False, raises=False, missing_kind=None, stale=False, future=False, wrong_correlation=False, duplicate_kind=None):
     def provide(prepared):
         if raises:
             raise RuntimeError("evidence source unavailable")
         binding = runtime.reservation_bridge.verify_prepared(prepared)
         correlation_id = binding.payload["correlation_id"]
         intent_id = "different-client-order" if wrong_order else prepared.client_order_id
-        records = tuple(
+        record_correlation = "different-correlation" if wrong_correlation else correlation_id
+        observed_at = BASE + timedelta(minutes=2) if future else BASE
+        expires_at = BASE + timedelta(seconds=30) if stale else BASE + timedelta(minutes=5)
+        kinds = tuple(kind for kind in REQUIRED if kind != missing_kind)
+        records_list = [
             EvidenceRecord(
                 kind=kind,
                 value=False if kind == invalid_kind else True,
                 source="explicit-test-observer",
-                observed_at=BASE,
+                observed_at=observed_at,
                 decision_at=BASE,
                 intent_id=intent_id,
-                correlation_id=correlation_id,
-                expires_at=BASE + timedelta(minutes=5),
+                correlation_id=record_correlation,
+                expires_at=expires_at,
             )
-            for kind in REQUIRED
-        )
-        return EvidenceBundle(records, correlation_id)
+            for kind in kinds
+        ]
+        if duplicate_kind is not None:
+            records_list.append(next(record for record in records_list if record.kind == duplicate_kind))
+        return EvidenceBundle(tuple(records_list), record_correlation)
     return provide
 
 
@@ -202,7 +208,7 @@ def test_context_account_mismatch_fails_before_risk(tmp_path, monkeypatch):
     close_all(store, ledger)
 
 
-@pytest.mark.parametrize("bad_provider", ["missing", "false", "wrong_order", "raises"])
+@pytest.mark.parametrize("bad_provider", ["missing", "false", "wrong_order", "raises", "missing_kind", "stale", "future", "wrong_correlation", "duplicate_kind"])
 def test_invalid_evidence_preserves_prepared_and_never_sends(tmp_path, bad_provider):
     runtime, store, bridge, ledger, adapter = compose(tmp_path)
     proposal, state, context, policy = canonical_inputs("proposal-evidence-" + bad_provider)
@@ -212,6 +218,16 @@ def test_invalid_evidence_preserves_prepared_and_never_sends(tmp_path, bad_provi
         provider = evidence_provider(runtime, invalid_kind="permissions_safe")
     elif bad_provider == "wrong_order":
         provider = evidence_provider(runtime, wrong_order=True)
+    elif bad_provider == "missing_kind":
+        provider = evidence_provider(runtime, missing_kind="stream_ready")
+    elif bad_provider == "stale":
+        provider = evidence_provider(runtime, stale=True)
+    elif bad_provider == "future":
+        provider = evidence_provider(runtime, future=True)
+    elif bad_provider == "wrong_correlation":
+        provider = evidence_provider(runtime, wrong_correlation=True)
+    elif bad_provider == "duplicate_kind":
+        provider = evidence_provider(runtime, duplicate_kind="clock_valid")
     else:
         provider = evidence_provider(runtime, raises=True)
     result = start(runtime, proposal, state, context, policy, provider)
@@ -350,3 +366,70 @@ def test_two_concurrent_starts_never_send_twice_for_same_proposal(tmp_path):
         result.status is Status.RESUME_REQUIRED for result in results
     ) or any(result.status in {Status.ADMISSION_BUSY, Status.ADMISSION_REJECTED, Status.UNKNOWN} for result in results)
     store.close()
+
+
+def test_crash_left_submission_marker_is_recovered_locally_without_resend(tmp_path):
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-crash-marker")
+    request = make_request(proposal=proposal, account_id=state.account_id, state=state)
+    admitted = runtime.admission_boundary.admit(request)
+    reservation_id = admitted.reservation.reservation_id
+    prepared = bridge.prepare(reservation_id)
+    assert prepared.intent is not None
+    bridge.begin_submission(prepared.intent, occurred_at=BASE + timedelta(minutes=1))
+
+    result = runtime.resume(reservation_id, evidence_provider=evidence_provider(runtime))
+    assert result.status is Status.UNKNOWN
+    binding = bridge.get_binding(reservation_id)
+    assert binding is not None and binding.state == "UNKNOWN"
+    assert adapter.submits == 0
+    assert ledger.get(binding.client_order_id).result == "ORDER_RESULT_UNKNOWN"
+    close_all(store, ledger)
+
+
+def test_submitted_ledger_projection_is_repaired_without_second_send(tmp_path):
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-ledger-repair")
+    result = start(runtime, proposal, state, context, policy)
+    assert result.status is Status.SUBMITTED
+    binding = bridge.get_binding(result.reservation_id)
+    assert binding is not None and binding.state == "SUBMITTED"
+    ledger._connection.execute(
+        "DELETE FROM idempotency_ledger WHERE client_order_id=?",
+        (binding.client_order_id,),
+    )
+    ledger._connection.commit()
+    assert ledger.get(binding.client_order_id) is None
+
+    resumed = runtime.resume(result.reservation_id, evidence_provider=evidence_provider(runtime))
+    assert resumed.status is Status.ALREADY_SUBMITTED
+    assert ledger.get(binding.client_order_id).result == "SUBMITTED"
+    assert adapter.submits == 1
+    close_all(store, ledger)
+
+
+@pytest.mark.parametrize("missing", ["snapshot", "authorization", "execution_binding"])
+def test_resume_blocks_missing_persisted_integrity_record(tmp_path, missing):
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-missing-" + missing)
+    request = make_request(proposal=proposal, account_id=state.account_id, state=state)
+    admitted = runtime.admission_boundary.admit(request)
+    reservation_id = admitted.reservation.reservation_id
+    if missing == "snapshot":
+        store._connection.execute(
+            "DELETE FROM reservation_trade_terms_snapshots WHERE reservation_id=?",
+            (reservation_id,),
+        )
+    elif missing == "authorization":
+        store._connection.execute(
+            "DELETE FROM reservation_authorization_bindings WHERE reservation_id=?",
+            (reservation_id,),
+        )
+    else:
+        assert bridge.get_binding(reservation_id) is None
+    store._connection.commit()
+
+    result = runtime.resume(reservation_id, evidence_provider=evidence_provider(runtime))
+    assert result.status is Status.BLOCKED
+    assert adapter.submits == 0
+    close_all(store, ledger)
