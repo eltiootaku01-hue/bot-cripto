@@ -462,7 +462,21 @@ class FinancialExecutionRuntime:
                 proposal_id=proposal_id,
                 reservation_id=prepared.reservation_id,
             )
-        now = self.execution_orchestrator.clock()
+        try:
+            now = self.execution_orchestrator.clock()
+            if (
+                not isinstance(now, datetime)
+                or now.tzinfo is None
+                or now.utcoffset() is None
+            ):
+                raise ValueError("CLOCK_DID_NOT_RETURN_AWARE_DATETIME")
+        except Exception:
+            return self._result(
+                FinancialExecutionRuntimeStatus.READINESS_BLOCKED,
+                "VALIDATION_CLOCK_UNAVAILABLE",
+                proposal_id=proposal_id,
+                reservation_id=prepared.reservation_id,
+            )
         try:
             if not self.execution_orchestrator.readiness.evaluate_evidence(
                 evidence, prepared.client_order_id, now
@@ -597,7 +611,15 @@ class FinancialExecutionRuntime:
 
         # prepare() validates the persisted snapshot, authorization binding and intent
         # before returning any of these persisted execution states.
-        binding = self.reservation_bridge.get_binding(reservation_id)
+        try:
+            binding = self.reservation_bridge.get_binding(reservation_id)
+        except Exception as exc:
+            return self._result(
+                FinancialExecutionRuntimeStatus.BLOCKED,
+                f"EXECUTION_BINDING_LOOKUP_FAILED:{type(exc).__name__}",
+                proposal_id=reservation.proposal_id,
+                reservation_id=reservation_id,
+            )
         if binding is not None and binding.state == "SUBMITTED":
             projection = self.execution_orchestrator.recover_projection(reservation_id)
             if projection.reason == "BLOCKED":

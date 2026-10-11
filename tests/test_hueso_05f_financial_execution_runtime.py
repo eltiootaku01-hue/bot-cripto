@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
-from threading import Lock
+from threading import Barrier, Lock
 
 import pytest
 
@@ -307,6 +307,78 @@ def test_missing_reservation_is_not_inferred_or_recreated(tmp_path):
     close_all(store, ledger)
 
 
+def test_validation_clock_failure_blocks_with_prepared_state_and_no_ledger_send(tmp_path):
+    def unavailable_clock():
+        raise RuntimeError("clock source unavailable")
+
+    runtime, store, bridge, ledger, adapter = compose(tmp_path, clock=unavailable_clock)
+    proposal, state, context, policy = canonical_inputs("proposal-clock-unavailable")
+
+    result = start(runtime, proposal, state, context, policy)
+
+    assert result.status is Status.READINESS_BLOCKED
+    assert result.reason == "VALIDATION_CLOCK_UNAVAILABLE"
+    assert result.reservation_id is not None
+    reservation = store.get(result.reservation_id)
+    assert reservation is not None
+    assert reservation.state is ReservationState.ACTIVE
+    binding = bridge.get_binding(result.reservation_id)
+    assert binding is not None and binding.state == "PREPARED"
+    assert ledger.get(binding.client_order_id) is None
+    assert adapter.submits == 0
+    close_all(store, ledger)
+
+
+def test_resume_second_execution_binding_read_failure_blocks_without_risk_or_admission(
+    tmp_path, monkeypatch
+):
+    runtime, store, bridge, ledger, adapter = compose(tmp_path)
+    proposal, state, context, policy = canonical_inputs("proposal-binding-second-read")
+    admitted = runtime.admission_boundary.admit(
+        make_request(proposal=proposal, account_id=state.account_id, state=state)
+    )
+    assert admitted.reservation is not None
+    reservation_id = admitted.reservation.reservation_id
+    prepared = bridge.prepare(reservation_id)
+    assert prepared.status.value == "PREPARED"
+    original_get_binding = bridge.get_binding
+    call_count = 0
+
+    def fail_only_second_read(requested_reservation_id):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise OSError("execution binding storage unavailable")
+        return original_get_binding(requested_reservation_id)
+
+    monkeypatch.setattr(bridge, "get_binding", fail_only_second_read)
+    monkeypatch.setattr(
+        runtime.risk_engine, "evaluate",
+        lambda **kwargs: pytest.fail("resume must not evaluate risk"),
+    )
+    monkeypatch.setattr(
+        runtime.admission_boundary, "admit",
+        lambda request: pytest.fail("resume must not re-admit"),
+    )
+    result = runtime.resume(
+        reservation_id,
+        evidence_provider=lambda intent: pytest.fail("binding lookup failure must stop before evidence"),
+    )
+
+    assert call_count == 2
+    assert result.status is Status.BLOCKED
+    assert result.reason == "EXECUTION_BINDING_LOOKUP_FAILED:OSError"
+    assert result.reservation_id == reservation_id
+    persisted_reservation = store.get(reservation_id)
+    assert persisted_reservation is not None
+    assert persisted_reservation.state is ReservationState.ACTIVE
+    persisted_binding = original_get_binding(reservation_id)
+    assert persisted_binding is not None and persisted_binding.state == "PREPARED"
+    assert ledger.get(persisted_binding.client_order_id) is None
+    assert adapter.submits == 0
+    close_all(store, ledger)
+
+
 def test_constructor_rejects_split_persistence_composition(tmp_path):
     store1 = SQLiteReservationStore(tmp_path / "one.sqlite")
     store2 = SQLiteReservationStore(tmp_path / "two.sqlite")
@@ -342,11 +414,12 @@ def test_adapter_ambiguous_exception_is_unknown_and_resume_does_not_resend(tmp_p
     close_all(store, ledger)
 
 
-def test_two_concurrent_starts_never_send_twice_for_same_proposal(tmp_path):
+def test_two_concurrent_starts_return_one_submitted_and_one_resume_required(tmp_path):
     proposal, state, context, policy = canonical_inputs("proposal-concurrent")
     adapter = FakeAdapter()
     db_path = tmp_path / "reservations.sqlite"
     ledger_path = tmp_path / "ledger.sqlite"
+    risk_barrier = Barrier(2)
 
     def worker():
         store = SQLiteReservationStore(db_path)
@@ -362,6 +435,16 @@ def test_two_concurrent_starts_never_send_twice_for_same_proposal(tmp_path):
             admission_boundary=FinancialAdmissionBoundary(store),
             reservation_bridge=bridge, execution_orchestrator=orchestrator,
         )
+        original_evaluate = runtime.risk_engine.evaluate
+
+        def synchronized_evaluate(**kwargs):
+            decision = original_evaluate(**kwargs)
+            # Both calls have already observed no prior reservation; release them
+            # together into authorization/admission without production-only hooks.
+            risk_barrier.wait(timeout=10)
+            return decision
+
+        runtime.risk_engine.evaluate = synchronized_evaluate
         try:
             return start(runtime, proposal, state, context, policy)
         finally:
@@ -369,13 +452,18 @@ def test_two_concurrent_starts_never_send_twice_for_same_proposal(tmp_path):
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: worker(), range(2)))
-    assert adapter.submits <= 1
+
+    assert adapter.submits == 1
     store = SQLiteReservationStore(db_path)
     reservations = store.list_for_proposal(proposal.proposal_id)
-    assert len([r for r in reservations if r.state in {ReservationState.ACTIVE, ReservationState.PARTIALLY_CONSUMED, ReservationState.UNKNOWN}]) <= 1
-    assert any(result.status is Status.SUBMITTED for result in results) or any(
-        result.status is Status.RESUME_REQUIRED for result in results
-    ) or any(result.status in {Status.ADMISSION_BUSY, Status.ADMISSION_REJECTED, Status.UNKNOWN} for result in results)
+    assert len(reservations) == 1
+    winner = next((result for result in results if result.status is Status.SUBMITTED), None)
+    loser = next((result for result in results if result.status is Status.RESUME_REQUIRED), None)
+    assert winner is not None
+    assert loser is not None
+    assert winner.reservation_id
+    assert loser.reservation_id == winner.reservation_id
+    assert reservations[0].reservation_id == winner.reservation_id
     store.close()
 
 
