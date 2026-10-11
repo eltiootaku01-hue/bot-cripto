@@ -436,6 +436,56 @@ def build_admission_idempotency_key(
     return f"financial-admission-v2:{digest}"
 
 
+def build_financial_admission_request(
+    *,
+    proposal: TradeProposal,
+    risk_decision: RiskDecision,
+    context: RiskEvaluationContext,
+    policy: RiskEvaluationPolicy,
+    authorization: RiskAuthorization,
+    account_id: str,
+    canonical_account_state: CanonicalAccountState,
+    created_at: datetime,
+) -> FinancialAdmissionRequest:
+    """Build a fully validated request using canonical admission rules.
+
+    This factory only composes existing contracts. It does not evaluate risk,
+    authorize a decision, or admit a reservation.
+    """
+    resource_kind, asset, approved_reserved_amount = _required_reservation_terms(
+        proposal, context
+    )
+    authorization_fingerprint = risk_authorization_semantic_fingerprint(
+        authorization
+    )
+    admission_idempotency_key = build_admission_idempotency_key(
+        risk_decision_id=risk_decision.risk_decision_id,
+        proposal_id=proposal.proposal_id,
+        account_id=account_id,
+        resource_kind=resource_kind,
+        asset=asset,
+        approved_reserved_amount=approved_reserved_amount,
+        correlation_id=proposal.correlation_id,
+        authorization_fingerprint=authorization_fingerprint,
+    )
+    evidence = tuple(risk_decision.risk_evidence)
+    return FinancialAdmissionRequest(
+        proposal=proposal,
+        risk_decision=risk_decision,
+        context=context,
+        policy=policy,
+        authorization=authorization,
+        account_id=account_id,
+        resource_kind=resource_kind,
+        asset=asset,
+        approved_reserved_amount=approved_reserved_amount,
+        canonical_account_state=canonical_account_state,
+        created_at=created_at,
+        admission_idempotency_key=admission_idempotency_key,
+        evidence=evidence,
+    )
+
+
 def _reservation_matches_request(
     reservation: Reservation,
     request: FinancialAdmissionRequest,
@@ -607,4 +657,5 @@ __all__ = [
     "FinancialAdmissionResult",
     "FinancialAdmissionStatus",
     "build_admission_idempotency_key",
+    "build_financial_admission_request",
 ]
