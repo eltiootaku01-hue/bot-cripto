@@ -342,15 +342,15 @@ def run(args: argparse.Namespace) -> int:
                 reasons.append("BTC_METRICS_INSUFFICIENT")
             if tick.spread_pct is None or tick.spread_pct > args.max_spread_pct:
                 reasons.append("SPREAD_TOO_WIDE")
+            ret = (full.final_equity / full.config.initial_quote_balance - ONE) * D("100")
+            oos_ret = (oos.final_equity / oos.config.initial_quote_balance - ONE) * D("100")
             if not full.fills:
                 reasons.append("NO_STRATEGY_ENTRY")
             if ret <= 0:
                 reasons.append("NET_FULL_PERIOD_RETURN_NOT_POSITIVE")
             if oos_ret <= 0:
                 reasons.append("HELD_OUT_RETURN_NOT_POSITIVE")
-            ret = (full.final_equity / full.config.initial_quote_balance - ONE) * D("100")
-            oos_ret = (oos.final_equity / oos.config.initial_quote_balance - ONE) * D("100")
-            rows.append((symbol, tick, universe[symbol], c30, c90, beta90, relative_strength, full, oos, ret, oos_ret, reasons))
+            rows.append((symbol, tick, universe[symbol].filters, c30, c90, beta90, relative_strength, full, oos, ret, oos_ret, reasons))
         except (ProductV2Error, BacktestError, RuntimeError, ValueError) as exc:
             excluded.append((symbol, f"DATA_OR_BACKTEST_ERROR:{type(exc).__name__}:{exc}"))
 
