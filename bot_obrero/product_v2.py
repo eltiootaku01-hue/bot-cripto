@@ -184,6 +184,29 @@ def correlation_beta(
     return covariance / math.sqrt(vx * vy), covariance / vx
 
 
+def exposure_pct(items: Sequence[Any], fills: Sequence[Any]) -> Decimal:
+    """Percent of bars with a virtual position, based only on timestamped fills."""
+    if not items:
+        return D("0")
+    ordered = sorted(fills, key=lambda fill: fill.timestamp)
+    fill_index = 0
+    in_position = False
+    exposed = 0
+    for item in items:
+        while fill_index < len(ordered) and ordered[fill_index].timestamp <= item.payload.start:
+            in_position = ordered[fill_index].side == "BUY"
+            fill_index += 1
+        if in_position:
+            exposed += 1
+    return D(exposed) / D(len(items)) * D("100")
+
+
+def modeled_spread_slippage_cost(fills: Sequence[Any], spread_bps: Decimal, slippage_bps: Decimal) -> Decimal:
+    """Approximate cost in quote currency; spread is assumed full width, half per fill."""
+    rate = (spread_bps / D("2") + slippage_bps) / D("10000")
+    return sum((fill.quantity * fill.price * rate for fill in fills), ZERO)
+
+
 def return_pct(items: Sequence[Any], bars: int) -> Decimal | None:
     if len(items) <= bars or items[-bars - 1].payload.close <= 0:
         return None
@@ -391,8 +414,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"{sym}: price={tick.price} USDT; quoteVolume24h={tick.quote_volume}; spread={tick.spread_pct}%")
         print(f"  corr30d={c30}; corr90d={c90}; beta90d={beta90}; relativeStrength30d={strength}%")
         print(f"  minQty={filt.min_qty}; stepSize={filt.step_size}; minNotional={filt.min_notional}")
-        print(f"  180d net research return={ret}%; max drawdown={full.max_drawdown * D('100')}%; entries={sum(f.side == 'BUY' for f in full.fills)}; fees={full.total_fees} USDT")
-        print(f"  held-out 60d return={oos_ret}%; held-out drawdown={oos.max_drawdown * D('100')}%; held-out entries={sum(f.side == 'BUY' for f in oos.fills)}")
+        print(f"  180d net research return={ret}%; max drawdown={full.max_drawdown * D('100')}%; exposure={exposure_pct(items[-bars:], full.fills)}%; entries={sum(f.side == 'BUY' for f in full.fills)}; fees={full.total_fees} USDT; estimated spread+slippage={modeled_spread_slippage_cost(full.fills, args.spread_bps, args.slippage_bps)} USDT")
+        print(f"  held-out 60d return={oos_ret}%; held-out drawdown={oos.max_drawdown * D('100')}%; held-out exposure={exposure_pct(items[-60 * 6:], oos.fills)}%; held-out entries={sum(f.side == 'BUY' for f in oos.fills)}; fees={oos.total_fees} USDT; estimated spread+slippage={modeled_spread_slippage_cost(oos.fills, args.spread_bps, args.slippage_bps)} USDT")
         print(f"  research filter={'PASS' if not reasons else 'REJECT'}; reasons={','.join(reasons) if reasons else 'none'}")
     print(f"Research candidates passing non-budget controls: {sum(1 for row in rows if not row[11])}")
     print("\nEXCLUSIONS (first 30)")
