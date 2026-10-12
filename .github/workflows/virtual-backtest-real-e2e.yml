@@ -63,7 +63,7 @@ jobs:
           grep -F "conversion=CONVERSION_UNKNOWN" product-v2-report.txt
           grep -F "ALTCOIN RESULTS" product-v2-report.txt
           grep -F "FINAL DECISION: NO_TRADE" product-v2-report.txt
-grep -F "Budget gate: CONVERSION_UNKNOWN" product-v2-report.txt
+          grep -F "Budget gate: CONVERSION_UNKNOWN" product-v2-report.txt
       - name: Assert report contains required end-to-end evidence
         shell: bash
         run: |
