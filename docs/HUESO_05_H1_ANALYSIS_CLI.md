@@ -45,4 +45,14 @@ Solo se usan endpoints públicos de ExchangeInfo y klines Spot. El simulador man
 
 ## Pruebas
 
-Las pruebas de tests/test_virtual_backtest.py son deterministas y simulan la adquisición; no llaman a Binance. El workflow existente de GitHub Actions permanece sin cambios y ejecuta la suite completa con pytest -q. En el entorno disponible, pytest local no se ejecutó porque el terminal no pudo resolver github.com por DNS; la validación remota debe atribuirse exclusivamente al SHA exacto del workflow.
+Las pruebas de tests/test_virtual_backtest.py son deterministas y simulan la adquisición; no llaman a Binance. El workflow de la suite completa ejecuta pytest -q. El workflow separado de E2E real ejecuta el comando de backtest contra los endpoints públicos de Binance Spot sin mocks y conserva el informe como artefacto de GitHub Actions. La prueba E2E tiene un límite de ejecución de 10 minutos y no requiere secretos. La ejecución local de pytest permanece como NOT RUN porque el terminal disponible no pudo resolver github.com por DNS; no debe confundirse con resultados remotos atribuidos a un SHA concreto.
+
+## E2E real de backtest en GitHub Actions
+
+El workflow `.github/workflows/virtual-backtest-real-e2e.yml` se activa en `pull_request` hacia `main` y en `push` a la rama de trabajo, cuando cambian el motor de backtest o sus dependencias directas relevantes. Ejecuta, sin mocks HTTP:
+
+    python -m bot_obrero.virtual_backtest --symbol BTCUSDT --interval 1m --candles 100
+
+El job exige un código de salida cero y que el informe indique 100 velas simuladas, intervalo y rango histórico, estrategia, fills, saldo final, equity, comisiones, PnL, retorno y drawdown. La ausencia de fills o una rentabilidad negativa no constituye fallo por sí misma. El archivo `virtual-backtest-report.txt` se muestra en los logs y se publica como artefacto con retención de 14 días, incluso si falla la comprobación posterior al comando cuando el archivo llegó a generarse.
+
+La ejecución E2E usa solo ExchangeInfo y klines públicos de Binance Spot. No usa claves, endpoints privados ni órdenes reales. Es una observación puntual del histórico disponible y no demuestra rentabilidad futura ni disponibilidad temporal histórica perfecta.

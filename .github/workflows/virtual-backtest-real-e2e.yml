@@ -1,0 +1,70 @@
+name: virtual-backtest-real-binance-e2e
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "bot_obrero/virtual_backtest.py"
+      - "bot_obrero/binance_*.py"
+      - "bot_obrero/market_data*.py"
+      - "bot_obrero/analysis_*.py"
+      - "tests/test_virtual_backtest.py"
+      - "docs/HUESO_05_H1_ANALYSIS_CLI.md"
+      - ".github/workflows/virtual-backtest-real-e2e.yml"
+  push:
+    branches: [feat/hueso-05-h1-analysis-cli]
+    paths:
+      - "bot_obrero/virtual_backtest.py"
+      - "bot_obrero/binance_*.py"
+      - "bot_obrero/market_data*.py"
+      - "bot_obrero/analysis_*.py"
+      - "tests/test_virtual_backtest.py"
+      - "docs/HUESO_05_H1_ANALYSIS_CLI.md"
+      - ".github/workflows/virtual-backtest-real-e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  real-binance-virtual-backtest:
+    name: Real public Binance Spot backtest (100 candles)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout PR commit
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Run real public-data backtest and capture report
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m bot_obrero.virtual_backtest --symbol BTCUSDT --interval 1m --candles 100 2>&1 | tee virtual-backtest-report.txt
+      - name: Assert report contains required end-to-end evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s virtual-backtest-report.txt
+          grep -F "Candles simulated: 100" virtual-backtest-report.txt
+          grep -F "Interval: 1m" virtual-backtest-report.txt
+          grep -F "Historical range:" virtual-backtest-report.txt
+          grep -F "Strategy: EMA crossover with RSI filter" virtual-backtest-report.txt
+          grep -F "Virtual fills:" virtual-backtest-report.txt
+          grep -F "Final quote balance:" virtual-backtest-report.txt
+          grep -F "Final equity (last close mark):" virtual-backtest-report.txt
+          grep -F "Total fees:" virtual-backtest-report.txt
+          grep -F "Realized PnL:" virtual-backtest-report.txt
+          grep -F "Return:" virtual-backtest-report.txt
+          grep -F "Maximum drawdown:" virtual-backtest-report.txt
+      - name: Upload backtest report evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: virtual-backtest-report-${{ github.sha }}
+          path: virtual-backtest-report.txt
+          if-no-files-found: warn
+          retention-days: 14
