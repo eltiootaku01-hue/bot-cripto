@@ -288,3 +288,15 @@ def test_evaluation_window_excludes_warmup_from_metrics():
     assert result.first_candle == items[6].payload.start
     assert result.last_candle == items[11].payload.start
     assert len(result.equity_curve) == 6
+
+
+
+def test_rejected_entry_is_recorded_and_no_buy_is_filled():
+    items = _series()
+    result = run_virtual_backtest(
+        items, _config(),
+        entry_admission=lambda index, observations: (False, "BTC_REGIME_NOT_BULLISH"),
+    )
+    assert not any(fill.side == "BUY" for fill in result.fills)
+    assert result.entry_rejections
+    assert all("BTC_REGIME_NOT_BULLISH" in reason for reason in result.entry_rejections)
