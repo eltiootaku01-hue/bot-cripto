@@ -315,7 +315,7 @@ def historical_btc_entry_admission(
         raise ProductV2Error("candidate and BTC histories are not fully aligned")
     btc_observations = [_observation(item) for item in btc_items]
     indicator_config = BacktestConfig(
-        symbol=candidate_items[0].instrument.symbol, interval="4h", candles=1080,
+        symbol="BTCUSDT", interval="4h", candles=1080,
         fast_ema_period=fast_ema_period, slow_ema_period=slow_ema_period,
         rsi_period=rsi_period, rsi_buy_min=rsi_buy_min,
     )
@@ -640,7 +640,7 @@ def run(args: argparse.Namespace) -> int:
         integrated_buys = sum(fill.side == "BUY" for fill in integrated_result.fills)
         affordability_label = "UNKNOWN" if affordable is None else ("YES" if affordable else "NO")
         candidate_row = next((candidate for candidate in rows if candidate[0] == symbol), None)
-        relationship_label = "UNKNOWN" if candidate_row is None else ("PASS" if not any(code in candidate_row[15] for code in ("BTC_METRICS_INSUFFICIENT", "BTC_CORRELATION_30D_BELOW_MINIMUM", "BTC_CORRELATION_90D_BELOW_MINIMUM", "BTC_REGIME_NOT_BULLISH")) else "REJECT")
+        relationship_label = "UNKNOWN" if candidate_row is None else ("REJECT" if (any(code in candidate_row[15] for code in ("BTC_METRICS_INSUFFICIENT", "BTC_CORRELATION_30D_BELOW_MINIMUM", "BTC_CORRELATION_90D_BELOW_MINIMUM", "BTC_REGIME_NOT_BULLISH")) or any(code in rejection for rejection in candidate_row[8].entry_rejections for code in ("BTC_METRICS_INSUFFICIENT", "BTC_CORRELATION_", "BTC_REGIME_NOT_BULLISH", "BTC_HISTORY_NOT_TEMPORALLY_ALIGNED"))) else "PASS")
         decision = ("REJECTED_NO_TRADE" if relationship_label == "REJECT" else
                     ("NO_TRADE" if not integrated_buys or integrated_net_return <= ZERO else "RESEARCH_ONLY"))
         break_even = modeled_round_trip_breakeven_pct(args.fee_rate, args.spread_bps, args.slippage_bps)
