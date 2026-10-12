@@ -16,6 +16,8 @@ from bot_obrero.product_v2 import (
     return_pct,
     return_series,
     ticker_snapshots,
+    _parser,
+    _validate_args,
 )
 from bot_obrero.virtual_backtest import BacktestConfig, BacktestError
 
@@ -120,3 +122,37 @@ def test_btc_buy_hold_reference_applies_fee_spread_and_slippage():
     net = buy_hold_net_return(items)
     gross = Decimal("10")
     assert net < gross
+
+
+def test_product_v2_defaults_keep_ars_budget_separate_and_use_180_days():
+    args = _parser().parse_args([])
+    _validate_args(args)
+    assert args.initial_ars == Decimal("10000")
+    assert args.days == 180
+    assert args.fee_rate == Decimal("0.001")
+    assert args.spread_bps == Decimal("10")
+    assert args.slippage_bps == Decimal("5")
+    assert args.fast_ema_period == 12
+    assert args.slow_ema_period == 26
+
+
+@pytest.mark.parametrize("argv", [
+    ["--days", "179"],
+    ["--universe-limit", "13"],
+    ["--fast-ema-period", "26", "--slow-ema-period", "12"],
+    ["--position-fraction", "1.01"],
+    ["--fee-rate", "0.2"],
+    ["--spread-bps", "-1"],
+])
+def test_product_v2_rejects_invalid_parameters_before_network(argv):
+    args = _parser().parse_args(argv)
+    with pytest.raises(ProductV2Error):
+        _validate_args(args)
+
+
+def test_universe_instrument_preserves_provider_base_asset_for_stablecoin_exclusion():
+    universe = active_usdt_universe({"symbols": [
+        {"symbol": "USD1USDT", "baseAsset": "USD1", "quoteAsset": "USDT",
+         "status": "TRADING", "isSpotTradingAllowed": True, "filters": []},
+    ]})
+    assert universe["USD1USDT"].base_asset == "USD1"
