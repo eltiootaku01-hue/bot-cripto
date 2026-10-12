@@ -21,6 +21,12 @@ Después debe actuar como **CEREBRO / IA-CHAN**.
 - Repository: `eltiootaku01-hue/bot-cripto`
 - Branch principal: `main`
 
+## PROPÓSITO PERMANENTE DEL PRODUCTO BOT-CRIPTO
+
+BOT-CRIPTO debe ayudar a investigar oportunidades de Binance Spot con datos públicos y decisiones selectivas, no ejecutar trading de alta frecuencia ni prometer rentabilidad. BTC funciona como panel de régimen y referencia; el escáner de altcoins debe exigir historia suficiente, liquidez, spread, calidad temporal, métricas alineadas frente a BTC y filtros vigentes del instrumento. La estrategia de referencia trabaja en velas de 4 horas y limita las entradas a un máximo de cinco en cualquier ventana móvil de 30 días; ninguna cuota de operaciones es obligatoria y la decisión válida puede ser `NO_TRADE`.
+
+El presupuesto previsto de 10.000 ARS no equivale a 10.000 USDT. Solo puede afirmarse asequibilidad si existe una conversión ARS→USDT verificable, con fuente, hora y costes. Si no, el estado debe ser `CONVERSION_UNKNOWN` y bloquear cualquier afirmación de compra asequible. La investigación usa balances ficticios, comisiones, spread/deslizamiento modelados, aritmética Decimal y comparaciones con efectivo y BTC; no usa claves privadas, órdenes reales, margen ni apalancamiento. Un backtest sintético o histórico no garantiza resultados futuros.
+
 Arquitectura de trabajo:
 
 **USUARIO → CEREBRO / IA-CHAN → BOT OBRERO**
