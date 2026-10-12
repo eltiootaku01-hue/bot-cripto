@@ -9,6 +9,7 @@ import pytest
 from bot_obrero.product_v2 import (
     ProductV2Error,
     Ticker,
+    buy_hold_net_return,
     active_usdt_universe,
     correlation_beta,
     parse_filters,
@@ -112,3 +113,10 @@ def test_backtest_allows_180_days_of_four_hour_candles_and_caps_entries_at_five(
 def test_product_market_data_error_is_a_runtime_failure_not_a_fake_empty_result():
     with pytest.raises(ProductV2Error, match="symbols array"):
         active_usdt_universe({"symbols": None})
+
+
+def test_btc_buy_hold_reference_applies_fee_spread_and_slippage():
+    items = _series(["100", "110"])
+    net = buy_hold_net_return(items)
+    gross = Decimal("10")
+    assert net < gross
