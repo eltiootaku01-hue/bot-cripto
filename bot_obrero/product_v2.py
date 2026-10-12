@@ -425,6 +425,48 @@ def buy_hold_net_return(
     return ((exit_price * (ONE - fee_rate)) / (entry * (ONE + fee_rate)) - ONE) * D("100")
 
 
+
+VALIDATION_WINDOW_DAYS = 60
+VALIDATION_WINDOW_COUNT = 3
+VALIDATION_COST_SCENARIOS = (
+    ("BASE", D("0.001"), D("10"), D("5")),
+    ("STRESS_1_FEE_0.1_SPREAD_25_SLIP_10", D("0.001"), D("25"), D("10")),
+    ("STRESS_2_FEE_0.2_SPREAD_50_SLIP_20", D("0.002"), D("50"), D("20")),
+)
+
+
+def validation_window_bounds(total_items: int, warmup_bars: int, evaluation_bars: int,
+                              validation_bars: int, window_count: int = VALIDATION_WINDOW_COUNT
+                              ) -> tuple[tuple[int, int], ...]:
+    """Half-open windows; require the end-boundary candle even for the last window."""
+    if total_items < 0 or min(warmup_bars, evaluation_bars, validation_bars, window_count) <= 0:
+        raise ProductV2Error("invalid validation-window dimensions")
+    first = warmup_bars + evaluation_bars
+    required = first + validation_bars * window_count + 1
+    if total_items < required:
+        raise ProductV2Error(f"history insufficient for {window_count} validation windows: need {required} bars including final boundary, received {total_items}")
+    return tuple((first + i * validation_bars, first + (i + 1) * validation_bars) for i in range(window_count))
+
+
+def buy_hold_metrics(items: Sequence[Any], fee_rate: Decimal, spread_bps: Decimal,
+                     slippage_bps: Decimal) -> tuple[Decimal, Decimal]:
+    """Buy-and-hold net return and close-marked drawdown with modeled costs."""
+    if len(items) < 2:
+        raise ProductV2Error("insufficient bars for buy-and-hold benchmark")
+    cost = (spread_bps / D("2") + slippage_bps) / D("10000")
+    entry = items[0].payload.close * (ONE + cost) * (ONE + fee_rate)
+    if entry <= ZERO:
+        raise ProductV2Error("invalid buy-and-hold entry price")
+    qty = ONE / entry
+    equity = [x.payload.close * (ONE - cost) * (ONE - fee_rate) * qty for x in items]
+    peak, max_dd = equity[0], ZERO
+    for value in equity:
+        peak = max(peak, value)
+        if peak > ZERO:
+            max_dd = min(max_dd, value / peak - ONE)
+    return (equity[-1] - ONE) * D("100"), max_dd * D("100")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="BTC regime + liquid USDT altcoin scan and 4h virtual backtest.")
     parser.add_argument("--days", type=int, default=180)
@@ -480,7 +522,7 @@ def _validate_args(args: argparse.Namespace) -> None:
 def run(args: argparse.Namespace) -> int:
     _validate_args(args)
     now = datetime.now(timezone.utc)
-    history_days = args.days + 90 + 60  # 90d warm-up + evaluation + independent validation
+    history_days = args.days + 90 + VALIDATION_WINDOW_DAYS * VALIDATION_WINDOW_COUNT + 3  # warm-up + evaluation + validation + margin
     universe = active_usdt_universe(public_json("/api/v3/exchangeInfo"))
     ticker = ticker_snapshots(
         universe, public_json("/api/v3/ticker/24hr"), public_json("/api/v3/ticker/bookTicker")
@@ -491,14 +533,13 @@ def run(args: argparse.Namespace) -> int:
     adapter = BinanceMetadataBackedAdapter(metadata=metadata)
     btc_items = fetch_history(adapter, "BTCUSDT", history_days, now)
     bars = args.days * 6
-    warmup_bars, validation_bars = 90 * 6, 60 * 6
-    required_bars = warmup_bars + bars + validation_bars
-    if len(btc_items) < required_bars:
-        raise ProductV2Error(f"BTC history insufficient for warm-up/evaluation/validation: requested at least {required_bars}, received {len(btc_items)}")
+    warmup_bars, validation_bars = 90 * 6, VALIDATION_WINDOW_DAYS * 6
+    validation_bounds = validation_window_bounds(len(btc_items), warmup_bars, bars, validation_bars)
+    required_bars = warmup_bars + bars + VALIDATION_WINDOW_COUNT * validation_bars + 1
     evaluation_start = btc_items[warmup_bars].payload.start
     evaluation_end = btc_items[warmup_bars + bars].payload.start
-    validation_start = btc_items[warmup_bars + bars].payload.start
-    validation_end = btc_items[warmup_bars + bars + validation_bars].payload.start
+    validation_start = btc_items[validation_bounds[0][0]].payload.start
+    validation_end = btc_items[validation_bounds[0][1]].payload.start
     btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction, evaluation_start=evaluation_start, evaluation_end=evaluation_end)
     btc_returns = return_series(btc_items)
     btc_last_closed = btc_items[-1]
@@ -512,11 +553,11 @@ def run(args: argparse.Namespace) -> int:
     btc_hold = buy_hold_net_return(btc_items[warmup_bars:warmup_bars + bars], args.fee_rate, args.spread_bps, args.slippage_bps)
 
     print("BOT-CRIPTO PRODUCT V2 — PUBLIC BINANCE SPOT")
-    print(f"Observation UTC: {now.isoformat()}; timeframe=4h; history={history_days} days; warm-up=90d; evaluation={args.days}d; independent validation=60d")
+    print(f"Observation UTC: {now.isoformat()}; timeframe=4h; history={history_days} days; warm-up=90d; evaluation={args.days}d; walk-forward validation=3x60d")
     print(f"BTC panel: regime={regime}; last closed 4h close={btc_last_closed_close} USDT at {btc_last_closed.payload.end.isoformat()}; EMA{args.fast_ema_period}={btc_latest_values['fast_ema']}; EMA{args.slow_ema_period}={btc_latest_values['slow_ema']}; RSI{args.rsi_period}={btc_latest_values['rsi']}")
     print(f"BTC spot ticker (separate snapshot, not regime input): price={ticker['BTCUSDT'].price} USDT; observed UTC={now.isoformat()}")
     print(f"BTC relationship thresholds (research defaults, not validated): corr30d>={args.min_btc_corr_30d}; corr90d>={args.min_btc_corr_90d}")
-    print(f"BTC evaluation bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}; independent validation={validation_start.isoformat()} .. {btc_items[warmup_bars + bars + validation_bars - 1].payload.start.isoformat()}")
+    print(f"BTC evaluation bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}; independent walk-forward validation=3x60d; windows={'; '.join(f'{btc_items[a].payload.start.isoformat()}..{btc_items[b-1].payload.start.isoformat()}' for a, b in validation_bounds)}")
     print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
     print(f"BTC buy-and-hold net reference after fee/spread/slippage assumptions={btc_hold}%; cash reference=0%")
     print(f"ARS budget={args.initial_ars}; conversion=CONVERSION_UNKNOWN; ARS-to-USDT route is unverified; the filtered USDT Spot universe is not an exhaustive fiat/P2P conversion search")
@@ -563,6 +604,7 @@ def run(args: argparse.Namespace) -> int:
     btc_by_start = {item.payload.start: item for item in btc_items}
     rows = []
     normalized_rows: list[tuple[Decimal, str, bool | None, str, BacktestResult, BacktestResult]] = []
+    validation_rows: list[dict[str, Any]] = []
     normalized_budgets = (D("100"), D("250"), D("500"))
     for symbol, tick in candidates:
         try:
@@ -574,8 +616,8 @@ def run(args: argparse.Namespace) -> int:
                 excluded.append((symbol, "BTC_HISTORY_NOT_TEMPORALLY_ALIGNED"))
                 continue
             asset_returns = return_series(items)
-            c30, _ = correlation_beta(asset_returns, btc_returns, 30 * 6 - 1)
-            c90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6 - 1)
+            c30, _ = correlation_beta(asset_returns, btc_returns, 30 * 6)
+            c90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6)
             relative, btc30 = return_pct(items, 30 * 6), return_pct(btc_items, 30 * 6)
             relative_strength = relative - btc30 if relative is not None and btc30 is not None else None
             gate = historical_btc_entry_admission(items, btc_items,
@@ -593,6 +635,31 @@ def run(args: argparse.Namespace) -> int:
                 evaluation_start=validation_start, evaluation_end=validation_end)
             integrated_oos = backtest(symbol, items, validation_bars, universe[symbol].filters, **common,
                 evaluation_start=validation_start, evaluation_end=validation_end, entry_admission=gate)
+            # Three non-overlapping validation windows, fixed parameters, independent balances.
+            for window_no, (start_i, end_i) in enumerate(validation_bounds, start=1):
+                start_at, end_at = btc_items[start_i].payload.start, btc_items[end_i].payload.start
+                asset_window, btc_window = items[start_i:end_i], btc_items[start_i:end_i]
+                if len(asset_window) != validation_bars or len(btc_window) != validation_bars:
+                    raise ProductV2Error(f"validation window {window_no} has insufficient closed bars")
+                for cost_name, cost_fee, cost_spread, cost_slip in VALIDATION_COST_SCENARIOS:
+                    kw = dict(fee_rate=cost_fee, spread_bps=cost_spread, slippage_bps=cost_slip,
+                        fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period,
+                        rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min,
+                        rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
+                    baseline_v = backtest(symbol, items, validation_bars, universe[symbol].filters, **kw,
+                        evaluation_start=start_at, evaluation_end=end_at)
+                    integrated_v = backtest(symbol, items, validation_bars, universe[symbol].filters, **kw,
+                        evaluation_start=start_at, evaluation_end=end_at, entry_admission=gate)
+                    br = (baseline_v.final_equity / baseline_v.config.initial_quote_balance - ONE) * D("100")
+                    ir = (integrated_v.final_equity / integrated_v.config.initial_quote_balance - ONE) * D("100")
+                    bh, bhdd = buy_hold_metrics(btc_window, cost_fee, cost_spread, cost_slip)
+                    validation_rows.append(dict(symbol=symbol, window=window_no, start=start_at,
+                        end=btc_items[end_i-1].payload.start, cost=cost_name, fee=cost_fee,
+                        spread=cost_spread, slip=cost_slip, baseline=baseline_v, integrated=integrated_v,
+                        baseline_return=br, integrated_return=ir, btc_return=bh, btc_dd=bhdd,
+                        baseline_entries=sum(f.side=="BUY" for f in baseline_v.fills),
+                        integrated_entries=sum(f.side=="BUY" for f in integrated_v.fills),
+                        rejections=len(integrated_v.entry_rejections)))
             for normalized_budget in normalized_budgets:
                 affordable, affordability_reason = normalized_affordability(
                     tick.price, universe[symbol].filters, normalized_budget,
@@ -642,9 +709,16 @@ def run(args: argparse.Namespace) -> int:
         print(f"  Benchmark: cash=0%; BTC buy-and-hold net={btc_hold}% over the same 180d evaluation")
         print(f"  INDEPENDENT VALIDATION 60d: baseline return={oos_ret}%; DD={oos.max_drawdown * D('100')}%; integrated return={integrated_oos_ret}%; DD={integrated_oos.max_drawdown * D('100')}%; integrated entries={sum(f.side == 'BUY' for f in integrated_oos.fills)}; BTC rejections={len(integrated_oos.entry_rejections)}; BTC buy-and-hold net={buy_hold_net_return(btc_items[warmup_bars + bars:warmup_bars + bars + validation_bars], args.fee_rate, args.spread_bps, args.slippage_bps)}%; cash=0%")
         print(f"  research filter={'PASS' if not reasons else 'REJECT'}; reasons={','.join(reasons) if reasons else 'none'}")
+    print("\\nWALK-FORWARD VALIDATION — THREE CONSECUTIVE 60-DAY WINDOWS")
+    print("Parameters fixed before validation; no tuning on validation outcomes. Spreads are modeled assumptions, not observed history.")
+    for v in validation_rows:
+        b, i = v["baseline"], v["integrated"]
+        print(f"VALIDATION window={v['window']} symbol={v['symbol']} range={v['start'].isoformat()}..{v['end'].isoformat()} cost={v['cost']} fee/fill={v['fee']} assumed_full_spread_bps={v['spread']} slippage/fill_bps={v['slip']} | baseline_return={v['baseline_return']}% baseline_drawdown={b.max_drawdown*D('100')}% baseline_entries={v['baseline_entries']} | integrated_return={v['integrated_return']}% integrated_drawdown={i.max_drawdown*D('100')}% integrated_entries={v['integrated_entries']} regime/correlation/data_rejections={v['rejections']} | cash_return=0% cash_drawdown=0% BTC_buy_hold_return={v['btc_return']}% BTC_buy_hold_drawdown={v['btc_dd']}%")
+    print(f"Walk-forward rows={len(validation_rows)}; maximum expected={len(candidates)*VALIDATION_WINDOW_COUNT*len(VALIDATION_COST_SCENARIOS)}.")
+
     print(f"Research candidates passing current-snapshot non-budget controls: {sum(1 for row in rows if not row[15])}")
     print("Comparison: BASELINE EMA/RSI is ungated reference; INTEGRATED BTC-GATED applies historical regime/correlation admission at each entry. Exits are never blocked by entry filters.")
-    print("Split: 90d warm-up; 180d evaluation; final independent 60d validation with fixed parameters; validation is not used for fitting.")
+    print("Split: 90d warm-up; 180d evaluation; three consecutive independent 60d validation windows with fixed parameters; validation is never used for fitting.")
     print("\nNORMALIZED USDT CAPITAL SENSITIVITY — NOT ARS CONVERSION")
     print("The 100/250/500 USDT budgets are hypothetical computational scenarios only; no exchange rate or ARS affordability is implied.")
     print("Hypothetical USDT | Candidate | BTC relationship controls | Affordable at current snapshot | Affordability reason | Virtual BUY entries | Round-trip break-even | Net return | Max drawdown | Fees USDT | Decision")

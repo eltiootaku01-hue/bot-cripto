@@ -459,3 +459,32 @@ def test_historical_btc_gate_rejects_partial_marketdata_envelope_fail_closed(mon
     allowed, detail = gate(600, ())
     assert allowed is False
     assert "BTC_METRICS_INSUFFICIENT" in detail
+
+
+
+def test_walk_forward_windows_require_final_boundary_and_are_consecutive():
+    from bot_obrero.product_v2 import validation_window_bounds
+    warmup, evaluation, window = 90*6, 180*6, 60*6
+    exact = warmup + evaluation + 3*window + 1
+    bounds = validation_window_bounds(exact, warmup, evaluation, window)
+    assert bounds == ((1620, 1980), (1980, 2340), (2340, 2700))
+    assert all(end-start == window for start, end in bounds)
+    with pytest.raises(ProductV2Error, match="history insufficient"):
+        validation_window_bounds(exact-1, warmup, evaluation, window)
+    assert validation_window_bounds(exact+1, warmup, evaluation, window) == bounds
+
+
+def test_walk_forward_cost_scenarios_match_requested_assumptions():
+    from bot_obrero.product_v2 import VALIDATION_COST_SCENARIOS
+    assert VALIDATION_COST_SCENARIOS == (
+        ("BASE", Decimal("0.001"), Decimal("10"), Decimal("5")),
+        ("STRESS_1_FEE_0.1_SPREAD_25_SLIP_10", Decimal("0.001"), Decimal("25"), Decimal("10")),
+        ("STRESS_2_FEE_0.2_SPREAD_50_SLIP_20", Decimal("0.002"), Decimal("50"), Decimal("20")),
+    )
+
+
+def test_buy_hold_benchmark_reports_net_return_and_drawdown_under_costs():
+    from bot_obrero.product_v2 import buy_hold_metrics
+    ret, dd = buy_hold_metrics(_series(["100", "120", "90", "110"]), Decimal("0.001"), Decimal("10"), Decimal("5"))
+    assert ret < Decimal("10")
+    assert dd < 0

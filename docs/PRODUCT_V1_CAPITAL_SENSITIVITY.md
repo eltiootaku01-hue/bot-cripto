@@ -96,3 +96,19 @@ La variante integrada evalúa el régimen BTC y las correlaciones de 30/90 días
 La admisión se aplica únicamente a nuevas entradas. Una posición ya abierta conserva las reglas EMA/RSI de salida aunque el régimen BTC deje de ser alcista. El baseline EMA/RSI sin filtros y el backtest integrado se calculan por separado y no se combinan sus fills ni sus métricas. Los tests deterministas comprueban también que una candidata bloqueada puede diferir del baseline; la diferencia medida no implica que el filtro mejore la rentabilidad.
 
 La validación independiente permanece fija en 60 días después de los 180 días de evaluación y no se utiliza para ajustar parámetros. El presupuesto ARS permanece `CONVERSION_UNKNOWN`; las simulaciones de 100/250/500 USDT son escenarios ficticios separados.
+
+
+
+## Product V2 — three-window walk-forward validation and cost stress
+
+The study requests approximately 453 days of closed 4-hour history: 90 days warm-up, 180 days evaluation, three consecutive 60-day validation windows, and acquisition/alignment margin. The final end-boundary candle is required explicitly; insufficient history is an error rather than a shortened test.
+
+Each held-out window starts with an independent fictitious balance. EMA/RSI baseline and BTC-regime/correlation-integrated strategy use the same frozen parameters; validation results never feed parameter selection. The report prints net return, drawdown, entries, BTC admission rejections, cash benchmark, and BTC buy-and-hold return/drawdown for every window and cost scenario.
+
+| Scenario | Fee per fill | Assumed full spread | Slippage per fill |
+|---|---:|---:|---:|
+| Base | 0.1% | 10 bps | 5 bps |
+| Stress 1 | 0.1% | 25 bps | 10 bps |
+| Stress 2 | 0.2% | 50 bps | 20 bps |
+
+The same cost scenario is applied to baseline, integrated strategy and BTC benchmark. Cash return/drawdown is 0% by definition. Spreads are modeled assumptions, not observed historical costs. This report does not prove profitability or suitability for real money. Exact outcome claims must be added only after completed GitHub Actions evidence for the exact SHA.
