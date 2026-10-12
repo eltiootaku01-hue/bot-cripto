@@ -4,11 +4,11 @@
 
 La ruta completa de conversión, la cotización ejecutable, la fuente/fecha de una conversión ARS→USDT y sus costes no están verificados. Por eso, los escenarios A/B/C permanecen en `CONVERSION_UNKNOWN` y no se inventan saldos disponibles.
 
-| Capital nominal ARS | Conversión verificada | USDT netos | Candidatas asequibles en ARS | Coste operación completa en ARS | Retorno neto atribuible al capital ARS | Drawdown atribuible | Decisión |
+| Capital ARS | Conversión verificada | USDT netos | Candidatas que pasan filtros de mercado | Candidatas asequibles en ARS | Coste operación completa ARS / % capital | Retorno mínimo de equilibrio | Retorno neto histórico atribuible al capital ARS | Drawdown atribuible | Decisión |
 |---:|---|---|---|---|---|---|---|
-| 10.000 | CONVERSION_UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_COMPUTABLE | NOT_COMPUTABLE | NO_TRADE |
-| 25.000 | CONVERSION_UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_COMPUTABLE | NOT_COMPUTABLE | NO_TRADE |
-| 50.000 | CONVERSION_UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_COMPUTABLE | NOT_COMPUTABLE | NO_TRADE |
+| 10.000 | CONVERSION_UNKNOWN | UNKNOWN | UNKNOWN (depende del snapshot del informe) | UNKNOWN | UNKNOWN / UNKNOWN | UNKNOWN | NOT_COMPUTABLE | NOT_COMPUTABLE | NO_TRADE |
+| 25.000 | CONVERSION_UNKNOWN | UNKNOWN | UNKNOWN (depende del snapshot del informe) | UNKNOWN | UNKNOWN / UNKNOWN | UNKNOWN | NOT_COMPUTABLE | NOT_COMPUTABLE | NO_TRADE |
+| 50.000 | CONVERSION_UNKNOWN | UNKNOWN | UNKNOWN (depende del snapshot del informe) | UNKNOWN | UNKNOWN / UNKNOWN | UNKNOWN | NOT_COMPUTABLE | NOT_COMPUTABLE | NO_TRADE |
 
 Los costes de conversión, reserva de comisiones, máximo utilizable y capital sin invertir también son `UNKNOWN`. El sistema no convierte ARS en USDT usando una tasa inventada.
 
