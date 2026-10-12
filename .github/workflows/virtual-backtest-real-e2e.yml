@@ -51,8 +51,10 @@ jobs:
       - name: Run Product V2 against real public Binance Spot data
         shell: bash
         run: |
-          set -o pipefail
-          python -m bot_obrero.product_v2 --days 180 --universe-limit 5 --initial-ars 50000 --hypothetical-usdt-balance 31 2>&1 | tee product-v2-report.txt
+          set -euo pipefail
+          python -m bot_obrero.product_v2 --days 180 --universe-limit 5 --initial-ars 50000 --hypothetical-usdt-balance 31 > product-v2-report.txt 2>&1
+          # Keep the full daily series in the uploaded report, not thousands of job-log lines.
+          grep -E '^(BTC panel:|Capital reference:|Hypothetical simulation balance:|DAILY_SUMMARY|DAILY_PROFITABILITY_CLASSIFICATION|FINAL DECISION:|Budget gate:)' product-v2-report.txt
       - name: Assert Product V2 report discloses market and capital state
         shell: bash
         run: |

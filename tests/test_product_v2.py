@@ -518,18 +518,18 @@ def test_daily_equity_metrics_separate_equity_change_realized_unrealized_and_cos
     day1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
     day2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
     points = (
-        EquityPoint(day1 + timedelta(hours=4), Decimal("1000"), Decimal("989.9"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=8), Decimal("1005"), Decimal("989.9"), Decimal("1"), Decimal("1005"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=12), Decimal("1010"), Decimal("989.9"), Decimal("1"), Decimal("1010"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=16), Decimal("1008"), Decimal("989.9"), Decimal("1"), Decimal("1008"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=20), Decimal("1012"), Decimal("989.9"), Decimal("1"), Decimal("1012"), Decimal("0")),
-        EquityPoint(day2, Decimal("1015"), Decimal("989.9"), Decimal("1"), Decimal("1015"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=4), Decimal("1010"), Decimal("990"), Decimal("1"), Decimal("1010"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=8), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=12), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=16), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=20), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(days=1), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=4), Decimal("10"), Decimal("989.9"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=8), Decimal("10.05"), Decimal("989.9"), Decimal("1"), Decimal("1005"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=12), Decimal("10.10"), Decimal("989.9"), Decimal("1"), Decimal("1010"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=16), Decimal("10.08"), Decimal("989.9"), Decimal("1"), Decimal("1008"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=20), Decimal("10.12"), Decimal("989.9"), Decimal("1"), Decimal("1012"), Decimal("0")),
+        EquityPoint(day2, Decimal("10.15"), Decimal("989.9"), Decimal("1"), Decimal("1015"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=4), Decimal("10.10"), Decimal("990"), Decimal("1"), Decimal("1010"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=8), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=12), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=16), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=20), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(days=1), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
     )
     fills = (
         VirtualFill(day1 + timedelta(hours=1), "BUY", Decimal("1"), Decimal("10"), Decimal("0.1"), Decimal("989.9"), "entry"),
@@ -579,3 +579,40 @@ def test_daily_equity_metrics_marks_partial_days_and_uses_prior_close_reference(
     assert rows[0]["return_pct"] == Decimal("20")
     assert summary["partial_days"] == 1
     assert summary["no_trade_days"] == 1
+
+
+
+def test_daily_metrics_exclude_partial_days_from_complete_day_distribution_and_verify_timestamps():
+    from bot_obrero.virtual_backtest import EquityPoint
+    start = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    full_closes = [start + timedelta(hours=4 * i) for i in range(1, 6)] + [start + timedelta(days=1)]
+    points = tuple(EquityPoint(ts, Decimal("10"), Decimal("100"), Decimal("0"), Decimal("100"), Decimal("0")) for ts in full_closes) + (
+        EquityPoint(start + timedelta(days=1, hours=4), Decimal("10"), Decimal("200"), Decimal("0"), Decimal("200"), Decimal("0")),
+        EquityPoint(start + timedelta(days=1, hours=8), Decimal("10"), Decimal("300"), Decimal("0"), Decimal("300"), Decimal("0")),
+    )
+    result = SimpleNamespace(equity_curve=points, fills=(), entry_rejections=(), config=SimpleNamespace(initial_quote_balance=Decimal("100")))
+    rows, summary = daily_equity_metrics(result)
+    assert [row["day_status"] for row in rows] == ["FULL_UTC_DAY", "PARTIAL_UTC_DAY"]
+    assert rows[1]["bars"] == 2 and rows[1]["net_change"] == Decimal("200")
+    assert summary["complete_days"] == 1 and summary["partial_days"] == 1
+    assert summary["daily_mean_usdt"] == Decimal("0") and summary["daily_median_usdt"] == Decimal("0")
+    assert summary["positive_days"] == 0 and summary["negative_days"] == 0
+    assert summary["full_days_without_fills"] == 1 and summary["days_without_fills"] == 2
+
+
+def test_daily_metrics_marks_unreconstructable_open_position_cost_basis_unknown():
+    from bot_obrero.virtual_backtest import EquityPoint
+    timestamp = datetime(2026, 4, 1, 4, tzinfo=timezone.utc)
+    result = SimpleNamespace(equity_curve=(EquityPoint(timestamp, Decimal("12"), Decimal("2"), Decimal("1"), Decimal("12"), Decimal("0")),), fills=(), entry_rejections=(), config=SimpleNamespace(initial_quote_balance=Decimal("10")))
+    rows, summary = daily_equity_metrics(result)
+    assert rows[0]["unrealized_pnl"] is None and summary["final_unrealized_pnl"] is None
+
+
+def test_daily_profitability_classification_requires_consistent_full_period_and_walk_forward():
+    from bot_obrero.product_v2 import daily_profitability_status
+    positive = {"complete_days": 180, "net_pnl": Decimal("10"), "daily_mean_usdt": Decimal("1"), "daily_median_usdt": Decimal("0.5"), "positive_days": 120, "negative_days": 50}
+    good_window = {"complete_days": 60, "net_pnl": Decimal("2"), "daily_mean_usdt": Decimal("0.1"), "daily_median_usdt": Decimal("0.05"), "positive_days": 40, "negative_days": 15}
+    assert daily_profitability_status(positive, [good_window, good_window, good_window]) == "DAILY_NET_PROFITABILITY_POSITIVE"
+    assert daily_profitability_status(positive, [good_window, good_window, {**good_window, "net_pnl": Decimal("-1")}]) == "DAILY_NET_PROFITABILITY_NOT_DEMONSTRATED"
+    negative = {**positive, "net_pnl": Decimal("-10"), "daily_mean_usdt": Decimal("-1")}
+    assert daily_profitability_status(negative, [good_window, good_window, good_window]) == "DAILY_NET_PROFITABILITY_NEGATIVE"

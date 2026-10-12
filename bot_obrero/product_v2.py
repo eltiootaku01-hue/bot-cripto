@@ -266,12 +266,11 @@ def modeled_round_trip_breakeven_pct(
 
 
 def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Derive UTC daily accounting metrics from the single virtual backtest ledger.
+    """Derive UTC daily metrics from the existing virtual accounting ledger.
 
-    Equity points are timestamped at candle end (exclusive); an exact UTC
-    midnight close belongs to the preceding UTC day. Daily return uses the
-    prior UTC-day closing equity, with initial fictitious capital as the
-    reference for the first observed day. Product V2 uses 4-hour bars.
+    A full 4-hour UTC day must contain the exact six expected candle-end
+    timestamps (04:00, 08:00, 12:00, 16:00, 20:00, next midnight). Partial
+    days remain visible but are excluded from complete-day distribution stats.
     """
     points = tuple(result.equity_curve)
     if not points:
@@ -280,17 +279,15 @@ def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], 
         raise ProductV2Error("daily audit requires timezone-aware equity timestamps")
     if any(points[i].timestamp > points[i + 1].timestamp for i in range(len(points) - 1)):
         raise ProductV2Error("daily audit requires chronological equity points")
-
     fills = tuple(sorted(result.fills, key=lambda fill: fill.timestamp))
     if any(fill.timestamp.tzinfo is None or fill.timestamp.utcoffset() is None for fill in fills):
         raise ProductV2Error("daily audit requires timezone-aware fill timestamps")
     fill_index = 0
-    open_entry_cost = ZERO
+    open_entry_cost: Decimal | None = None
     grouped: dict[Any, dict[str, Any]] = {}
     fills_by_day: dict[Any, list[Any]] = {}
     for fill in fills:
         fills_by_day.setdefault(fill.timestamp.astimezone(timezone.utc).date(), []).append(fill)
-
     for point in points:
         while fill_index < len(fills) and fills[fill_index].timestamp <= point.timestamp:
             fill = fills[fill_index]
@@ -300,7 +297,7 @@ def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], 
                 open_entry_cost = ZERO
             fill_index += 1
         close_day = (point.timestamp.astimezone(timezone.utc) - timedelta(microseconds=1)).date()
-        grouped.setdefault(close_day, {"points": [], "closing_entry_cost": ZERO})
+        grouped.setdefault(close_day, {"points": [], "closing_entry_cost": None})
         grouped[close_day]["points"].append(point)
         grouped[close_day]["closing_entry_cost"] = open_entry_cost
 
@@ -309,130 +306,162 @@ def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], 
     daily_drawdown_peak = reference_equity
     max_daily_drawdown = ZERO
     losing_streak = current_losing_streak = 0
-    changes: list[Decimal] = []
-    returns: list[Decimal] = []
+    complete_changes: list[Decimal] = []
+    complete_returns: list[Decimal] = []
     positive: list[Decimal] = []
     negative: list[Decimal] = []
-    flat_days = no_trade_days = 0
-
+    flat_days = no_trade_days = full_day_no_trade_days = 0
     for day in sorted(grouped):
         day_points = grouped[day]["points"]
         close_point = day_points[-1]
         day_fills = fills_by_day.get(day, [])
-        realized = sum((fill.realized_pnl if fill.realized_pnl is not None else ZERO
-                        for fill in day_fills if fill.side == "SELL"), ZERO)
+        sell_fills = [fill for fill in day_fills if fill.side == "SELL"]
+        realized = None if any(fill.realized_pnl is None for fill in sell_fills) else sum(
+            (fill.realized_pnl for fill in sell_fills), ZERO
+        )
         fees = sum((fill.fee for fill in day_fills), ZERO)
         buys = sum(1 for fill in day_fills if fill.side == "BUY")
-        sells = sum(1 for fill in day_fills if fill.side == "SELL")
+        sells = len(sell_fills)
         change = close_point.equity - reference_equity
-        daily_return = change / reference_equity * D("100") if reference_equity > ZERO else ZERO
-        unrealized = (
-            close_point.base_position * close_point.close - grouped[day]["closing_entry_cost"]
-            if close_point.base_position > ZERO else ZERO
-        )
+        daily_return = change / reference_equity * D("100") if reference_equity > ZERO else None
+        entry_cost = grouped[day]["closing_entry_cost"]
+        if close_point.base_position <= ZERO:
+            unrealized = ZERO
+        elif entry_cost is None:
+            unrealized = None
+        else:
+            unrealized = close_point.base_position * close_point.close - entry_cost
         daily_drawdown_peak = max(daily_drawdown_peak, close_point.equity)
         drawdown = close_point.equity / daily_drawdown_peak - ONE if daily_drawdown_peak > ZERO else ZERO
         max_daily_drawdown = min(max_daily_drawdown, drawdown)
-        changes.append(change)
-        returns.append(daily_return)
-        if change > ZERO:
-            positive.append(change)
-            current_losing_streak = 0
-        elif change < ZERO:
-            negative.append(change)
-            current_losing_streak += 1
-            losing_streak = max(losing_streak, current_losing_streak)
-        else:
-            flat_days += 1
-            current_losing_streak = 0
+        utc_closes = tuple(point.timestamp.astimezone(timezone.utc) for point in day_points)
+        day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+        expected_closes = tuple(day_start + timedelta(hours=4 * index) for index in range(1, 6)) + (
+            day_start + timedelta(days=1),
+        )
+        is_full_day = utc_closes == expected_closes
+        if is_full_day:
+            complete_changes.append(change)
+            if daily_return is not None:
+                complete_returns.append(daily_return)
+            if change > ZERO:
+                positive.append(change)
+                current_losing_streak = 0
+            elif change < ZERO:
+                negative.append(change)
+                current_losing_streak += 1
+                losing_streak = max(losing_streak, current_losing_streak)
+            else:
+                flat_days += 1
+                current_losing_streak = 0
         if not day_fills:
             no_trade_days += 1
+            if is_full_day:
+                full_day_no_trade_days += 1
         rows.append({
             "day_utc": day.isoformat(),
-            "day_status": "FULL_UTC_DAY" if len(day_points) == 6 else "PARTIAL_UTC_DAY",
-            "bars": len(day_points),
-            "equity_close": close_point.equity,
-            "net_change": change,
-            "return_pct": daily_return,
-            "realized_pnl": realized,
-            "unrealized_pnl": unrealized,
-            "fees": fees,
-            "buys": buys,
-            "sells": sells,
-            "fills": len(day_fills),
-            "no_trade": not day_fills,
-            "daily_drawdown": drawdown,
+            "day_status": "FULL_UTC_DAY" if is_full_day else "PARTIAL_UTC_DAY",
+            "bars": len(day_points), "equity_close": close_point.equity,
+            "net_change": change, "return_pct": daily_return, "realized_pnl": realized,
+            "unrealized_pnl": unrealized, "fees": fees, "buys": buys, "sells": sells,
+            "fills": len(day_fills), "no_trade": not day_fills, "daily_drawdown": drawdown,
         })
         reference_equity = close_point.equity
 
-    def median(values: list[Decimal]) -> Decimal:
+    def median(values: list[Decimal]) -> Decimal | None:
         ordered = sorted(values)
         n = len(ordered)
         if not n:
-            return ZERO
+            return None
         middle = n // 2
         return ordered[middle] if n % 2 else (ordered[middle - 1] + ordered[middle]) / D("2")
 
+    full_days = sum(row["day_status"] == "FULL_UTC_DAY" for row in rows)
+    full_days_with_fills = sum(row["day_status"] == "FULL_UTC_DAY" and row["fills"] > 0 for row in rows)
+    fill_day_changes = [row["net_change"] for row in rows if row["day_status"] == "FULL_UTC_DAY" and row["fills"] > 0]
     summary = {
-        "days": len(rows),
+        "days": len(rows), "complete_days": full_days, "partial_days": len(rows) - full_days,
         "net_pnl": points[-1].equity - result.config.initial_quote_balance,
-        "daily_mean_usdt": sum(changes, ZERO) / D(len(changes)),
-        "daily_median_usdt": median(changes),
-        "daily_mean_return_pct": sum(returns, ZERO) / D(len(returns)),
-        "daily_median_return_pct": median(returns),
-        "positive_days": len(positive),
-        "negative_days": len(negative),
-        "flat_days": flat_days,
-        "positive_day_pct": D(len(positive)) / D(len(rows)) * D("100"),
-        "negative_day_pct": D(len(negative)) / D(len(rows)) * D("100"),
-        "flat_day_pct": D(flat_days) / D(len(rows)) * D("100"),
-        "no_trade_days": no_trade_days,
-        "average_positive_day_usdt": sum(positive, ZERO) / D(len(positive)) if positive else ZERO,
-        "average_negative_day_usdt": sum(negative, ZERO) / D(len(negative)) if negative else ZERO,
-        "best_day_usdt": max(changes),
-        "worst_day_usdt": min(changes),
+        "daily_mean_usdt": sum(complete_changes, ZERO) / D(len(complete_changes)) if complete_changes else None,
+        "daily_median_usdt": median(complete_changes),
+        "daily_mean_return_pct": sum(complete_returns, ZERO) / D(len(complete_returns)) if complete_returns else None,
+        "daily_median_return_pct": median(complete_returns),
+        "positive_days": len(positive), "negative_days": len(negative), "flat_days": flat_days,
+        "positive_day_pct": D(len(positive)) / D(full_days) * D("100") if full_days else None,
+        "negative_day_pct": D(len(negative)) / D(full_days) * D("100") if full_days else None,
+        "flat_day_pct": D(flat_days) / D(full_days) * D("100") if full_days else None,
+        "no_trade_days": no_trade_days, "days_with_fills": sum(row["fills"] > 0 for row in rows),
+        "days_without_fills": no_trade_days, "full_days_with_fills": full_days_with_fills,
+        "full_days_without_fills": full_day_no_trade_days,
+        "average_daily_usdt_on_fill_days": sum(fill_day_changes, ZERO) / D(len(fill_day_changes)) if fill_day_changes else None,
+        "average_positive_day_usdt": sum(positive, ZERO) / D(len(positive)) if positive else None,
+        "average_negative_day_usdt": sum(negative, ZERO) / D(len(negative)) if negative else None,
+        "best_day_usdt": max(complete_changes) if complete_changes else None,
+        "worst_day_usdt": min(complete_changes) if complete_changes else None,
         "max_consecutive_losing_days": losing_streak,
         "max_daily_close_drawdown_pct": max_daily_drawdown * D("100"),
         "fees": sum((row["fees"] for row in rows), ZERO),
-        "realized_pnl": sum((row["realized_pnl"] for row in rows), ZERO),
+        "realized_pnl": None if any(row["realized_pnl"] is None for row in rows) else sum((row["realized_pnl"] for row in rows), ZERO),
         "final_unrealized_pnl": rows[-1]["unrealized_pnl"],
-        "buys": sum(row["buys"] for row in rows),
-        "sells": sum(row["sells"] for row in rows),
-        "fills": sum(row["fills"] for row in rows),
-        "partial_days": sum(row["day_status"] == "PARTIAL_UTC_DAY" for row in rows),
+        "buys": sum(row["buys"] for row in rows), "sells": sum(row["sells"] for row in rows),
+        "closed_trades": sum(row["sells"] for row in rows), "fills": sum(row["fills"] for row in rows),
         "rejection_reasons": tuple(result.entry_rejections),
     }
     return rows, summary
+
+
+def daily_profitability_status(
+    evaluation_summary: Mapping[str, Any], validation_summaries: Sequence[Mapping[str, Any]]
+) -> str:
+    """Conservative historical label using full-period and all walk-forward windows."""
+    if evaluation_summary.get("complete_days", 0) <= 0 or evaluation_summary.get("daily_mean_usdt") is None:
+        return "DAILY_NET_PROFITABILITY_NOT_DEMONSTRATED"
+    if evaluation_summary["net_pnl"] < ZERO and evaluation_summary["daily_mean_usdt"] < ZERO:
+        return "DAILY_NET_PROFITABILITY_NEGATIVE"
+    eval_positive = (
+        evaluation_summary["net_pnl"] > ZERO and evaluation_summary["daily_mean_usdt"] > ZERO
+        and evaluation_summary["daily_median_usdt"] is not None and evaluation_summary["daily_median_usdt"] > ZERO
+        and evaluation_summary["positive_days"] > evaluation_summary["negative_days"]
+    )
+    if eval_positive and len(validation_summaries) == VALIDATION_WINDOW_COUNT and all(
+        summary.get("complete_days", 0) > 0 and summary.get("net_pnl", ZERO) > ZERO
+        and summary.get("daily_mean_usdt") is not None and summary["daily_mean_usdt"] > ZERO
+        and summary.get("daily_median_usdt") is not None and summary["daily_median_usdt"] > ZERO
+        and summary.get("positive_days", 0) > summary.get("negative_days", 0)
+        for summary in validation_summaries
+    ):
+        return "DAILY_NET_PROFITABILITY_POSITIVE"
+    return "DAILY_NET_PROFITABILITY_NOT_DEMONSTRATED"
 
 
 def _print_daily_equity_audit(scope: str, symbol: str, cost: str, strategy: str, result: BacktestResult) -> None:
     rows, summary = daily_equity_metrics(result)
     print(
         f"DAILY_SUMMARY scope={scope} symbol={symbol} cost={cost} strategy={strategy} "
-        f"days={summary['days']} net_pnl_usdt={summary['net_pnl']} "
-        f"mean_daily_usdt={summary['daily_mean_usdt']} median_daily_usdt={summary['daily_median_usdt']} "
-        f"mean_daily_return_pct={summary['daily_mean_return_pct']} median_daily_return_pct={summary['daily_median_return_pct']} "
+        f"initial_usdt={result.config.initial_quote_balance} final_equity_usdt={result.final_equity} "
+        f"net_pnl_usdt={summary['net_pnl']} complete_days={summary['complete_days']} partial_days={summary['partial_days']} "
+        f"mean_daily_complete_usdt={summary['daily_mean_usdt']} median_daily_complete_usdt={summary['daily_median_usdt']} "
+        f"mean_daily_complete_return_pct={summary['daily_mean_return_pct']} median_daily_complete_return_pct={summary['daily_median_return_pct']} "
         f"positive_days={summary['positive_days']} ({summary['positive_day_pct']}%) "
         f"negative_days={summary['negative_days']} ({summary['negative_day_pct']}%) "
-        f"flat_days={summary['flat_days']} ({summary['flat_day_pct']}%) no_trade_days={summary['no_trade_days']} "
-        f"avg_positive_day_usdt={summary['average_positive_day_usdt']} "
-        f"avg_negative_day_usdt={summary['average_negative_day_usdt']} "
+        f"flat_days={summary['flat_days']} ({summary['flat_day_pct']}%) "
+        f"days_with_fills={summary['days_with_fills']} days_without_fills={summary['days_without_fills']} "
+        f"full_days_with_fills={summary['full_days_with_fills']} full_days_without_fills={summary['full_days_without_fills']} "
+        f"mean_daily_usdt_on_fill_days={summary['average_daily_usdt_on_fill_days']} "
+        f"avg_positive_day_usdt={summary['average_positive_day_usdt']} avg_negative_day_usdt={summary['average_negative_day_usdt']} "
         f"best_day_usdt={summary['best_day_usdt']} worst_day_usdt={summary['worst_day_usdt']} "
-        f"max_losing_streak={summary['max_consecutive_losing_days']} "
-        f"max_daily_close_drawdown_pct={summary['max_daily_close_drawdown_pct']} "
+        f"max_losing_streak={summary['max_consecutive_losing_days']} max_daily_close_drawdown_pct={summary['max_daily_close_drawdown_pct']} "
         f"realized_pnl_usdt={summary['realized_pnl']} final_unrealized_pnl_usdt={summary['final_unrealized_pnl']} "
-        f"fees_usdt={summary['fees']} buys={summary['buys']} sells={summary['sells']} fills={summary['fills']} "
-        f"partial_days={summary['partial_days']} rejection_reasons=AGGREGATED_NOT_TIMESTAMPED"
+        f"fees_usdt={summary['fees']} buys={summary['buys']} sells={summary['sells']} closed_trades={summary['closed_trades']} fills={summary['fills']} "
+        f"rejection_reasons=AGGREGATED_NOT_TIMESTAMPED"
     )
     for row in rows:
         print(
             f"DAILY_METRIC scope={scope} symbol={symbol} cost={cost} strategy={strategy} "
-            f"day_utc={row['day_utc']} status={row['day_status']} bars={row['bars']} "
-            f"equity_close_usdt={row['equity_close']} net_change_usdt={row['net_change']} "
-            f"return_pct={row['return_pct']} realized_pnl_usdt={row['realized_pnl']} "
-            f"unrealized_pnl_usdt={row['unrealized_pnl']} fees_usdt={row['fees']} "
-            f"buys={row['buys']} sells={row['sells']} fills={row['fills']} no_trade={row['no_trade']} "
-            f"daily_close_drawdown_pct={row['daily_drawdown'] * D('100')} "
+            f"day_utc={row['day_utc']} status={row['day_status']} bars={row['bars']} equity_close_usdt={row['equity_close']} "
+            f"net_change_usdt={row['net_change']} return_pct={row['return_pct']} realized_pnl_usdt={row['realized_pnl']} "
+            f"unrealized_pnl_usdt={row['unrealized_pnl']} fees_usdt={row['fees']} buys={row['buys']} sells={row['sells']} "
+            f"fills={row['fills']} no_trade={row['no_trade']} daily_close_drawdown_pct={row['daily_drawdown'] * D('100')} "
             f"rejection_reasons=NOT_TIMESTAMPED"
         )
     if result.entry_rejections:
@@ -441,6 +470,27 @@ def _print_daily_equity_audit(scope: str, symbol: str, cost: str, strategy: str,
               f"details={' || '.join(result.entry_rejections)}")
 
 
+def _print_daily_profitability_classifications(
+    evaluation_rows: Sequence[Mapping[str, Any]], validation_rows: Sequence[Mapping[str, Any]]
+) -> None:
+    validation_by_key: dict[tuple[str, str, str], list[tuple[int, Mapping[str, Any]]]] = {}
+    for row in validation_rows:
+        validation_by_key.setdefault((row["symbol"], row["cost"], "BASELINE"), []).append((row["window"], row["baseline"]))
+        validation_by_key.setdefault((row["symbol"], row["cost"], "INTEGRATED"), []).append((row["window"], row["integrated"]))
+    for row in evaluation_rows:
+        for strategy, result in (("BASELINE", row["baseline"]), ("INTEGRATED", row["integrated"])):
+            _, evaluation_summary = daily_equity_metrics(result)
+            key = (row["symbol"], row["cost"], strategy)
+            window_summaries = [
+                daily_equity_metrics(window_result)[1]
+                for _, window_result in sorted(validation_by_key.get(key, []), key=lambda item: item[0])
+            ]
+            status = daily_profitability_status(evaluation_summary, window_summaries)
+            print(
+                f"DAILY_PROFITABILITY_CLASSIFICATION symbol={row['symbol']} cost={row['cost']} strategy={strategy} "
+                f"status={status} evaluation_net_pnl_usdt={evaluation_summary['net_pnl']} "
+                f"evaluation_mean_daily_complete_usdt={evaluation_summary['daily_mean_usdt']} validation_windows={len(window_summaries)}"
+            )
 
 def return_pct(items: Sequence[Any], bars: int) -> Decimal | None:
     if len(items) <= bars or items[-bars - 1].payload.close <= 0:
@@ -952,13 +1002,14 @@ def run(args: argparse.Namespace) -> int:
     print("\nDAILY NET PROFITABILITY AUDIT — UTC CLOSE-TO-CLOSE EQUITY")
     print("Formula: daily net change = UTC day-close equity - previous UTC day-close equity; first day reference = initial hypothetical balance.")
     print("Daily return = net change / reference equity * 100. Realized PnL is separate from open-position unrealized PnL.")
-    print("PARTIAL_UTC_DAY means fewer than six 4h closes were present. Rejection reasons by day are UNKNOWN because the engine does not timestamp durable rejection records.")
+    print("PARTIAL_UTC_DAY requires the exact six expected UTC 4h candle-end timestamps; partial days remain visible but are excluded from complete-day distribution metrics. Unknown open-position cost basis is reported as UNKNOWN.")
     for e in evaluation_rows:
         for strategy_name, result in (("BASELINE", e["baseline"]), ("INTEGRATED", e["integrated"])):
             _print_daily_equity_audit("180D_EVALUATION", e["symbol"], e["cost"], strategy_name, result)
     for v in validation_rows:
         for strategy_name, result in (("BASELINE", v["baseline"]), ("INTEGRATED", v["integrated"])):
             _print_daily_equity_audit(f"WALK_FORWARD_60D_{v['window']}", v["symbol"], v["cost"], strategy_name, result)
+    _print_daily_profitability_classifications(evaluation_rows, validation_rows)
 
     print(f"Research candidates passing current-snapshot non-budget controls: {sum(1 for row in rows if not row[15])}")
     print("Comparison: BASELINE EMA/RSI is ungated reference; INTEGRATED BTC-GATED applies historical regime/correlation admission at each entry. Exits are never blocked by entry filters.")
