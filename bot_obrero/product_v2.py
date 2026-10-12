@@ -202,12 +202,18 @@ def fetch_history(adapter: BinanceMetadataBackedAdapter, symbol: str, days: int,
     return accepted
 
 
-def backtest(symbol: str, items: Sequence[Any], bars: int, filters: InstrumentFilters | None = None) -> BacktestResult:
+def backtest(
+    symbol: str, items: Sequence[Any], bars: int, filters: InstrumentFilters | None = None, *,
+    fee_rate: Decimal = FEE, spread_bps: Decimal = D("10"), slippage_bps: Decimal = SLIPPAGE_BPS,
+    fast_ema_period: int = 12, slow_ema_period: int = 26, rsi_period: int = 14,
+    rsi_buy_min: Decimal = D("50"), rsi_sell_at: Decimal = D("70"),
+    position_fraction: Decimal = D("0.95"),
+) -> BacktestResult:
     config = BacktestConfig(
-        symbol=symbol, interval="4h", candles=bars, fast_ema_period=12,
-        slow_ema_period=26, rsi_period=14, rsi_buy_min=D("50"), rsi_sell_at=D("70"),
-        initial_quote_balance=D("1000"), position_fraction=D("0.95"),
-        fee_rate=FEE, slippage_bps=SLIPPAGE_BPS, spread_bps=D("10"), max_entries_per_30d=5,
+        symbol=symbol, interval="4h", candles=bars, fast_ema_period=fast_ema_period,
+        slow_ema_period=slow_ema_period, rsi_period=rsi_period, rsi_buy_min=rsi_buy_min, rsi_sell_at=rsi_sell_at,
+        initial_quote_balance=D("1000"), position_fraction=position_fraction,
+        fee_rate=fee_rate, slippage_bps=slippage_bps, spread_bps=spread_bps, max_entries_per_30d=5,
         min_qty=filters.min_qty if filters else None,
         quantity_step=filters.step_size if filters else None,
         min_notional=filters.min_notional if filters else None,
@@ -215,13 +221,16 @@ def backtest(symbol: str, items: Sequence[Any], bars: int, filters: InstrumentFi
     return run_virtual_backtest(items, config)
 
 
-def buy_hold_net_return(items: Sequence[Any]) -> Decimal:
+def buy_hold_net_return(
+    items: Sequence[Any], fee_rate: Decimal = FEE, spread_bps: Decimal = D("10"),
+    slippage_bps: Decimal = SLIPPAGE_BPS,
+) -> Decimal:
     """Buy-and-hold reference after the same fee, spread and slippage assumptions."""
     first, last = items[0].payload.close, items[-1].payload.close
-    half_spread_and_slippage = (SLIPPAGE_BPS + D("10") / D("2")) / D("10000")
+    half_spread_and_slippage = (slippage_bps + spread_bps / D("2")) / D("10000")
     entry = first * (ONE + half_spread_and_slippage)
     exit_price = last * (ONE - half_spread_and_slippage)
-    return ((exit_price * (ONE - FEE)) / (entry * (ONE + FEE)) - ONE) * D("100")
+    return ((exit_price * (ONE - fee_rate)) / (entry * (ONE + fee_rate)) - ONE) * D("100")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -233,6 +242,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-spread-pct", type=exact_arg, default=D("0.50"))
     parser.add_argument("--min-price", type=exact_arg, default=D("0.001"))
     parser.add_argument("--max-price", type=exact_arg, default=D("5"))
+    parser.add_argument("--fee-rate", type=exact_arg, default=FEE, help="fraction charged per fill; default 0.001")
+    parser.add_argument("--spread-bps", type=exact_arg, default=D("10"), help="assumed full spread in basis points")
+    parser.add_argument("--slippage-bps", type=exact_arg, default=SLIPPAGE_BPS, help="slippage per fill in basis points")
+    parser.add_argument("--fast-ema-period", type=int, default=12)
+    parser.add_argument("--slow-ema-period", type=int, default=26)
+    parser.add_argument("--rsi-period", type=int, default=14)
+    parser.add_argument("--rsi-buy-min", type=exact_arg, default=D("50"))
+    parser.add_argument("--rsi-sell-at", type=exact_arg, default=D("70"))
+    parser.add_argument("--position-fraction", type=exact_arg, default=D("0.95"))
     return parser
 
 
@@ -246,14 +264,25 @@ def exact_arg(text: str) -> Decimal:
     return value
 
 
-def run(args: argparse.Namespace) -> int:
+def _validate_args(args: argparse.Namespace) -> None:
     if args.days < 180:
         raise ProductV2Error("--days must be >= 180 for 30/90-day metrics and a held-out window")
     if not 1 <= args.universe_limit <= MAX_UNIVERSE:
         raise ProductV2Error(f"--universe-limit must be between 1 and {MAX_UNIVERSE}")
     if min(args.initial_ars, args.min_quote_volume, args.max_spread_pct, args.min_price) <= 0 or args.max_price <= args.min_price:
         raise ProductV2Error("budget/thresholds must be positive and price bounds ordered")
+    if args.fast_ema_period <= 0 or args.slow_ema_period <= args.fast_ema_period or args.rsi_period <= 0:
+        raise ProductV2Error("indicator periods must be positive and slow EMA must exceed fast EMA")
+    if not D("0") <= args.rsi_buy_min <= D("100") or not D("0") <= args.rsi_sell_at <= D("100"):
+        raise ProductV2Error("RSI thresholds must be between 0 and 100")
+    if not D("0") < args.position_fraction <= D("1"):
+        raise ProductV2Error("position fraction must be > 0 and <= 1")
+    if not D("0") <= args.fee_rate <= D("0.05") or not D("0") <= args.spread_bps <= D("1000") or not D("0") <= args.slippage_bps <= D("1000"):
+        raise ProductV2Error("fee rate must be 0..0.05 and spread/slippage 0..1000 bps")
 
+
+def run(args: argparse.Namespace) -> int:
+    _validate_args(args)
     now = datetime.now(timezone.utc)
     universe = active_usdt_universe(public_json("/api/v3/exchangeInfo"))
     ticker = ticker_snapshots(
@@ -267,12 +296,12 @@ def run(args: argparse.Namespace) -> int:
     bars = args.days * 6
     if len(btc_items) < bars:
         raise ProductV2Error(f"BTC history insufficient: requested at least {bars}, received {len(btc_items)}")
-    btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None)
+    btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
     btc_returns = return_series(btc_items)
     regime = "BULLISH" if btc_result.final_fast_ema > btc_result.final_slow_ema and btc_result.final_rsi >= D("50") else (
         "BEARISH" if btc_result.final_fast_ema < btc_result.final_slow_ema and btc_result.final_rsi < D("50") else "NEUTRAL"
     )
-    btc_hold = buy_hold_net_return(btc_items[-bars:])
+    btc_hold = buy_hold_net_return(btc_items[-bars:], args.fee_rate, args.spread_bps, args.slippage_bps)
 
     print("BOT-CRIPTO PRODUCT V2 — PUBLIC BINANCE SPOT")
     print(f"Observation UTC: {now.isoformat()}; timeframe=4h; requested history={args.days} days")
@@ -286,7 +315,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(f"ARS budget={args.initial_ars}; indicative ARSUSDT public spot price={ars_market.price} USDT/ARS; bid={ars_market.bid}; ask={ars_market.ask}; spread={ars_market.spread_pct}%; route/funding/fees=UNKNOWN; conversion=CONVERSION_UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Research backtests use a separate normalized 1000 USDT, not the ARS budget.")
-    print(f"Strategy: EMA12/EMA26 crossover + RSI14; fee/fill={FEE}; assumed full spread={D('10')} bps; slippage/fill={SLIPPAGE_BPS} bps; max 5 BUY entries/rolling 30 days.")
+    print(f"Strategy: EMA{args.fast_ema_period}/EMA{args.slow_ema_period} crossover + RSI{args.rsi_period}; RSI buy minimum={args.rsi_buy_min}; sell threshold={args.rsi_sell_at}; position fraction={args.position_fraction}; fee/fill={args.fee_rate}; assumed full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps; max 5 BUY entries/rolling 30 days.")
     print("Historical spread is not observable from klines; 10 bps is a conservative configurable model assumption, not a measured historical spread.")
     print("No BNB discount, private endpoints, API keys, real orders, leverage, or financial runtime.")
 
@@ -332,9 +361,9 @@ def run(args: argparse.Namespace) -> int:
             c90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6 - 1)
             relative, btc30 = return_pct(items, 30 * 6), return_pct(btc_items, 30 * 6)
             relative_strength = relative - btc30 if relative is not None and btc30 is not None else None
-            full = backtest(symbol, items, bars, universe[symbol].filters)
+            full = backtest(symbol, items, bars, universe[symbol].filters, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
             # A fixed-parameter 60-day held-out slice is reported separately from the 180-day result.
-            oos = backtest(symbol, items[-60 * 6:], 60 * 6, universe[symbol].filters)
+            oos = backtest(symbol, items[-60 * 6:], 60 * 6, universe[symbol].filters, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
             reasons = []
             if regime != "BULLISH":
                 reasons.append("BTC_REGIME_NOT_BULLISH")
