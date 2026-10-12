@@ -25,7 +25,7 @@ from .binance_spot import BinanceSpotRestConfig
 from .market_data import CandleFinality, CandleState, DataCompleteness, DataQuality, MarketData
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
-_MAX_CANDLES = 1000
+_MAX_CANDLES = 1200
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
 _BPS = Decimal("10000")
@@ -76,6 +76,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--position-fraction", type=_decimal_arg, default=Decimal("1"))
     parser.add_argument("--fee-rate", type=_decimal_arg, default=Decimal("0.001"))
     parser.add_argument("--slippage-bps", type=_decimal_arg, default=Decimal("5"))
+    parser.add_argument("--max-entries-per-30d", type=_positive_int, default=5,
+                        help="maximum virtual BUY entries in any rolling 30-day window (maximum: 5)")
     return parser
 
 
@@ -93,6 +95,7 @@ class BacktestConfig:
     position_fraction: Decimal = Decimal("1")
     fee_rate: Decimal = Decimal("0.001")
     slippage_bps: Decimal = Decimal("5")
+    max_entries_per_30d: int = 5
 
     def validate(self) -> None:
         if not isinstance(self.symbol, str) or not _SYMBOL_RE.fullmatch(self.symbol):
@@ -107,6 +110,8 @@ class BacktestConfig:
             raise BacktestError("EMA periods must satisfy 0 < fast EMA period < slow EMA period")
         if self.rsi_period <= 0:
             raise BacktestError("RSI period must be positive")
+        if isinstance(self.max_entries_per_30d, bool) or not 1 <= self.max_entries_per_30d <= 5:
+            raise BacktestError("max_entries_per_30d must be between 1 and 5")
         warmup = max(self.slow_ema_period, self.rsi_period + 1)
         if self.candles < warmup + 2:
             raise BacktestError(f"insufficient candles for warm-up and next-bar execution; need at least {warmup + 2}")
@@ -363,7 +368,10 @@ def run_virtual_backtest(items: Sequence[MarketData], config: BacktestConfig) ->
         crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
         crossed_down = previous["fast_ema"] >= previous["slow_ema"] and current["fast_ema"] < current["slow_ema"]
         if position == _ZERO and crossed_up and current["rsi"] >= config.rsi_buy_min:
-            pending = ("BUY", "fast EMA crossed above slow EMA and RSI filter passed")
+            cutoff = candle.end - timedelta(days=30)
+            recent_entries = sum(1 for fill in fills if fill.side == "BUY" and cutoff < fill.timestamp <= candle.end)
+            if recent_entries < config.max_entries_per_30d:
+                pending = ("BUY", "fast EMA crossed above slow EMA and RSI filter passed; rolling entry cap passed")
         elif position > _ZERO and (crossed_down or current["rsi"] >= config.rsi_sell_at):
             pending = ("SELL", "fast EMA crossed below slow EMA" if crossed_down else "RSI reached sell threshold")
 
@@ -424,6 +432,8 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Position fraction: {cfg.position_fraction}")
     print(f"Fee rate per fill: {cfg.fee_rate}")
     print(f"Slippage: {cfg.slippage_bps} bps")
+    print(f"Maximum entries per rolling 30 days: {cfg.max_entries_per_30d}")
+    print("Quote balance is denominated in the pair quote asset; it is not an ARS balance or an ARS-to-USDT conversion.")
     print("Execution model: signal at candle close; fill at next candle open with configured slippage")
     print("Temporal limitation: canonical historical available_at is UNKNOWN when absent; this simulation uses an explicit bar-close model without rewriting MarketData.available_at.")
     print(f"MarketData completeness UNKNOWN count: {result.unknown_marketdata_completeness_count}")
@@ -455,6 +465,7 @@ def run(args: argparse.Namespace) -> int:
         rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at,
         initial_quote_balance=args.initial_quote_balance, position_fraction=args.position_fraction,
         fee_rate=args.fee_rate, slippage_bps=args.slippage_bps,
+        max_entries_per_30d=args.max_entries_per_30d,
     )
     config.validate()
     now = _utc_now()
