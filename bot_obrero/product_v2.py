@@ -298,14 +298,14 @@ def run(args: argparse.Namespace) -> int:
         raise ProductV2Error(f"BTC history insufficient: requested at least {bars}, received {len(btc_items)}")
     btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
     btc_returns = return_series(btc_items)
-    regime = "BULLISH" if btc_result.final_fast_ema > btc_result.final_slow_ema and btc_result.final_rsi >= D("50") else (
+    regime = "BULLISH" if btc_result.final_fast_ema > btc_result.final_slow_ema and btc_result.final_rsi >= args.rsi_buy_min else (
         "BEARISH" if btc_result.final_fast_ema < btc_result.final_slow_ema and btc_result.final_rsi < D("50") else "NEUTRAL"
     )
     btc_hold = buy_hold_net_return(btc_items[-bars:], args.fee_rate, args.spread_bps, args.slippage_bps)
 
     print("BOT-CRIPTO PRODUCT V2 — PUBLIC BINANCE SPOT")
     print(f"Observation UTC: {now.isoformat()}; timeframe=4h; requested history={args.days} days")
-    print(f"BTC panel: regime={regime}; price={ticker['BTCUSDT'].price} USDT; EMA12={btc_result.final_fast_ema}; EMA26={btc_result.final_slow_ema}; RSI14={btc_result.final_rsi}")
+    print(f"BTC panel: regime={regime}; price={ticker['BTCUSDT'].price} USDT; EMA{args.fast_ema_period}={btc_result.final_fast_ema}; EMA{args.slow_ema_period}={btc_result.final_slow_ema}; RSI{args.rsi_period}={btc_result.final_rsi}")
     print(f"BTC closed bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}")
     print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
     print(f"BTC buy-and-hold net reference after fee/spread/slippage assumptions={btc_hold}%; cash reference=0%")
