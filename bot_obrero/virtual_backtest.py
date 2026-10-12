@@ -66,7 +66,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbol", required=True, help="Binance Spot symbol, e.g. BTCUSDT")
     parser.add_argument("--interval", required=True, help="Binance kline interval, e.g. 1m")
     parser.add_argument("--candles", type=_positive_int, default=500,
-                        help="closed candles to simulate (default: 500; maximum: 1000)")
+                        help="closed candles to simulate (default: 500; maximum: 1200)")
     parser.add_argument("--fast-ema-period", type=_positive_int, default=12)
     parser.add_argument("--slow-ema-period", type=_positive_int, default=26)
     parser.add_argument("--rsi-period", type=_positive_int, default=14)
