@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "bot_obrero/virtual_backtest.py"
+      - "bot_obrero/product_v2.py"
+      - "tests/test_product_v2.py"
       - "bot_obrero/binance_*.py"
       - "bot_obrero/market_data*.py"
       - "bot_obrero/analysis_*.py"
@@ -44,6 +46,21 @@ jobs:
         run: |
           set -o pipefail
           python -m bot_obrero.virtual_backtest --symbol BTCUSDT --interval 1m --candles 100 2>&1 | tee virtual-backtest-report.txt
+      - name: Run Product V2 against real public Binance Spot data
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m bot_obrero.product_v2 --days 180 --universe-limit 2 2>&1 | tee product-v2-report.txt
+      - name: Assert Product V2 report discloses market and capital state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s product-v2-report.txt
+          grep -F "BTC panel:" product-v2-report.txt
+          grep -F "ARS budget=" product-v2-report.txt
+          grep -F "conversion=CONVERSION_UNKNOWN" product-v2-report.txt
+          grep -F "ALTCOIN RESULTS" product-v2-report.txt
+          grep -F "FINAL DECISION: CONVERSION_UNKNOWN" product-v2-report.txt
       - name: Assert report contains required end-to-end evidence
         shell: bash
         run: |
@@ -64,7 +81,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: virtual-backtest-report-${{ github.sha }}
-          path: virtual-backtest-report.txt
+          name: product-v2-public-market-reports-${{ github.sha }}
+          path: |
+            virtual-backtest-report.txt
+            product-v2-report.txt
           if-no-files-found: warn
           retention-days: 14
