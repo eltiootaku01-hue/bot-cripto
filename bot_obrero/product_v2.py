@@ -184,7 +184,7 @@ def return_pct(items: Sequence[Any], bars: int) -> Decimal | None:
 
 
 def fetch_history(adapter: BinanceMetadataBackedAdapter, symbol: str, days: int, now: datetime) -> list[Any]:
-    start = now - timedelta(days=days)
+    start = now - timedelta(days=days + 3)  # cover alignment and a possibly open final 4h candle
     count = days * 6 + 3  # 6 four-hour bars/day; reserve a bounded pagination margin.
     items = adapter.fetch_historical_market_data(
         symbol=symbol, interval="4h", start_time=int(start.timestamp() * 1000),
@@ -263,7 +263,8 @@ def run(args: argparse.Namespace) -> int:
     print(f"BTC buy-and-hold price return before modeled costs={btc_hold}%; cash reference=0%")
     print(f"ARS budget={args.initial_ars}; conversion=CONVERSION_UNKNOWN; source/time/cost=UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Research backtests use a separate normalized 1000 USDT, not the ARS budget.")
-    print(f"Strategy: EMA12/EMA26 crossover + RSI14; fee/fill={FEE}; slippage/fill={SLIPPAGE_BPS} bps; max 5 BUY entries/rolling 30 days.")
+    print(f"Strategy: EMA12/EMA26 crossover + RSI14; fee/fill={FEE}; assumed full spread={D('10')} bps; slippage/fill={SLIPPAGE_BPS} bps; max 5 BUY entries/rolling 30 days.")
+    print("Historical spread is not observable from klines; 10 bps is a conservative configurable model assumption, not a measured historical spread.")
     print("No BNB discount, private endpoints, API keys, real orders, leverage, or financial runtime.")
 
     excluded: list[tuple[str, str]] = []
