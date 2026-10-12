@@ -188,3 +188,51 @@ def test_product_v2_strategy_and_cost_parameters_are_configurable():
     assert args.rsi_buy_min == Decimal("55")
     assert args.rsi_sell_at == Decimal("75")
     assert args.position_fraction == Decimal("0.8")
+
+
+def test_ars_capital_scenarios_never_invent_conversion_or_available_usdt():
+    from bot_obrero.product_v2 import ars_capital_scenarios
+
+    rows = ars_capital_scenarios()
+    assert [(row["scenario"], row["capital_ars"]) for row in rows] == [
+        ("A", Decimal("10000")), ("B", Decimal("25000")), ("C", Decimal("50000")),
+    ]
+    assert all(row["conversion"] == "CONVERSION_UNKNOWN" for row in rows)
+    assert all(row["usdt_net"] == "UNKNOWN" for row in rows)
+    assert all(row["conversion_costs"] == "UNKNOWN" for row in rows)
+    assert all(row["full_trade_cost_ars"] == "UNKNOWN" for row in rows)
+    assert all(row["historical_net_return"] == "NOT_COMPUTABLE" for row in rows)
+    assert all(row["decision"] == "NO_TRADE" for row in rows)
+
+
+def test_normalized_affordability_respects_quantity_step_notional_and_costs():
+    from bot_obrero.product_v2 import InstrumentFilters, normalized_affordability
+
+    filters = InstrumentFilters(Decimal("0.1"), Decimal("0.1"), Decimal("20"))
+    kwargs = dict(fee_rate=Decimal("0.001"), spread_bps=Decimal("10"),
+                  slippage_bps=Decimal("5"), position_fraction=Decimal("0.95"))
+    low = normalized_affordability(Decimal("10"), filters, Decimal("10"), **kwargs)
+    high = normalized_affordability(Decimal("10"), filters, Decimal("100"), **kwargs)
+    assert low == (False, "MIN_NOTIONAL")
+    assert high == (True, "PASS")
+
+
+def test_normalized_backtest_budget_is_forwarded_without_claiming_ars_conversion(monkeypatch):
+    from bot_obrero import product_v2
+
+    captured = []
+
+    def fake_run(items, config):
+        captured.append(config)
+        return SimpleNamespace(config=config)
+
+    monkeypatch.setattr(product_v2, "run_virtual_backtest", fake_run)
+    for budget in (Decimal("100"), Decimal("250"), Decimal("500")):
+        result = product_v2.backtest(
+            "ALTUSDT", [], 1080, initial_quote_balance=budget,
+            fast_ema_period=12, slow_ema_period=26, rsi_period=14,
+        )
+        assert result.config.initial_quote_balance == budget
+    assert [config.initial_quote_balance for config in captured] == [
+        Decimal("100"), Decimal("250"), Decimal("500"),
+    ]
