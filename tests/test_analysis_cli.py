@@ -95,8 +95,12 @@ def test_invalid_symbol_rejected_before_network(symbol, monkeypatch):
     ["--symbol", "BTCUSDT", "--interval", "1m", "--candles", "14", "--rsi-period", "14"],
 ])
 def test_invalid_interval_or_periods_rejected(argv):
-    args = _parser().parse_args(argv)
-    with pytest.raises((AnalysisCLIError, SystemExit)):
+    try:
+        args = _parser().parse_args(argv)
+    except SystemExit as exc:
+        assert exc.code == 2
+        return
+    with pytest.raises(AnalysisCLIError):
         _validate_args(args)
 
 
@@ -133,7 +137,11 @@ def test_final_open_candle_is_excluded_with_count():
     lambda s: [_item(s), _item(s + timedelta(minutes=2))],
     lambda s: [_item(s + timedelta(minutes=1)), _item(s)],
     lambda s: [_item(s), _item(s + timedelta(minutes=1), quality=DataQuality.UNKNOWN)],
-    lambda s: [_item(s), _item(s + timedelta(minutes=1), candle_completeness=DataCompleteness.PARTIAL)],
+    lambda s: [
+        _item(s),
+        _item(s + timedelta(minutes=1), candle_completeness=DataCompleteness.PARTIAL),
+        _item(s + timedelta(minutes=2)),
+    ],
 ])
 def test_duplicate_gap_unordered_or_internal_inadmissible_data_stops(items):
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
