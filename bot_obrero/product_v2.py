@@ -420,7 +420,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"BTC closed bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}")
     print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
     print(f"BTC buy-and-hold net reference after fee/spread/slippage assumptions={btc_hold}%; cash reference=0%")
-    print(f"ARS budget={args.initial_ars}; ARS-to-USDT route=CONVERSION_UNKNOWN; the filtered USDT Spot universe is not an exhaustive fiat/P2P conversion search")
+    print(f"ARS budget={args.initial_ars}; conversion=CONVERSION_UNKNOWN; ARS-to-USDT route is unverified; the filtered USDT Spot universe is not an exhaustive fiat/P2P conversion search")
     print("Conversion evidence: no live ARS/USDT offer, payment method, executable price, applicable fee, limit, or net USDT was verified; affordability remains blocked.")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Normalized USDT scenarios are separate research assumptions, not conversions.")
     print(f"Strategy: EMA{args.fast_ema_period}/EMA{args.slow_ema_period} crossover + RSI{args.rsi_period}; RSI buy minimum={args.rsi_buy_min}; sell threshold={args.rsi_sell_at}; position fraction={args.position_fraction}; fee/fill={args.fee_rate}; assumed full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps; max 5 BUY entries/rolling 30 days.")
