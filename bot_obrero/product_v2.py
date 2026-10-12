@@ -757,7 +757,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"Walk-forward rows={len(validation_rows)}; maximum expected={len(candidates)*VALIDATION_WINDOW_COUNT*len(VALIDATION_COST_SCENARIOS)}.")
 
     print("\n180-DAY EVALUATION — HYPOTHETICAL CAPITAL AND COST SCENARIOS")
-    print("All strategy results below start with the explicit hypothetical USDT balance; 50000 ARS remains CONVERSION_UNKNOWN.")
+    print(f"All strategy results below start with the explicit hypothetical USDT balance; {args.initial_ars} ARS remains CONVERSION_UNKNOWN.")
     for e in evaluation_rows:
         for strategy_name, result in (("BASELINE", e["baseline"]), ("INTEGRATED", e["integrated"])):
             net_pnl = result.final_equity - result.config.initial_quote_balance
