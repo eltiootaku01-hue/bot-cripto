@@ -747,3 +747,35 @@ def test_daily_metrics_equity_pnl_fees_reconcile_for_valid_buy_hold_sell_sequenc
     assert summary["realized_pnl"] == Decimal("1.78")
     assert summary["final_unrealized_pnl"] == Decimal("0")
     assert summary["fees"] == Decimal("0.22")
+
+def test_daily_metrics_aggregates_worst_daily_close_drawdown_as_negative_percentage():
+    start = datetime(2026, 12, 1, tzinfo=timezone.utc)
+    close_1ms = timedelta(milliseconds=1)
+    equities = ("100", "80", "90")
+    points = [
+        _equity_point(start + timedelta(days=index + 1) - close_1ms, close=equity, quote=equity, equity=equity)
+        for index, equity in enumerate(equities)
+    ]
+
+    rows, summary = daily_equity_metrics(_daily_metrics_result(points, initial=Decimal("100")))
+
+    expected = min(row["daily_drawdown"] for row in rows) * Decimal("100")
+    assert [row["equity_close"] for row in rows] == [Decimal("100"), Decimal("80"), Decimal("90")]
+    assert expected == Decimal("-20.0")
+    assert summary["max_daily_close_drawdown_pct"] == expected
+
+
+def test_daily_metrics_aggregated_close_drawdown_stays_zero_without_a_decline():
+    start = datetime(2026, 12, 1, tzinfo=timezone.utc)
+    close_1ms = timedelta(milliseconds=1)
+    equities = ("100", "110", "120")
+    points = [
+        _equity_point(start + timedelta(days=index + 1) - close_1ms, close=equity, quote=equity, equity=equity)
+        for index, equity in enumerate(equities)
+    ]
+
+    rows, summary = daily_equity_metrics(_daily_metrics_result(points, initial=Decimal("100")))
+
+    assert all(row["daily_drawdown"] == Decimal("0") for row in rows)
+    assert summary["max_daily_close_drawdown_pct"] == Decimal("0")
+
