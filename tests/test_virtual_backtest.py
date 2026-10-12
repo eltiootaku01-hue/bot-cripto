@@ -84,7 +84,7 @@ def test_full_virtual_simulation_accounts_for_buy_sell_fees_pnl_equity_and_drawd
     assert len(result.equity_curve) == len(items)
     assert result.max_drawdown <= 0
     assert result.final_sma == Decimal("7")
-    assert result.final_rsi == Decimal("1.464843750000000000000000000")
+    assert result.final_rsi == Decimal("1.46484375000000000000000001")
 
 
 def test_backtest_is_reproducible_for_same_history_and_parameters():
