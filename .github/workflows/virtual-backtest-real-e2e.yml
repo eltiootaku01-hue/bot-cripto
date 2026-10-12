@@ -65,8 +65,8 @@ jobs:
           grep -F "FINAL DECISION: NO_TRADE" product-v2-report.txt
           grep -F "Budget gate: CONVERSION_UNKNOWN" product-v2-report.txt
           grep -F "BTC buy-and-hold net reference after fee/spread/slippage assumptions=" product-v2-report.txt
-          grep -F "estimated spread+slippage=" product-v2-report.txt
-          grep -F "exposure=" product-v2-report.txt
+          grep -F "Cost assumptions:" product-v2-report.txt
+          grep -F "Exposure metric:" product-v2-report.txt
       - name: Assert report contains required end-to-end evidence
         shell: bash
         run: |
