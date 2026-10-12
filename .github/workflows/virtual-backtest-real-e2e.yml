@@ -17,6 +17,8 @@ on:
     branches: [feat/hueso-05-h1-analysis-cli]
     paths:
       - "bot_obrero/virtual_backtest.py"
+      - "bot_obrero/product_v2.py"
+      - "tests/test_product_v2.py"
       - "bot_obrero/binance_*.py"
       - "bot_obrero/market_data*.py"
       - "bot_obrero/analysis_*.py"
