@@ -87,3 +87,12 @@ La salida separa **BASELINE EMA/RSI** (referencia sin filtros BTC históricos) d
 El período contiene 90 días de calentamiento, 180 días de evaluación y 60 días finales de validación independiente con parámetros fijos. No se ajustan parámetros con la ventana de validación. Si falta histórico o las velas BTC/candidata no se alinean, la candidata se excluye; el período no se reduce silenciosamente.
 
 Los informes comparan retorno neto, drawdown, entradas/salidas, exposición y rechazos por filtros para baseline e integrada; los escenarios hipotéticos de 100/250/500 USDT se ejecutan en ambas variantes. Los importes de 10.000/25.000/50.000 ARS siguen en `CONVERSION_UNKNOWN` y `NO_TRADE` sin ruta de conversión ejecutable y costes verificados. Los resultados históricos no prueban rentabilidad futura.
+
+
+## Verificación de admisión histórica por entrada
+
+La variante integrada evalúa el régimen BTC y las correlaciones de 30/90 días en el índice histórico exacto de cada señal BUY. Solo utiliza prefijos de velas 4h alineadas hasta el cierre de esa señal; una modificación posterior del histórico no debe cambiar la decisión anterior. Las ventanas insuficientes, las métricas desconocidas o un régimen distinto de `BULLISH` rechazan la nueva entrada y dejan un motivo en el informe.
+
+La admisión se aplica únicamente a nuevas entradas. Una posición ya abierta conserva las reglas EMA/RSI de salida aunque el régimen BTC deje de ser alcista. El baseline EMA/RSI sin filtros y el backtest integrado se calculan por separado y no se combinan sus fills ni sus métricas. Los tests deterministas comprueban también que una candidata bloqueada puede diferir del baseline; la diferencia medida no implica que el filtro mejore la rentabilidad.
+
+La validación independiente permanece fija en 60 días después de los 180 días de evaluación y no se utiliza para ajustar parámetros. El presupuesto ARS permanece `CONVERSION_UNKNOWN`; las simulaciones de 100/250/500 USDT son escenarios ficticios separados.

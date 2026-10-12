@@ -300,3 +300,19 @@ def test_rejected_entry_is_recorded_and_no_buy_is_filled():
     assert not any(fill.side == "BUY" for fill in result.fills)
     assert result.entry_rejections
     assert all("BTC_REGIME_NOT_BULLISH" in reason for reason in result.entry_rejections)
+
+
+
+def test_baseline_and_btc_gated_backtests_remain_distinct_when_entry_is_rejected():
+    items = _series()
+    baseline = run_virtual_backtest(items, _config())
+    integrated = run_virtual_backtest(
+        items, _config(),
+        entry_admission=lambda index, observations: (False, "BTC_REGIME_NOT_BULLISH"),
+    )
+
+    assert [fill.side for fill in baseline.fills] == ["BUY", "SELL"]
+    assert integrated.fills == ()
+    assert integrated.entry_rejections
+    assert all("BTC_REGIME_NOT_BULLISH" in reason for reason in integrated.entry_rejections)
+    assert baseline.final_equity != integrated.final_equity

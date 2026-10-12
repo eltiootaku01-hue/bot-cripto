@@ -225,8 +225,8 @@ def test_normalized_backtest_budget_is_forwarded_without_claiming_ars_conversion
 
     captured = []
 
-    def fake_run(items, config):
-        captured.append(config)
+    def fake_run(items, config, **kwargs):
+        captured.append((config, kwargs))
         return SimpleNamespace(config=config)
 
     monkeypatch.setattr(product_v2, "run_virtual_backtest", fake_run)
@@ -236,9 +236,11 @@ def test_normalized_backtest_budget_is_forwarded_without_claiming_ars_conversion
             fast_ema_period=12, slow_ema_period=26, rsi_period=14,
         )
         assert result.config.initial_quote_balance == budget
-    assert [config.initial_quote_balance for config in captured] == [
+    assert [config.initial_quote_balance for config, _ in captured] == [
         Decimal("100"), Decimal("250"), Decimal("500"),
     ]
+    assert all({"evaluation_start", "evaluation_end", "entry_admission"} <= set(kwargs)
+               for _, kwargs in captured)
 
 
 
@@ -359,3 +361,41 @@ def test_historical_btc_gate_uses_only_past_aligned_data(monkeypatch):
         rsi_period=14, rsi_buy_min=Decimal("50"), minimum_corr30d=Decimal("0.5"), minimum_corr90d=Decimal("0.6"))
     assert expected == future_gate(600, ())
     assert expected[0] is True
+
+
+
+def test_historical_btc_gate_rejects_non_bullish_regime_even_when_correlations_pass(monkeypatch):
+    import bot_obrero.product_v2 as product
+
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def make_history():
+        return [
+            SimpleNamespace(
+                payload=SimpleNamespace(
+                    start=start + timedelta(hours=4 * i),
+                    end=start + timedelta(hours=4 * i + 4),
+                    close=Decimal(100 + i),
+                ),
+                instrument=SimpleNamespace(symbol="ALT/USDT"),
+                quality=SimpleNamespace(value="VALID"),
+                completeness=SimpleNamespace(value="COMPLETE"),
+            )
+            for i in range(700)
+        ]
+
+    monkeypatch.setattr(product, "_observation", lambda item: SimpleNamespace(symbol="BTC/USDT"))
+    monkeypatch.setattr(product, "_indicators", lambda observations, config: {
+        "fast_ema": Decimal("90"), "slow_ema": Decimal("100"), "rsi": Decimal("40")
+    })
+    candidate, btc = make_history(), make_history()
+    gate = product.historical_btc_entry_admission(
+        candidate, btc, fast_ema_period=12, slow_ema_period=26, rsi_period=14,
+        rsi_buy_min=Decimal("50"), minimum_corr30d=Decimal("0.50"),
+        minimum_corr90d=Decimal("0.60"),
+    )
+
+    allowed, detail = gate(600, ())
+    assert allowed is False
+    assert "BTC_REGIME_NOT_BULLISH" in detail
+    assert "corr30d=" in detail and "corr90d=" in detail
