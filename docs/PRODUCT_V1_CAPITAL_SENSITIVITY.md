@@ -115,3 +115,12 @@ The same cost scenario is applied to baseline, integrated strategy and BTC bench
 
 
 Walk-forward logs emit one VALIDATION_FILL record per simulated baseline/integrated fill, including timestamp, side, price, quantity, fee, realized PnL, post-fill quote balance, and reason. Each integrated admission rejection is emitted as a separate VALIDATION_REJECTION record. Summary rejection counts are separated into BTC regime, correlation, and unknown/data categories. These are simulator decisions and modeled fills, not exchange executions.
+
+
+## Capital pequeño: escenario hipotético de 31 USDT
+
+El parámetro `--hypothetical-usdt-balance 31` establece un saldo ficticio de investigación que se pasa explícitamente a los backtests baseline EMA/RSI e integrado BTC-gated, tanto en la evaluación de 180 días como en las tres ventanas walk-forward independientes de 60 días y en cada escenario de costes. Las ventanas reinician su propio saldo hipotético de 31 USDT; no heredan el saldo por defecto de 1.000 USDT del motor.
+
+La referencia `--initial-ars 50000` se informa por separado y permanece `CONVERSION_UNKNOWN`. El origen del saldo de simulación es `HYPOTHETICAL_SCENARIO_NOT_ARS_CONVERSION`: no es una cotización, conversión ni afirmación sobre el dinero que se recibiría. Si los mínimos del instrumento o los costes impiden una compra, la orden se registra como rechazada; no se reducen los filtros ni se inventan fracciones negociables.
+
+El informe distingue el capital inicial, equity final, PnL neto, retorno, drawdown, fills BUY/SELL, comisiones, costes modelados de spread/deslizamiento, saldo no invertido y rechazos. Los benchmarks de efectivo (0%) y BTC buy-and-hold usan supuestos de coste equivalentes. Las pruebas y los resultados históricos no demuestran rentabilidad futura ni autorizan operaciones reales.

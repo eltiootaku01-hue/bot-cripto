@@ -133,6 +133,7 @@ def test_product_v2_defaults_keep_ars_budget_separate_and_use_180_days():
     args = _parser().parse_args([])
     _validate_args(args)
     assert args.initial_ars == Decimal("10000")
+    assert args.hypothetical_usdt_balance == Decimal("31")
     assert args.days == 180
     assert args.fee_rate == Decimal("0.001")
     assert args.spread_bps == Decimal("10")
@@ -175,6 +176,24 @@ def test_exposure_is_calculated_from_fill_timestamps():
 def test_modeled_spread_and_slippage_cost_is_explicit_and_decimal():
     fill = SimpleNamespace(quantity=Decimal("2"), price=Decimal("10"))
     assert modeled_spread_slippage_cost([fill], Decimal("10"), Decimal("5")) == Decimal("0.020")
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "NaN", "Infinity"])
+def test_hypothetical_usdt_balance_must_be_finite_and_positive(value):
+    args = _parser().parse_args([])
+    args.hypothetical_usdt_balance = Decimal(value)
+    with pytest.raises(ProductV2Error, match="hypothetical-usdt-balance"):
+        _validate_args(args)
+
+
+def test_product_v2_accepts_explicit_31_usdt_without_converting_ars():
+    args = _parser().parse_args(["--initial-ars", "50000", "--hypothetical-usdt-balance", "31"])
+    _validate_args(args)
+    assert args.initial_ars == Decimal("50000")
+    assert args.hypothetical_usdt_balance == Decimal("31")
+    from bot_obrero.product_v2 import ars_capital_scenarios
+    assert next(row for row in ars_capital_scenarios() if row["capital_ars"] == Decimal("50000"))["conversion"] == "CONVERSION_UNKNOWN"
+
 
 
 def test_product_v2_strategy_and_cost_parameters_are_configurable():
@@ -230,17 +249,18 @@ def test_normalized_backtest_budget_is_forwarded_without_claiming_ars_conversion
         return SimpleNamespace(config=config)
 
     monkeypatch.setattr(product_v2, "run_virtual_backtest", fake_run)
-    for budget in (Decimal("100"), Decimal("250"), Decimal("500")):
+    for budget in (Decimal("31"), Decimal("100"), Decimal("250"), Decimal("500")):
         result = product_v2.backtest(
             "ALTUSDT", [], 1080, initial_quote_balance=budget,
             fast_ema_period=12, slow_ema_period=26, rsi_period=14,
         )
         assert result.config.initial_quote_balance == budget
     assert [config.initial_quote_balance for config, _ in captured] == [
-        Decimal("100"), Decimal("250"), Decimal("500"),
+        Decimal("31"), Decimal("100"), Decimal("250"), Decimal("500"),
     ]
     assert all({"evaluation_start", "evaluation_end", "entry_admission"} <= set(kwargs)
                for _, kwargs in captured)
+    assert all(config.initial_quote_balance != Decimal("1000") for config, _ in captured)
 
 
 

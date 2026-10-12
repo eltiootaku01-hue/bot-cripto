@@ -372,13 +372,22 @@ def run_virtual_backtest(
                 if config.quantity_step is not None:
                     quantity = (raw_quantity / config.quantity_step).to_integral_value(rounding=ROUND_DOWN) * config.quantity_step
                 notional = quantity * fill_price
-                if quantity > _ZERO and (config.min_qty is None or quantity >= config.min_qty) and (config.min_notional is None or notional >= config.min_notional):
+                if quantity <= _ZERO:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:NON_POSITIVE_QUANTITY")
+                elif config.min_qty is not None and quantity < config.min_qty:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MIN_QTY quantity={quantity} minimum={config.min_qty}")
+                elif config.min_notional is not None and notional < config.min_notional:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MIN_NOTIONAL notional={notional} minimum={config.min_notional}")
+                else:
                     fee = notional * config.fee_rate
                     cost = notional + fee
-                    quote -= cost
-                    position, entry_cost = quantity, cost
-                    total_fees += fee
-                    fills.append(VirtualFill(candle.start, "BUY", quantity, fill_price, fee, quote, reason))
+                    if cost > quote:
+                        rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:COSTS_EXCEED_BALANCE cost={cost} available={quote}")
+                    else:
+                        quote -= cost
+                        position, entry_cost = quantity, cost
+                        total_fees += fee
+                        fills.append(VirtualFill(candle.start, "BUY", quantity, fill_price, fee, quote, reason))
             elif side == "SELL" and position > _ZERO:
                 fill_price = candle.open * (_ONE - slippage)
                 notional = position * fill_price

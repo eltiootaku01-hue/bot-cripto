@@ -472,6 +472,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--days", type=int, default=180)
     parser.add_argument("--universe-limit", type=int, default=5)
     parser.add_argument("--initial-ars", type=exact_arg, default=D("10000"))
+    parser.add_argument("--hypothetical-usdt-balance", type=exact_arg, default=D("31"),
+                        help="hypothetical USDT balance for virtual research; never an ARS conversion")
     parser.add_argument("--min-quote-volume", type=exact_arg, default=D("1000000"))
     parser.add_argument("--max-spread-pct", type=exact_arg, default=D("0.50"))
     parser.add_argument("--min-price", type=exact_arg, default=D("0.001"))
@@ -507,6 +509,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ProductV2Error(f"--universe-limit must be between 1 and {MAX_UNIVERSE}")
     if min(args.initial_ars, args.min_quote_volume, args.max_spread_pct, args.min_price) <= 0 or args.max_price <= args.min_price:
         raise ProductV2Error("budget/thresholds must be positive and price bounds ordered")
+    if not args.hypothetical_usdt_balance.is_finite() or args.hypothetical_usdt_balance <= ZERO:
+        raise ProductV2Error("--hypothetical-usdt-balance must be a finite positive Decimal")
     if args.fast_ema_period <= 0 or args.slow_ema_period <= args.fast_ema_period or args.rsi_period <= 0:
         raise ProductV2Error("indicator periods must be positive and slow EMA must exceed fast EMA")
     if not D("0") <= args.rsi_buy_min <= D("100") or not D("0") <= args.rsi_sell_at <= D("100"):
@@ -540,7 +544,7 @@ def run(args: argparse.Namespace) -> int:
     evaluation_end = btc_items[warmup_bars + bars].payload.start
     validation_start = btc_items[validation_bounds[0][0]].payload.start
     validation_end = btc_items[validation_bounds[0][1]].payload.start
-    btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction, evaluation_start=evaluation_start, evaluation_end=evaluation_end)
+    btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None, initial_quote_balance=args.hypothetical_usdt_balance, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction, evaluation_start=evaluation_start, evaluation_end=evaluation_end)
     btc_returns = return_series(btc_items)
     btc_last_closed = btc_items[-1]
     btc_last_closed_close = btc_last_closed.payload.close
@@ -560,6 +564,9 @@ def run(args: argparse.Namespace) -> int:
     print(f"BTC evaluation bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}; independent walk-forward validation=3x60d; windows={'; '.join(f'{btc_items[a].payload.start.isoformat()}..{btc_items[b-1].payload.start.isoformat()}' for a, b in validation_bounds)}")
     print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
     print(f"BTC buy-and-hold net reference after fee/spread/slippage assumptions={btc_hold}%; cash reference=0%")
+    print(f"Capital reference: {args.initial_ars} ARS; conversion=CONVERSION_UNKNOWN")
+    print(f"Hypothetical simulation balance: {args.hypothetical_usdt_balance} USDT; provenance=HYPOTHETICAL_SCENARIO_NOT_ARS_CONVERSION")
+    print("The ARS reference amount and hypothetical USDT balance are independent; they are never added, equated, or automatically converted.")
     print(f"ARS budget={args.initial_ars}; conversion=CONVERSION_UNKNOWN; ARS-to-USDT route is unverified; the filtered USDT Spot universe is not an exhaustive fiat/P2P conversion search")
     print("Conversion evidence: no live ARS/USDT offer, payment method, executable price, applicable fee, limit, or net USDT was verified; affordability remains blocked.")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Normalized USDT scenarios are separate research assumptions, not conversions.")
@@ -605,7 +612,8 @@ def run(args: argparse.Namespace) -> int:
     rows = []
     normalized_rows: list[tuple[Decimal, str, bool | None, str, BacktestResult, BacktestResult]] = []
     validation_rows: list[dict[str, Any]] = []
-    normalized_budgets = (D("100"), D("250"), D("500"))
+    normalized_budgets = tuple(dict.fromkeys((args.hypothetical_usdt_balance, D("100"), D("250"), D("500"))))
+    evaluation_rows: list[dict[str, Any]] = []
     for symbol, tick in candidates:
         try:
             items = fetch_history(adapter, symbol, history_days, now)
@@ -627,14 +635,29 @@ def run(args: argparse.Namespace) -> int:
             common = dict(fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps,
                 fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period,
                 rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
-            full = backtest(symbol, items, bars, universe[symbol].filters, **common,
+            full = backtest(symbol, items, bars, universe[symbol].filters, initial_quote_balance=args.hypothetical_usdt_balance, **common,
                 evaluation_start=evaluation_start, evaluation_end=evaluation_end)
-            integrated = backtest(symbol, items, bars, universe[symbol].filters, **common,
+            integrated = backtest(symbol, items, bars, universe[symbol].filters, initial_quote_balance=args.hypothetical_usdt_balance, **common,
                 evaluation_start=evaluation_start, evaluation_end=evaluation_end, entry_admission=gate)
-            oos = backtest(symbol, items, validation_bars, universe[symbol].filters, **common,
+            oos = backtest(symbol, items, validation_bars, universe[symbol].filters, initial_quote_balance=args.hypothetical_usdt_balance, **common,
                 evaluation_start=validation_start, evaluation_end=validation_end)
-            integrated_oos = backtest(symbol, items, validation_bars, universe[symbol].filters, **common,
+            integrated_oos = backtest(symbol, items, validation_bars, universe[symbol].filters, initial_quote_balance=args.hypothetical_usdt_balance, **common,
                 evaluation_start=validation_start, evaluation_end=validation_end, entry_admission=gate)
+            # Fixed-parameter 180-day evaluation under each isolated cost scenario.
+            for cost_name, cost_fee, cost_spread, cost_slip in VALIDATION_COST_SCENARIOS:
+                eval_kw = dict(initial_quote_balance=args.hypothetical_usdt_balance, fee_rate=cost_fee,
+                    spread_bps=cost_spread, slippage_bps=cost_slip,
+                    fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period,
+                    rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min,
+                    rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
+                eval_baseline = backtest(symbol, items, bars, universe[symbol].filters, **eval_kw,
+                    evaluation_start=evaluation_start, evaluation_end=evaluation_end)
+                eval_integrated = backtest(symbol, items, bars, universe[symbol].filters, **eval_kw,
+                    evaluation_start=evaluation_start, evaluation_end=evaluation_end, entry_admission=gate)
+                eval_bh, eval_bhdd = buy_hold_metrics(btc_items[warmup_bars:warmup_bars + bars], cost_fee, cost_spread, cost_slip)
+                evaluation_rows.append(dict(symbol=symbol, cost=cost_name, fee=cost_fee,
+                    spread=cost_spread, slip=cost_slip, baseline=eval_baseline, integrated=eval_integrated,
+                    btc_return=eval_bh, btc_dd=eval_bhdd))
             # Three non-overlapping validation windows, fixed parameters, independent balances.
             for window_no, (start_i, end_i) in enumerate(validation_bounds, start=1):
                 start_at, end_at = btc_items[start_i].payload.start, btc_items[end_i].payload.start
@@ -642,7 +665,8 @@ def run(args: argparse.Namespace) -> int:
                 if len(asset_window) != validation_bars or len(btc_window) != validation_bars:
                     raise ProductV2Error(f"validation window {window_no} has insufficient closed bars")
                 for cost_name, cost_fee, cost_spread, cost_slip in VALIDATION_COST_SCENARIOS:
-                    kw = dict(fee_rate=cost_fee, spread_bps=cost_spread, slippage_bps=cost_slip,
+                    kw = dict(initial_quote_balance=args.hypothetical_usdt_balance,
+                        fee_rate=cost_fee, spread_bps=cost_spread, slippage_bps=cost_slip,
                         fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period,
                         rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min,
                         rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
@@ -709,26 +733,45 @@ def run(args: argparse.Namespace) -> int:
         print(f"  Benchmark: cash=0%; BTC buy-and-hold net={btc_hold}% over the same 180d evaluation")
         print(f"  INDEPENDENT VALIDATION 60d: baseline return={oos_ret}%; DD={oos.max_drawdown * D('100')}%; integrated return={integrated_oos_ret}%; DD={integrated_oos.max_drawdown * D('100')}%; integrated entries={sum(f.side == 'BUY' for f in integrated_oos.fills)}; BTC rejections={len(integrated_oos.entry_rejections)}; BTC buy-and-hold net={buy_hold_net_return(btc_items[warmup_bars + bars:warmup_bars + bars + validation_bars], args.fee_rate, args.spread_bps, args.slippage_bps)}%; cash=0%")
         print(f"  research filter={'PASS' if not reasons else 'REJECT'}; reasons={','.join(reasons) if reasons else 'none'}")
-    print("\\nWALK-FORWARD VALIDATION — THREE CONSECUTIVE 60-DAY WINDOWS")
+    print("\nWALK-FORWARD VALIDATION — THREE CONSECUTIVE 60-DAY WINDOWS")
     print("Parameters fixed before validation; no tuning on validation outcomes. Spreads are modeled assumptions, not observed history.")
     for v in validation_rows:
         b, i = v["baseline"], v["integrated"]
         regime_rejections = sum("BTC_REGIME_NOT_BULLISH" in reason for reason in i.entry_rejections)
         correlation_rejections = sum("BTC_CORRELATION_" in reason for reason in i.entry_rejections)
         data_rejections = sum(any(code in reason for code in ("BTC_METRICS_INSUFFICIENT", "BTC_HISTORY_NOT_TEMPORALLY_ALIGNED")) for reason in i.entry_rejections)
-        print(f"VALIDATION window=${v['window']} symbol=${v['symbol']} range=${v['start'].isoformat()}..${v['end'].isoformat()} cost=${v['cost']} fee/fill=${v['fee']} assumed_full_spread_bps=${v['spread']} slippage/fill_bps=${v['slip']} | baseline_return=${v['baseline_return']}% baseline_drawdown=${b.max_drawdown*D('100')}% baseline_entries=${v['baseline_entries']} | integrated_return=${v['integrated_return']}% integrated_drawdown=${i.max_drawdown*D('100')}% integrated_entries=${v['integrated_entries']} rejects_regime=${regime_rejections} rejects_correlation=${correlation_rejections} rejects_unknown_or_data=${data_rejections} | cash_return=0% cash_drawdown=0% BTC_buy_hold_return=${v['btc_return']}% BTC_buy_hold_drawdown=${v['btc_dd']}%")
+        for strategy_name, result, result_return in (("BASELINE", b, v["baseline_return"]), ("INTEGRATED", i, v["integrated_return"])):
+            buys = sum(fill.side == "BUY" for fill in result.fills)
+            sells = sum(fill.side == "SELL" for fill in result.fills)
+            net_pnl = result.final_equity - result.config.initial_quote_balance
+            modeled_cost = modeled_spread_slippage_cost(result.fills, v["spread"], v["slip"])
+            order_rejections = sum("ORDER_REJECTED:" in reason for reason in result.entry_rejections)
+            print(f"VALIDATION window={v['window']} symbol={v['symbol']} range={v['start'].isoformat()}..{v['end'].isoformat()} cost={v['cost']} strategy={strategy_name} initial_usdt={result.config.initial_quote_balance} final_equity_usdt={result.final_equity} net_pnl_usdt={net_pnl} return={result_return}% drawdown={result.max_drawdown*D('100')}% buys={buys} sells={sells} fills={len(result.fills)} fees_usdt={result.total_fees} modeled_spread_slippage_usdt={modeled_cost} uninvested_quote_usdt={result.final_quote_balance} order_rejections={order_rejections} gate_or_data_rejections={len(result.entry_rejections)-order_rejections}")
+        print(f"  BENCHMARK window={v['window']} cost={v['cost']} cash_return=0% cash_drawdown=0% BTC_buy_hold_return={v['btc_return']}% BTC_buy_hold_drawdown={v['btc_dd']}% hypothetical_initial_usdt={args.hypothetical_usdt_balance}")
         for strategy_name, result in (("BASELINE", b), ("INTEGRATED", i)):
             for fill in result.fills:
-                print(f"  VALIDATION_FILL window=${v['window']} symbol=${v['symbol']} cost=${v['cost']} strategy=${strategy_name} side=${fill.side} timestamp=${fill.timestamp.isoformat()} price=${fill.price} quantity=${fill.quantity} fee=${fill.fee} realized_pnl=${fill.realized_pnl} quote_balance_after=${fill.quote_balance_after} reason=${fill.reason}")
+                print(f"  VALIDATION_FILL window={v['window']} symbol={v['symbol']} cost={v['cost']} strategy=${strategy_name} side=${fill.side} timestamp=${fill.timestamp.isoformat()} price=${fill.price} quantity=${fill.quantity} fee=${fill.fee} realized_pnl=${fill.realized_pnl} quote_balance_after=${fill.quote_balance_after} reason=${fill.reason}")
         for rejection in i.entry_rejections:
-            print(f"  VALIDATION_REJECTION window=${v['window']} symbol=${v['symbol']} cost=${v['cost']} detail=${rejection}")
+            print(f"  VALIDATION_REJECTION window={v['window']} symbol={v['symbol']} cost={v['cost']} detail=${rejection}")
     print(f"Walk-forward rows={len(validation_rows)}; maximum expected={len(candidates)*VALIDATION_WINDOW_COUNT*len(VALIDATION_COST_SCENARIOS)}.")
+
+    print("\n180-DAY EVALUATION — HYPOTHETICAL CAPITAL AND COST SCENARIOS")
+    print("All strategy results below start with the explicit hypothetical USDT balance; 50000 ARS remains CONVERSION_UNKNOWN.")
+    for e in evaluation_rows:
+        for strategy_name, result in (("BASELINE", e["baseline"]), ("INTEGRATED", e["integrated"])):
+            net_pnl = result.final_equity - result.config.initial_quote_balance
+            ret = net_pnl / result.config.initial_quote_balance * D("100")
+            buys = sum(fill.side == "BUY" for fill in result.fills)
+            sells = sum(fill.side == "SELL" for fill in result.fills)
+            modeled_cost = modeled_spread_slippage_cost(result.fills, e["spread"], e["slip"])
+            order_rejections = sum("ORDER_REJECTED:" in reason for reason in result.entry_rejections)
+            print(f"EVALUATION symbol={e['symbol']} cost={e['cost']} strategy={strategy_name} initial_usdt={result.config.initial_quote_balance} final_equity_usdt={result.final_equity} net_pnl_usdt={net_pnl} return={ret}% drawdown={result.max_drawdown*D('100')}% buys={buys} sells={sells} fills={len(result.fills)} fees_usdt={result.total_fees} modeled_spread_slippage_usdt={modeled_cost} uninvested_quote_usdt={result.final_quote_balance} order_rejections={order_rejections} gate_or_data_rejections={len(result.entry_rejections)-order_rejections} cash_benchmark_return=0% BTC_buy_hold_return={e['btc_return']}% BTC_buy_hold_drawdown={e['btc_dd']}%")
 
     print(f"Research candidates passing current-snapshot non-budget controls: {sum(1 for row in rows if not row[15])}")
     print("Comparison: BASELINE EMA/RSI is ungated reference; INTEGRATED BTC-GATED applies historical regime/correlation admission at each entry. Exits are never blocked by entry filters.")
     print("Split: 90d warm-up; 180d evaluation; three consecutive independent 60d validation windows with fixed parameters; validation is never used for fitting.")
     print("\nNORMALIZED USDT CAPITAL SENSITIVITY — NOT ARS CONVERSION")
-    print("The 100/250/500 USDT budgets are hypothetical computational scenarios only; no exchange rate or ARS affordability is implied.")
+    print(f"The {args.hypothetical_usdt_balance} USDT scenario plus 100/250/500 USDT sensitivity values are hypothetical computational scenarios only; none is an ARS conversion.")
     print("Hypothetical USDT | Candidate | BTC relationship controls | Affordable at current snapshot | Affordability reason | Virtual BUY entries | Round-trip break-even | Net return | Max drawdown | Fees USDT | Decision")
     for budget, symbol, affordable, reason, result, integrated_result in normalized_rows:
         net_return = (result.final_equity / result.config.initial_quote_balance - ONE) * D("100")
@@ -746,7 +789,7 @@ def run(args: argparse.Namespace) -> int:
     for symbol, reason in excluded[:30]:
         print(f"  {symbol}: {reason}")
     print("\nFINAL DECISION: NO_TRADE")
-    print("Budget gate: CONVERSION_UNKNOWN. No candidate is declared affordable with 10000 ARS; ARS→USDT route and costs were not verified.")
+    print(f"Budget gate: CONVERSION_UNKNOWN. No candidate is declared affordable with {args.initial_ars} ARS; ARS→USDT route and costs were not verified.")
     print("Research backtests are not evidence of future profitability. No real order is placed.")
     return 0
 

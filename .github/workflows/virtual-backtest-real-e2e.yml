@@ -52,15 +52,20 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python -m bot_obrero.product_v2 --days 180 --universe-limit 5 2>&1 | tee product-v2-report.txt
+          python -m bot_obrero.product_v2 --days 180 --universe-limit 5 --initial-ars 50000 --hypothetical-usdt-balance 31 2>&1 | tee product-v2-report.txt
       - name: Assert Product V2 report discloses market and capital state
         shell: bash
         run: |
           set -euo pipefail
           test -s product-v2-report.txt
           grep -F "BTC panel:" product-v2-report.txt
-          grep -F "ARS budget=" product-v2-report.txt
+          grep -F "Capital reference: 50000 ARS; conversion=CONVERSION_UNKNOWN" product-v2-report.txt
+          grep -F "Hypothetical simulation balance: 31 USDT; provenance=HYPOTHETICAL_SCENARIO_NOT_ARS_CONVERSION" product-v2-report.txt
+          grep -F "ARS budget=50000" product-v2-report.txt
           grep -F "conversion=CONVERSION_UNKNOWN" product-v2-report.txt
+          grep -F "180-DAY EVALUATION — HYPOTHETICAL CAPITAL AND COST SCENARIOS" product-v2-report.txt
+          grep -F "WALK-FORWARD VALIDATION — THREE CONSECUTIVE 60-DAY WINDOWS" product-v2-report.txt
+          grep -F "initial_usdt=31" product-v2-report.txt
           grep -F "ALTCOIN RESULTS" product-v2-report.txt
           grep -F "FINAL DECISION: NO_TRADE" product-v2-report.txt
           grep -F "Budget gate: CONVERSION_UNKNOWN" product-v2-report.txt

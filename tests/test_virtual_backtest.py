@@ -77,6 +77,8 @@ def test_full_virtual_simulation_accounts_for_buy_sell_fees_pnl_equity_and_drawd
     assert result.fills[1].timestamp > result.fills[0].timestamp
     assert all(fill.fee > 0 for fill in result.fills)
     assert result.final_quote_balance > 0
+    assert all(fill.quote_balance_after >= 0 for fill in result.fills)
+    assert result.final_quote_balance >= 0
     assert result.final_base_position == 0
     assert result.total_fees == sum((fill.fee for fill in result.fills), Decimal("0"))
     assert result.realized_pnl == result.fills[-1].realized_pnl
@@ -251,6 +253,12 @@ def test_virtual_buy_respects_quantity_step_and_minimum_notional():
         _config(min_notional=Decimal("1000000")),
     )
     assert blocked.fills == ()
+    assert any("ORDER_REJECTED:MIN_NOTIONAL" in reason for reason in blocked.entry_rejections)
+    assert blocked.final_quote_balance == blocked.config.initial_quote_balance
+    assert blocked.final_equity >= Decimal("0")
+    min_qty_blocked = run_virtual_backtest(items, _config(min_qty=Decimal("1000000")))
+    assert min_qty_blocked.fills == ()
+    assert any("ORDER_REJECTED:MIN_QTY" in reason for reason in min_qty_blocked.entry_rejections)
 
 
 def test_virtual_backtest_rejects_invalid_instrument_filters():
