@@ -226,3 +226,33 @@ def test_module_does_not_import_or_invoke_financial_execution():
     source = inspect.getsource(module)
     assert "/api/v3/order" not in source
     assert "/api/v3/account" not in source
+
+
+def test_spread_is_charged_on_both_sides_and_worsens_virtual_execution():
+    items = _series()
+    no_spread = run_virtual_backtest(items, _config(spread_bps=Decimal("0")))
+    wide_spread = run_virtual_backtest(items, _config(spread_bps=Decimal("100")))
+    assert [fill.side for fill in no_spread.fills] == ["BUY", "SELL"]
+    assert [fill.side for fill in wide_spread.fills] == ["BUY", "SELL"]
+    assert wide_spread.fills[0].price > no_spread.fills[0].price
+    assert wide_spread.fills[1].price < no_spread.fills[1].price
+    assert wide_spread.final_equity < no_spread.final_equity
+
+
+def test_virtual_buy_respects_quantity_step_and_minimum_notional():
+    items = _series()
+    result = run_virtual_backtest(
+        items,
+        _config(quantity_step=Decimal("0.1"), min_qty=Decimal("0.1"), min_notional=Decimal("1")),
+    )
+    assert result.fills[0].quantity % Decimal("0.1") == 0
+    blocked = run_virtual_backtest(
+        items,
+        _config(min_notional=Decimal("1000000")),
+    )
+    assert blocked.fills == ()
+
+
+def test_virtual_backtest_rejects_invalid_instrument_filters():
+    with pytest.raises(BacktestError, match="quantity_step"):
+        run_virtual_backtest(_series(), _config(quantity_step=Decimal("0")))
