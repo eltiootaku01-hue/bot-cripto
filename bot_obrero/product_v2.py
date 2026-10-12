@@ -373,10 +373,6 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(f"ARS budget={args.initial_ars}; indicative ARSUSDT public spot price={ars_market.price} USDT/ARS; bid={ars_market.bid}; ask={ars_market.ask}; spread={ars_market.spread_pct}%; route/funding/fees=UNKNOWN; conversion=CONVERSION_UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Normalized USDT scenarios are separate research assumptions, not conversions.")
-    print("\nARS CAPITAL SCENARIOS — CONVERSION UNKNOWN")
-    print("Scenario | Capital ARS | Conversion | Net USDT | Conversion costs | Fee reserve | Max usable | Uninvested | Affordable candidates | Round-trip cost ARS | Net historical return | Drawdown | Decision")
-    for scenario in ars_capital_scenarios():
-        print(f"{scenario['scenario']} | {scenario['capital_ars']} | {scenario['conversion']} | {scenario['usdt_net']} | {scenario['conversion_costs']} | {scenario['fees_reserve']} | {scenario['max_usable']} | {scenario['uninvested']} | {scenario['affordable_candidates']} | {scenario['full_trade_cost_ars']} | {scenario['historical_net_return']} | {scenario['drawdown']} | {scenario['decision']}")
     print(f"Strategy: EMA{args.fast_ema_period}/EMA{args.slow_ema_period} crossover + RSI{args.rsi_period}; RSI buy minimum={args.rsi_buy_min}; sell threshold={args.rsi_sell_at}; position fraction={args.position_fraction}; fee/fill={args.fee_rate}; assumed full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps; max 5 BUY entries/rolling 30 days.")
     print(f"Cost assumptions: fee/fill={args.fee_rate}; full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps.")
     print("Exposure metric: percentage of evaluated 4h bars spent in a virtual position; candidate-level exposure appears when its history is admissible.")
@@ -408,7 +404,12 @@ def run(args: argparse.Namespace) -> int:
         else:
             eligible_snapshot.append((symbol, tick))
     candidates = eligible_snapshot[:args.universe_limit]
-    print(f"Universe active USDT Spot={len(universe)}; valid ticker snapshots={len(ticker)}; candidates backtested={len(candidates)}")
+    print(f"Universe active USDT Spot={len(universe)}; valid ticker snapshots={len(ticker)}; candidates passing filters={len(eligible_snapshot)}; candidates backtested={len(candidates)}")
+    print("\nARS CAPITAL SENSITIVITY — CONVERSION UNKNOWN")
+    print("Capital ARS | Conversion verified | USDT net | Candidates passing filters | Candidates affordable | Full-operation cost ARS / % capital | Break-even return | Net historical return | Drawdown | Decision")
+    for scenario in ars_capital_scenarios():
+        print(f"{scenario['capital_ars']} | {scenario['conversion']} | {scenario['usdt_net']} | {len(eligible_snapshot)} | {scenario['affordable_candidates']} | UNKNOWN / UNKNOWN | UNKNOWN | {scenario['historical_net_return']} | {scenario['drawdown']} | {scenario['decision']}")
+
     btc_by_start = {item.payload.start: item for item in btc_items}
     rows = []
     normalized_rows: list[tuple[Decimal, str, bool | None, str, BacktestResult]] = []
