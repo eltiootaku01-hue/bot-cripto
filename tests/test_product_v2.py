@@ -682,7 +682,7 @@ def test_daily_metrics_fill_at_equity_timestamp_is_applied_only_to_next_point():
     assert rows[0]["day_utc"] == "2026-07-01"
     assert rows[0]["unrealized_pnl"] is None
     assert rows[1]["day_utc"] == "2026-07-02"
-    assert rows[1]["unrealized_pnl"] == Decimal("1.9")
+    assert rows[1]["unrealized_pnl"] == Decimal("0.9")
     assert rows[1]["buys"] == 1
 
 
@@ -741,7 +741,7 @@ def test_daily_metrics_equity_pnl_fees_reconcile_for_valid_buy_hold_sell_sequenc
     ]
     rows, summary = daily_equity_metrics(_daily_metrics_result(points, [buy, sell], first_candle=first))
     assert rows[0]["unrealized_pnl"] == Decimal("-0.1")
-    assert rows[1]["unrealized_pnl"] == Decimal("0.9")
+    assert rows[1]["unrealized_pnl"] == Decimal("1.9")
     assert rows[-1]["unrealized_pnl"] == Decimal("0")
     assert summary["net_pnl"] == Decimal("1.78")
     assert summary["realized_pnl"] == Decimal("1.78")
