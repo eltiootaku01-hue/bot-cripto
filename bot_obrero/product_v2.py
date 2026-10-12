@@ -27,6 +27,7 @@ ZERO, ONE = D("0"), D("1")
 FEE, SLIPPAGE_BPS = D("0.001"), D("5")
 BASE_URL, TIMEOUT = "https://data-api.binance.vision", 12.0
 MAX_UNIVERSE = 12
+STABLE_BASE_ASSETS = {"USDC", "USDE", "FDUSD", "BUSD", "TUSD", "DAI", "USDP", "USD1", "USDS", "USDD", "PYUSD", "RLUSD", "USTC", "EUR", "AEUR", "EURI", "BFUSD"}
 SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
 
 
@@ -68,6 +69,12 @@ class InstrumentFilters:
 
 
 @dataclass(frozen=True)
+class UniverseInstrument:
+    base_asset: str
+    filters: InstrumentFilters
+
+
+@dataclass(frozen=True)
 class Ticker:
     symbol: str
     price: Decimal
@@ -102,10 +109,10 @@ def parse_filters(raw: Any) -> InstrumentFilters:
     return InstrumentFilters(minimum, step, notional)
 
 
-def active_usdt_universe(payload: Any) -> dict[str, InstrumentFilters]:
+def active_usdt_universe(payload: Any) -> dict[str, UniverseInstrument]:
     if not isinstance(payload, Mapping) or not isinstance(payload.get("symbols"), list):
         raise ProductV2Error("ExchangeInfo missing symbols array")
-    universe = {}
+    universe: dict[str, UniverseInstrument] = {}
     for row in payload["symbols"]:
         if not isinstance(row, Mapping):
             continue
@@ -118,7 +125,7 @@ def active_usdt_universe(payload: Any) -> dict[str, InstrumentFilters]:
             continue
         if not isinstance(base, str) or base.endswith(("UP", "DOWN", "BULL", "BEAR")) or re.search(r"\d+[LS]$", base):
             continue
-        universe[symbol] = parse_filters(row.get("filters"))
+        universe[symbol] = UniverseInstrument(base_asset=base, filters=parse_filters(row.get("filters")))
     return universe
 
 
@@ -260,7 +267,7 @@ def run(args: argparse.Namespace) -> int:
     bars = args.days * 6
     if len(btc_items) < bars:
         raise ProductV2Error(f"BTC history insufficient: requested at least {bars}, received {len(btc_items)}")
-    btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT"))
+    btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None)
     btc_returns = return_series(btc_items)
     regime = "BULLISH" if btc_result.final_fast_ema > btc_result.final_slow_ema and btc_result.final_rsi >= D("50") else (
         "BEARISH" if btc_result.final_fast_ema < btc_result.final_slow_ema and btc_result.final_rsi < D("50") else "NEUTRAL"
@@ -273,7 +280,11 @@ def run(args: argparse.Namespace) -> int:
     print(f"BTC closed bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}")
     print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
     print(f"BTC buy-and-hold net reference after fee/spread/slippage assumptions={btc_hold}%; cash reference=0%")
-    print(f"ARS budget={args.initial_ars}; conversion=CONVERSION_UNKNOWN; source/time/cost=UNKNOWN")
+    ars_market = ticker.get("ARSUSDT")
+    if ars_market is None:
+        print(f"ARS budget={args.initial_ars}; direct ARSUSDT Spot quote not found in active public universe; conversion=CONVERSION_UNKNOWN")
+    else:
+        print(f"ARS budget={args.initial_ars}; indicative ARSUSDT public spot price={ars_market.price} USDT/ARS; bid={ars_market.bid}; ask={ars_market.ask}; spread={ars_market.spread_pct}%; route/funding/fees=UNKNOWN; conversion=CONVERSION_UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Research backtests use a separate normalized 1000 USDT, not the ARS budget.")
     print(f"Strategy: EMA12/EMA26 crossover + RSI14; fee/fill={FEE}; assumed full spread={D('10')} bps; slippage/fill={SLIPPAGE_BPS} bps; max 5 BUY entries/rolling 30 days.")
     print("Historical spread is not observable from klines; 10 bps is a conservative configurable model assumption, not a measured historical spread.")
@@ -286,8 +297,11 @@ def run(args: argparse.Namespace) -> int:
     )
     eligible_snapshot = []
     for symbol, tick in ranked:
-        filt = universe[symbol]
+        instrument = universe[symbol]
+        filt = instrument.filters
         reasons = []
+        if instrument.base_asset in STABLE_BASE_ASSETS:
+            reasons.append("STABLECOIN_OR_FIAT_BASE_NOT_ALTCOIN")
         if tick.quote_volume < args.min_quote_volume:
             reasons.append("LOW_QUOTE_VOLUME")
         if tick.spread_pct is None or tick.spread_pct > args.max_spread_pct:
@@ -318,9 +332,9 @@ def run(args: argparse.Namespace) -> int:
             c90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6 - 1)
             relative, btc30 = return_pct(items, 30 * 6), return_pct(btc_items, 30 * 6)
             relative_strength = relative - btc30 if relative is not None and btc30 is not None else None
-            full = backtest(symbol, items, bars, universe[symbol])
+            full = backtest(symbol, items, bars, universe[symbol].filters)
             # A fixed-parameter 60-day held-out slice is reported separately from the 180-day result.
-            oos = backtest(symbol, items[-60 * 6:], 60 * 6, universe[symbol])
+            oos = backtest(symbol, items[-60 * 6:], 60 * 6, universe[symbol].filters)
             reasons = []
             if regime != "BULLISH":
                 reasons.append("BTC_REGIME_NOT_BULLISH")
@@ -330,6 +344,10 @@ def run(args: argparse.Namespace) -> int:
                 reasons.append("SPREAD_TOO_WIDE")
             if not full.fills:
                 reasons.append("NO_STRATEGY_ENTRY")
+            if ret <= 0:
+                reasons.append("NET_FULL_PERIOD_RETURN_NOT_POSITIVE")
+            if oos_ret <= 0:
+                reasons.append("HELD_OUT_RETURN_NOT_POSITIVE")
             ret = (full.final_equity / full.config.initial_quote_balance - ONE) * D("100")
             oos_ret = (oos.final_equity / oos.config.initial_quote_balance - ONE) * D("100")
             rows.append((symbol, tick, universe[symbol], c30, c90, beta90, relative_strength, full, oos, ret, oos_ret, reasons))
@@ -347,6 +365,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"  180d net research return={ret}%; max drawdown={full.max_drawdown * D('100')}%; entries={sum(f.side == 'BUY' for f in full.fills)}; fees={full.total_fees} USDT")
         print(f"  held-out 60d return={oos_ret}%; held-out drawdown={oos.max_drawdown * D('100')}%; held-out entries={sum(f.side == 'BUY' for f in oos.fills)}")
         print(f"  research filter={'PASS' if not reasons else 'REJECT'}; reasons={','.join(reasons) if reasons else 'none'}")
+    print(f"Research candidates passing non-budget controls: {sum(1 for row in rows if not row[11])}")
     print("\nEXCLUSIONS (first 30)")
     for symbol, reason in excluded[:30]:
         print(f"  {symbol}: {reason}")
