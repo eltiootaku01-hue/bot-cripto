@@ -195,12 +195,15 @@ def fetch_history(adapter: BinanceMetadataBackedAdapter, symbol: str, days: int,
     return accepted
 
 
-def backtest(symbol: str, items: Sequence[Any], bars: int) -> BacktestResult:
+def backtest(symbol: str, items: Sequence[Any], bars: int, filters: InstrumentFilters | None = None) -> BacktestResult:
     config = BacktestConfig(
         symbol=symbol, interval="4h", candles=bars, fast_ema_period=12,
         slow_ema_period=26, rsi_period=14, rsi_buy_min=D("50"), rsi_sell_at=D("70"),
         initial_quote_balance=D("1000"), position_fraction=D("0.95"),
-        fee_rate=FEE, slippage_bps=SLIPPAGE_BPS, max_entries_per_30d=5,
+        fee_rate=FEE, slippage_bps=SLIPPAGE_BPS, spread_bps=D("10"), max_entries_per_30d=5,
+        min_qty=filters.min_qty if filters else None,
+        quantity_step=filters.step_size if filters else None,
+        min_notional=filters.min_notional if filters else None,
     )
     return run_virtual_backtest(items, config)
 
@@ -248,7 +251,7 @@ def run(args: argparse.Namespace) -> int:
     bars = args.days * 6
     if len(btc_items) < bars:
         raise ProductV2Error(f"BTC history insufficient: requested at least {bars}, received {len(btc_items)}")
-    btc_result = backtest("BTCUSDT", btc_items, bars)
+    btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT"))
     btc_returns = return_series(btc_items)
     regime = "BULLISH" if btc_result.final_fast_ema > btc_result.final_slow_ema and btc_result.final_rsi >= D("50") else (
         "BEARISH" if btc_result.final_fast_ema < btc_result.final_slow_ema and btc_result.final_rsi < D("50") else "NEUTRAL"
@@ -306,9 +309,9 @@ def run(args: argparse.Namespace) -> int:
             c90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6 - 1)
             relative, btc30 = return_pct(items, 30 * 6), return_pct(btc_items, 30 * 6)
             relative_strength = relative - btc30 if relative is not None and btc30 is not None else None
-            full = backtest(symbol, items, bars)
+            full = backtest(symbol, items, bars, universe[symbol])
             # A fixed-parameter 60-day held-out slice is reported separately from the 180-day result.
-            oos = backtest(symbol, items[-60 * 6:], 60 * 6)
+            oos = backtest(symbol, items[-60 * 6:], 60 * 6, universe[symbol])
             reasons = []
             if regime != "BULLISH":
                 reasons.append("BTC_REGIME_NOT_BULLISH")
