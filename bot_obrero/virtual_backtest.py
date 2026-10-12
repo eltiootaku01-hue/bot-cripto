@@ -225,7 +225,7 @@ def _validate_history(items: Sequence[MarketData], interval: str):
             raise BacktestError(f"candle is not explicitly closed and complete at {candle.start.isoformat()}")
         if item.quality is not DataQuality.VALID:
             raise BacktestError(f"market-data quality is {item.quality.value} at {candle.start.isoformat()}")
-        if item.completeness in (DataCompleteness.INVALID, DataCompleteness.PARTIAL):
+        if item.completeness is DataCompleteness.PARTIAL:
             raise BacktestError(f"market-data envelope is invalid or partial at {candle.start.isoformat()}")
         if item.completeness is DataCompleteness.UNKNOWN:
             unknown_completeness += 1
