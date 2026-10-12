@@ -18,7 +18,7 @@ from .analysis_rsi import RSIAlgorithm
 from .analysis_sma import SMAAlgorithm
 from .availability import AvailabilityEvidence
 from .binance_instruments import BinanceMetadataBackedAdapter, BinanceSpotInstrumentMetadata
-from .binance_intervals import validate_binance_spot_interval
+from .binance_intervals import BinanceSpotIntervalUnit, validate_binance_spot_interval
 from .binance_spot import BinanceSpotRestConfig
 from .market_data import (
     CandleFinality,
@@ -96,22 +96,23 @@ def _next_month(value: datetime) -> datetime:
 
 
 def _expected_next_start(start: datetime, interval: str) -> datetime:
-    match = re.fullmatch(r"([1-9][0-9]*)([mhdwM])", interval)
-    if not match:
-        raise AnalysisCLIError(f"unsupported interval for continuity validation: {interval}")
-    amount, unit = int(match.group(1)), match.group(2)
-    if unit == "m":
-        return start + timedelta(minutes=amount)
-    if unit == "h":
-        return start + timedelta(hours=amount)
-    if unit == "d":
-        return start + timedelta(days=amount)
-    if unit == "w":
-        return start + timedelta(weeks=amount)
-    result = start
-    for _ in range(amount):
-        result = _next_month(result)
-    return result
+    """Return the next candle start using the canonical Binance interval contract."""
+    try:
+        specification = validate_binance_spot_interval(interval)
+    except (TypeError, ValueError) as exc:
+        raise AnalysisCLIError(
+            f"unsupported interval for continuity validation: {interval}"
+        ) from exc
+    if specification.unit is BinanceSpotIntervalUnit.MONTH:
+        result = start
+        for _ in range(specification.magnitude):
+            result = _next_month(result)
+        return result
+    if specification.duration is None:
+        raise AnalysisCLIError(
+            f"interval has no fixed duration for continuity validation: {interval}"
+        )
+    return start + specification.duration
 
 
 def _closed_complete_items(items: Sequence[MarketData], interval: str) -> tuple[list[MarketData], int]:
@@ -130,15 +131,34 @@ def _closed_complete_items(items: Sequence[MarketData], interval: str) -> tuple[
     for index, item in enumerate(ordered):
         candle = item.payload
         is_last = index == len(ordered) - 1
-        is_open_or_partial = (
+
+        # UNKNOWN is not evidence that a candle is open or partial. Fail closed
+        # before considering the final-candle exclusion rule.
+        unknown_fields = []
+        if candle.candle_state is CandleState.UNKNOWN:
+            unknown_fields.append("candle state")
+        if candle.completeness is DataCompleteness.UNKNOWN:
+            unknown_fields.append("candle completeness")
+        if item.completeness is DataCompleteness.UNKNOWN:
+            unknown_fields.append("MarketData completeness")
+        if candle.finality is CandleFinality.UNKNOWN:
+            unknown_fields.append("candle finality")
+        if unknown_fields:
+            raise AnalysisCLIError(
+                f"unknown {'/'.join(unknown_fields)} at {candle.start.isoformat()}; "
+                "admissibility cannot be confirmed"
+            )
+
+        explicit_open_or_partial = (
             candle.candle_state is CandleState.OPEN
-            or candle.completeness is not DataCompleteness.COMPLETE
-            or item.completeness is not DataCompleteness.COMPLETE
+            or candle.completeness is DataCompleteness.PARTIAL
+            or item.completeness is DataCompleteness.PARTIAL
             or candle.finality is CandleFinality.NOT_FINAL
         )
-        if is_last and is_open_or_partial:
+        if is_last and explicit_open_or_partial:
             excluded += 1
             continue
+
         if candle.candle_state is not CandleState.CLOSED:
             raise AnalysisCLIError(f"inadmissible internal candle state at {candle.start.isoformat()}")
         if candle.completeness is not DataCompleteness.COMPLETE:
