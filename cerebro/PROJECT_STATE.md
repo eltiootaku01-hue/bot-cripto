@@ -1175,6 +1175,42 @@ Un nuevo merge documental no constituye por sí mismo un conflicto funcional.
 
 ---
 
+# HUESO 05-G1-CLOSE — CIERRE DOCUMENTAL DEL DESCUBRIMIENTO DEL CALLER
+
+Estado:
+
+**CLOSED DOCUMENTALLY — OWNER CONFIRMED NO CONSUMER APPLICATION EXISTS YET**
+
+### Input explícito del propietario
+
+El propietario confirma explícitamente:
+
+> Todavía no existe aplicación consumidora.
+
+Esta declaración es un input del propietario. No es una inferencia derivada de las búsquedas de repositorios ni una prueba universal de que no existan consumidores fuera del ámbito inspeccionado.
+
+### Resultado del descubrimiento
+
+- **OBSERVED:** en el alcance de los seis repositorios accesibles inspeccionados durante HUESO 05-G1-D2 no se encontró una cadena funcional verificable que conecte sus árboles examinados con `FinancialExecutionRuntime`.
+- **OWNER CONFIRMED:** todavía no existe una aplicación consumidora.
+- **UNKNOWN:** la confirmación no demuestra por sí sola que el runtime esté correctamente integrado, ni descarta otros consumidores fuera del alcance examinado.
+- **BLOCKED:** la integración funcional queda pendiente hasta que exista una aplicación consumidora identificable. No se continuará buscando un caller sin evidencia nueva.
+
+### Requisitos para una futura integración
+
+Cuando exista una aplicación consumidora, antes de autorizar una fase funcional deberá identificarse y verificarse:
+
+1. El repositorio, entry point y símbolo que invocan `FinancialExecutionRuntime`.
+2. El ciclo de vida y la preservación de `proposal_id` y `reservation_id`.
+3. El comportamiento ante reinicios, pérdida de respuestas y resultados desconocidos, incluido cómo se recupera una identidad durable sin inferirla de términos económicos.
+4. La evidencia real del handoff entre el consumidor y el runtime.
+
+Esta sección registra únicamente el cierre documental del descubrimiento. No implementa ni autoriza cambios en identidad, idempotencia, admisión, ejecución, recuperación o reconciliación; tampoco demuestra una integración financiera de producción.
+
+No reabrir la búsqueda ni iniciar HUESO 05-G funcional salvo que el propietario aporte una referencia nueva o exista evidencia material nueva. Cualquier decisión arquitectónica que exceda este cierre requiere **REQUIRES CEREBRO REVIEW**.
+
+---
+
 # ESTADO DE CONFIANZA
 
 - Documentation basis head: **OBSERVED — `d7900c640f0e4a565a304c0ff1b640b19e7f832e` (base documental histórica de esta actualización; no es un puntero vivo)**
