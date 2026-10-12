@@ -11,7 +11,7 @@ import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Sequence
 
 from .analysis_contracts import ArtifactNature, MarketObservation, Provenance
@@ -99,6 +99,9 @@ class BacktestConfig:
     slippage_bps: Decimal = Decimal("5")
     spread_bps: Decimal = Decimal("10")
     max_entries_per_30d: int = 5
+    min_qty: Decimal | None = None
+    quantity_step: Decimal | None = None
+    min_notional: Decimal | None = None
 
     def validate(self) -> None:
         if not isinstance(self.symbol, str) or not _SYMBOL_RE.fullmatch(self.symbol):
@@ -132,6 +135,10 @@ class BacktestConfig:
             raise BacktestError("RSI buy threshold must be between 0 and 100")
         if not (_ZERO <= self.rsi_sell_at <= Decimal("100")):
             raise BacktestError("RSI sell threshold must be between 0 and 100")
+        for name in ("min_qty", "quantity_step", "min_notional"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, Decimal) or not value.is_finite() or value <= _ZERO):
+                raise BacktestError(f"{name} must be a positive finite Decimal when supplied")
 
 
 @dataclass(frozen=True)
@@ -338,9 +345,16 @@ def run_virtual_backtest(items: Sequence[MarketData], config: BacktestConfig) ->
             slippage = (config.slippage_bps + config.spread_bps / Decimal("2")) / _BPS
             if side == "BUY" and position == _ZERO:
                 fill_price = candle.open * (_ONE + slippage)
-                quantity = (quote * config.position_fraction) / (fill_price * (_ONE + config.fee_rate))
-                if quantity > _ZERO:
-                    notional = quantity * fill_price
+                raw_quantity = (quote * config.position_fraction) / (fill_price * (_ONE + config.fee_rate))
+                quantity = raw_quantity
+                if config.quantity_step is not None:
+                    quantity = (raw_quantity / config.quantity_step).to_integral_value(rounding=ROUND_DOWN) * config.quantity_step
+                notional = quantity * fill_price
+                if (
+                    quantity > _ZERO
+                    and (config.min_qty is None or quantity >= config.min_qty)
+                    and (config.min_notional is None or notional >= config.min_notional)
+                ):
                     fee = notional * config.fee_rate
                     cost = notional + fee
                     quote -= cost
@@ -440,6 +454,7 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Slippage: {cfg.slippage_bps} bps per fill")
     print(f"Assumed full spread: {cfg.spread_bps} bps (half charged per fill; historical spread is not available)")
     print(f"Maximum entries per rolling 30 days: {cfg.max_entries_per_30d}")
+    print(f"Instrument min quantity / step / min notional: {cfg.min_qty} / {cfg.quantity_step} / {cfg.min_notional}")
     print("Quote balance is denominated in the pair quote asset; it is not an ARS balance or an ARS-to-USDT conversion.")
     print("Execution model: signal at candle close; fill at next candle open with configured slippage")
     print("Temporal limitation: canonical historical available_at is UNKNOWN when absent; this simulation uses an explicit bar-close model without rewriting MarketData.available_at.")
