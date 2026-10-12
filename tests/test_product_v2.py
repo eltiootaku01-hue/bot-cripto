@@ -517,19 +517,20 @@ def test_daily_equity_metrics_separate_equity_change_realized_unrealized_and_cos
 
     day1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
     day2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    close_1ms = timedelta(milliseconds=1)
     points = (
-        EquityPoint(day1 + timedelta(hours=4), Decimal("10"), Decimal("989.9"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=8), Decimal("10.05"), Decimal("989.9"), Decimal("1"), Decimal("1005"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=12), Decimal("10.10"), Decimal("989.9"), Decimal("1"), Decimal("1010"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=16), Decimal("10.08"), Decimal("989.9"), Decimal("1"), Decimal("1008"), Decimal("0")),
-        EquityPoint(day1 + timedelta(hours=20), Decimal("10.12"), Decimal("989.9"), Decimal("1"), Decimal("1012"), Decimal("0")),
-        EquityPoint(day2, Decimal("10.15"), Decimal("989.9"), Decimal("1"), Decimal("1015"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=4), Decimal("10.10"), Decimal("990"), Decimal("1"), Decimal("1010"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=8), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=12), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=16), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(hours=20), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
-        EquityPoint(day2 + timedelta(days=1), Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=4) - close_1ms, Decimal("10"), Decimal("989.9"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=8) - close_1ms, Decimal("10.05"), Decimal("989.9"), Decimal("1"), Decimal("1005"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=12) - close_1ms, Decimal("10.10"), Decimal("989.9"), Decimal("1"), Decimal("1010"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=16) - close_1ms, Decimal("10.08"), Decimal("989.9"), Decimal("1"), Decimal("1008"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=20) - close_1ms, Decimal("10.12"), Decimal("989.9"), Decimal("1"), Decimal("1012"), Decimal("0")),
+        EquityPoint(day2 - close_1ms, Decimal("10.15"), Decimal("989.9"), Decimal("1"), Decimal("1015"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=4) - close_1ms, Decimal("10.10"), Decimal("990"), Decimal("1"), Decimal("1010"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=8) - close_1ms, Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=12) - close_1ms, Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=16) - close_1ms, Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=20) - close_1ms, Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(days=1) - close_1ms, Decimal("10"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
     )
     fills = (
         VirtualFill(day1 + timedelta(hours=1), "BUY", Decimal("1"), Decimal("10"), Decimal("0.1"), Decimal("989.9"), "entry"),
@@ -537,6 +538,7 @@ def test_daily_equity_metrics_separate_equity_change_realized_unrealized_and_cos
         VirtualFill(day1 + timedelta(hours=7), "BUY", Decimal("1"), Decimal("10"), Decimal("0.1"), Decimal("990"), "entry"),
     )
     result = SimpleNamespace(
+        first_candle=day1,
         equity_curve=points, fills=fills, entry_rejections=("ORDER_REJECTED:MIN_NOTIONAL",),
         config=SimpleNamespace(initial_quote_balance=Decimal("1000")),
     )
@@ -585,10 +587,11 @@ def test_daily_equity_metrics_marks_partial_days_and_uses_prior_close_reference(
 def test_daily_metrics_exclude_partial_days_from_complete_day_distribution_and_verify_timestamps():
     from bot_obrero.virtual_backtest import EquityPoint
     start = datetime(2026, 3, 1, tzinfo=timezone.utc)
-    full_closes = [start + timedelta(hours=4 * i) for i in range(1, 6)] + [start + timedelta(days=1)]
+    close_1ms = timedelta(milliseconds=1)
+    full_closes = [start + timedelta(hours=4 * i) - close_1ms for i in range(1, 6)] + [start + timedelta(days=1) - close_1ms]
     points = tuple(EquityPoint(ts, Decimal("10"), Decimal("100"), Decimal("0"), Decimal("100"), Decimal("0")) for ts in full_closes) + (
-        EquityPoint(start + timedelta(days=1, hours=4), Decimal("10"), Decimal("200"), Decimal("0"), Decimal("200"), Decimal("0")),
-        EquityPoint(start + timedelta(days=1, hours=8), Decimal("10"), Decimal("300"), Decimal("0"), Decimal("300"), Decimal("0")),
+        EquityPoint(start + timedelta(days=1, hours=4) - close_1ms, Decimal("10"), Decimal("200"), Decimal("0"), Decimal("200"), Decimal("0")),
+        EquityPoint(start + timedelta(days=1, hours=8) - close_1ms, Decimal("10"), Decimal("300"), Decimal("0"), Decimal("300"), Decimal("0")),
     )
     result = SimpleNamespace(equity_curve=points, fills=(), entry_rejections=(), config=SimpleNamespace(initial_quote_balance=Decimal("100")))
     rows, summary = daily_equity_metrics(result)
@@ -616,3 +619,130 @@ def test_daily_profitability_classification_requires_consistent_full_period_and_
     assert daily_profitability_status(positive, [good_window, good_window, {**good_window, "net_pnl": Decimal("-1")}]) == "DAILY_NET_PROFITABILITY_NOT_DEMONSTRATED"
     negative = {**positive, "net_pnl": Decimal("-10"), "daily_mean_usdt": Decimal("-1")}
     assert daily_profitability_status(negative, [good_window, good_window, good_window]) == "DAILY_NET_PROFITABILITY_NEGATIVE"
+
+
+
+def _daily_metrics_result(points, fills=(), *, first_candle=None, initial=Decimal("1000")):
+    return SimpleNamespace(first_candle=first_candle, equity_curve=tuple(points), fills=tuple(fills),
+                           entry_rejections=(), config=SimpleNamespace(initial_quote_balance=initial))
+
+
+def _equity_point(timestamp, *, close="10", quote="1000", position="0", equity=None):
+    from bot_obrero.virtual_backtest import EquityPoint
+    close_d, quote_d, position_d = Decimal(close), Decimal(quote), Decimal(position)
+    return EquityPoint(timestamp, close_d, quote_d, position_d,
+                       Decimal(equity) if equity is not None else quote_d + position_d * close_d,
+                       Decimal("0"))
+
+
+def _virtual_fill(timestamp, side, *, quantity="1", price="10", fee="0.1", realized=None):
+    from bot_obrero.virtual_backtest import VirtualFill
+    return VirtualFill(timestamp, side, Decimal(quantity), Decimal(price), Decimal(fee),
+                       Decimal("0"), side.lower(), None if realized is None else Decimal(realized))
+
+
+def test_daily_metrics_recognizes_six_inclusive_binance_four_hour_closes():
+    start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    close_1ms = timedelta(milliseconds=1)
+    timestamps = [start + timedelta(hours=4 * i) - close_1ms for i in range(1, 6)]
+    timestamps.append(start + timedelta(days=1) - close_1ms)
+    rows, summary = daily_equity_metrics(_daily_metrics_result(
+        [_equity_point(ts, equity="1000") for ts in timestamps], initial=Decimal("1000")
+    ))
+    assert len(rows) == 1
+    assert rows[0]["day_status"] == "FULL_UTC_DAY"
+    assert summary["complete_days"] == 1
+
+
+def test_daily_metrics_preserves_midnight_previous_period_attribution_but_not_full_day():
+    midnight = datetime(2026, 6, 2, tzinfo=timezone.utc)
+    rows, _ = daily_equity_metrics(_daily_metrics_result([
+        _equity_point(midnight - timedelta(hours=4)), _equity_point(midnight)
+    ]))
+    assert rows[0]["day_utc"] == "2026-06-01"
+    assert rows[0]["day_status"] == "PARTIAL_UTC_DAY"
+
+
+def test_daily_metrics_rejects_duplicate_and_unordered_equity_timestamps():
+    ts = datetime(2026, 6, 1, 4, tzinfo=timezone.utc)
+    with pytest.raises(ProductV2Error, match="duplicate equity timestamp"):
+        daily_equity_metrics(_daily_metrics_result([_equity_point(ts), _equity_point(ts)]))
+    with pytest.raises(ProductV2Error, match="strictly increasing"):
+        daily_equity_metrics(_daily_metrics_result([
+            _equity_point(ts + timedelta(hours=4)), _equity_point(ts)
+        ]))
+
+
+def test_daily_metrics_fill_at_equity_timestamp_is_applied_only_to_next_point():
+    first = datetime(2026, 7, 1, 20, tzinfo=timezone.utc)
+    p1 = _equity_point(first + timedelta(hours=4), close="10", quote="989.9", position="1", equity="999.9")
+    p2 = _equity_point(first + timedelta(hours=8), close="11", quote="989.9", position="1", equity="1000.9")
+    fill = _virtual_fill(first + timedelta(hours=4), "BUY", price="10", fee="0.1")
+    rows, _ = daily_equity_metrics(_daily_metrics_result([p1, p2], [fill], first_candle=first))
+    assert rows[0]["day_utc"] == "2026-07-01"
+    assert rows[0]["unrealized_pnl"] is None
+    assert rows[1]["day_utc"] == "2026-07-02"
+    assert rows[1]["unrealized_pnl"] == Decimal("0.9")
+    assert rows[1]["buys"] == 1
+
+
+def test_daily_metrics_rejects_fill_at_final_equity_timestamp_and_outside_horizon():
+    first = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    last = first + timedelta(hours=8)
+    points = [_equity_point(first + timedelta(hours=4)), _equity_point(last)]
+    with pytest.raises(ProductV2Error, match="unobservable"):
+        daily_equity_metrics(_daily_metrics_result(points, [_virtual_fill(last, "BUY")], first_candle=first))
+    with pytest.raises(ProductV2Error, match="precedes backtest horizon"):
+        daily_equity_metrics(_daily_metrics_result(points, [_virtual_fill(first - timedelta(microseconds=1), "BUY")], first_candle=first))
+    with pytest.raises(ProductV2Error, match="exceeds backtest horizon"):
+        daily_equity_metrics(_daily_metrics_result(points, [_virtual_fill(last + timedelta(microseconds=1), "BUY")], first_candle=first))
+
+
+def test_daily_metrics_sell_pnl_is_attributed_to_sell_utc_day_and_cost_basis_includes_buy_fee():
+    day1 = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    day2 = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    points = [
+        _equity_point(day1 + timedelta(hours=20), close="10", quote="989.9", position="1", equity="999.9"),
+        _equity_point(day2 + timedelta(hours=4), close="12", quote="989.9", position="1", equity="1001.9"),
+        _equity_point(day2 + timedelta(hours=8), close="12", quote="1001.78", position="0", equity="1001.78"),
+    ]
+    buy = _virtual_fill(day1 + timedelta(hours=1), "BUY", price="10", fee="0.1")
+    sell = _virtual_fill(day2 + timedelta(hours=5), "SELL", price="12", fee="0.12", realized="1.78")
+    rows, summary = daily_equity_metrics(_daily_metrics_result(points, [buy, sell], first_candle=day1))
+    row_by_day = {row["day_utc"]: row for row in rows}
+    assert row_by_day["2026-09-02"]["realized_pnl"] == Decimal("1.78")
+    assert row_by_day["2026-09-01"]["realized_pnl"] == Decimal("0")
+    assert summary["fees"] == Decimal("0.22")
+    assert summary["realized_pnl"] == Decimal("1.78")
+    assert row_by_day["2026-09-01"]["unrealized_pnl"] == Decimal("-0.1")
+    assert row_by_day["2026-09-02"]["unrealized_pnl"] == Decimal("0")
+
+
+def test_daily_metrics_sell_without_known_buy_does_not_fabricate_zero_cost_basis():
+    first = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    points = [
+        _equity_point(first + timedelta(hours=4), close="10", quote="900", position="10", equity="1000"),
+        _equity_point(first + timedelta(hours=8), close="10", quote="950", position="5", equity="1000"),
+    ]
+    sell = _virtual_fill(first + timedelta(hours=5), "SELL", quantity="5", price="10", fee="0.1", realized="0")
+    rows, _ = daily_equity_metrics(_daily_metrics_result(points, [sell], first_candle=first))
+    assert rows[-1]["unrealized_pnl"] is None
+
+
+def test_daily_metrics_equity_pnl_fees_reconcile_for_valid_buy_hold_sell_sequence():
+    first = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    buy = _virtual_fill(first, "BUY", price="10", fee="0.1")
+    sell = _virtual_fill(first + timedelta(hours=5), "SELL", price="12", fee="0.12", realized="1.78")
+    points = [
+        _equity_point(first + timedelta(hours=4), close="10", quote="989.9", position="1", equity="999.9"),
+        _equity_point(first + timedelta(hours=8), close="12", quote="989.9", position="1", equity="1001.9"),
+        _equity_point(first + timedelta(hours=12), close="12", quote="1001.78", position="0", equity="1001.78"),
+    ]
+    rows, summary = daily_equity_metrics(_daily_metrics_result(points, [buy, sell], first_candle=first))
+    assert rows[0]["unrealized_pnl"] == Decimal("-0.1")
+    assert rows[1]["unrealized_pnl"] == Decimal("0.9")
+    assert rows[-1]["unrealized_pnl"] == Decimal("0")
+    assert summary["net_pnl"] == Decimal("1.78")
+    assert summary["realized_pnl"] == Decimal("1.78")
+    assert summary["final_unrealized_pnl"] == Decimal("0")
+    assert summary["fees"] == Decimal("0.22")

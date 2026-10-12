@@ -266,22 +266,46 @@ def modeled_round_trip_breakeven_pct(
 
 
 def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Derive UTC daily metrics from the existing virtual accounting ledger.
+    """Derive UTC daily metrics from the virtual ledger without inventing state.
 
-    A full 4-hour UTC day must contain the exact six expected candle-end
-    timestamps (04:00, 08:00, 12:00, 16:00, 20:00, next midnight). Partial
-    days remain visible but are excluded from complete-day distribution stats.
+    Binance kline close times are inclusive (for example, 03:59:59.999 UTC
+    closes the 00:00–04:00 candle). A full UTC day therefore has six exact
+    inclusive closes; an exact-midnight point retains the legacy attribution
+    to the preceding UTC day but does not masquerade as an inclusive close.
     """
     points = tuple(result.equity_curve)
     if not points:
         raise ProductV2Error("daily audit requires a non-empty equity curve")
     if any(point.timestamp.tzinfo is None or point.timestamp.utcoffset() is None for point in points):
         raise ProductV2Error("daily audit requires timezone-aware equity timestamps")
-    if any(points[i].timestamp > points[i + 1].timestamp for i in range(len(points) - 1)):
-        raise ProductV2Error("daily audit requires chronological equity points")
+    for previous, current in zip(points, points[1:]):
+        if current.timestamp == previous.timestamp:
+            raise ProductV2Error(f"duplicate equity timestamp: {current.timestamp.isoformat()}")
+        if current.timestamp < previous.timestamp:
+            raise ProductV2Error("daily audit requires strictly increasing equity timestamps")
+
     fills = tuple(sorted(result.fills, key=lambda fill: fill.timestamp))
     if any(fill.timestamp.tzinfo is None or fill.timestamp.utcoffset() is None for fill in fills):
         raise ProductV2Error("daily audit requires timezone-aware fill timestamps")
+    if fills:
+        horizon_start = getattr(result, "first_candle", None)
+        if horizon_start is None or horizon_start.tzinfo is None or horizon_start.utcoffset() is None:
+            raise ProductV2Error("daily audit requires a timezone-aware first-candle horizon when fills exist")
+        horizon_end = points[-1].timestamp
+        for fill in fills:
+            if fill.timestamp < horizon_start:
+                raise ProductV2Error(
+                    f"fill precedes backtest horizon: {fill.timestamp.isoformat()} < {horizon_start.isoformat()}"
+                )
+            if fill.timestamp > horizon_end:
+                raise ProductV2Error(
+                    f"fill exceeds backtest horizon: {fill.timestamp.isoformat()} > {horizon_end.isoformat()}"
+                )
+            if fill.timestamp == horizon_end:
+                raise ProductV2Error(
+                    f"fill at final equity timestamp is unobservable within the backtest horizon: {fill.timestamp.isoformat()}"
+                )
+
     fill_index = 0
     open_entry_cost: Decimal | None = None
     grouped: dict[Any, dict[str, Any]] = {}
@@ -289,12 +313,15 @@ def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], 
     for fill in fills:
         fills_by_day.setdefault(fill.timestamp.astimezone(timezone.utc).date(), []).append(fill)
     for point in points:
-        while fill_index < len(fills) and fills[fill_index].timestamp <= point.timestamp:
+        # A fill exactly at an equity timestamp begins the next period. It must
+        # not be reflected in the equity state at that same timestamp.
+        while fill_index < len(fills) and fills[fill_index].timestamp < point.timestamp:
             fill = fills[fill_index]
             if fill.side == "BUY":
                 open_entry_cost = fill.quantity * fill.price + fill.fee
             elif fill.side == "SELL":
-                open_entry_cost = ZERO
+                if open_entry_cost is not None:
+                    open_entry_cost = None
             fill_index += 1
         close_day = (point.timestamp.astimezone(timezone.utc) - timedelta(microseconds=1)).date()
         grouped.setdefault(close_day, {"points": [], "closing_entry_cost": None})
@@ -333,12 +360,13 @@ def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], 
             unrealized = close_point.base_position * close_point.close - entry_cost
         daily_drawdown_peak = max(daily_drawdown_peak, close_point.equity)
         drawdown = close_point.equity / daily_drawdown_peak - ONE if daily_drawdown_peak > ZERO else ZERO
-        max_daily_drawdown = min(max_daily_drawdown, drawdown)
         utc_closes = tuple(point.timestamp.astimezone(timezone.utc) for point in day_points)
         day_start = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
-        expected_closes = tuple(day_start + timedelta(hours=4 * index) for index in range(1, 6)) + (
-            day_start + timedelta(days=1),
-        )
+        minus_inclusive_millisecond = timedelta(milliseconds=1)
+        expected_closes = tuple(
+            day_start + timedelta(hours=4 * index) - minus_inclusive_millisecond
+            for index in range(1, 6)
+        ) + (day_start + timedelta(days=1) - minus_inclusive_millisecond,)
         is_full_day = utc_closes == expected_closes
         if is_full_day:
             complete_changes.append(change)
@@ -408,7 +436,6 @@ def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], 
         "rejection_reasons": tuple(result.entry_rejections),
     }
     return rows, summary
-
 
 def daily_profitability_status(
     evaluation_summary: Mapping[str, Any], validation_summaries: Sequence[Mapping[str, Any]]
