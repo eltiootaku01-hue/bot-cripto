@@ -76,6 +76,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--position-fraction", type=_decimal_arg, default=Decimal("1"))
     parser.add_argument("--fee-rate", type=_decimal_arg, default=Decimal("0.001"))
     parser.add_argument("--slippage-bps", type=_decimal_arg, default=Decimal("5"))
+    parser.add_argument("--spread-bps", type=_decimal_arg, default=Decimal("10"),
+                        help="assumed full spread in basis points; half is charged at each fill")
     parser.add_argument("--max-entries-per-30d", type=_positive_int, default=5,
                         help="maximum virtual BUY entries in any rolling 30-day window (maximum: 5)")
     return parser
@@ -95,6 +97,7 @@ class BacktestConfig:
     position_fraction: Decimal = Decimal("1")
     fee_rate: Decimal = Decimal("0.001")
     slippage_bps: Decimal = Decimal("5")
+    spread_bps: Decimal = Decimal("10")
     max_entries_per_30d: int = 5
 
     def validate(self) -> None:
@@ -123,6 +126,8 @@ class BacktestConfig:
             raise BacktestError("fee rate must be between 0 and 0.05")
         if not (_ZERO <= self.slippage_bps <= Decimal("1000")):
             raise BacktestError("slippage bps must be between 0 and 1000")
+        if not (_ZERO <= self.spread_bps <= Decimal("1000")):
+            raise BacktestError("spread bps must be between 0 and 1000")
         if not (_ZERO <= self.rsi_buy_min <= Decimal("100")):
             raise BacktestError("RSI buy threshold must be between 0 and 100")
         if not (_ZERO <= self.rsi_sell_at <= Decimal("100")):
@@ -329,7 +334,8 @@ def run_virtual_backtest(items: Sequence[MarketData], config: BacktestConfig) ->
         candle = item.payload
         if pending is not None:
             side, reason = pending
-            slippage = config.slippage_bps / _BPS
+            # Apply half of the assumed full spread plus slippage on each side.
+            slippage = (config.slippage_bps + config.spread_bps / Decimal("2")) / _BPS
             if side == "BUY" and position == _ZERO:
                 fill_price = candle.open * (_ONE + slippage)
                 quantity = (quote * config.position_fraction) / (fill_price * (_ONE + config.fee_rate))
@@ -431,7 +437,8 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Initial quote balance: {cfg.initial_quote_balance}")
     print(f"Position fraction: {cfg.position_fraction}")
     print(f"Fee rate per fill: {cfg.fee_rate}")
-    print(f"Slippage: {cfg.slippage_bps} bps")
+    print(f"Slippage: {cfg.slippage_bps} bps per fill")
+    print(f"Assumed full spread: {cfg.spread_bps} bps (half charged per fill; historical spread is not available)")
     print(f"Maximum entries per rolling 30 days: {cfg.max_entries_per_30d}")
     print("Quote balance is denominated in the pair quote asset; it is not an ARS balance or an ARS-to-USDT conversion.")
     print("Execution model: signal at candle close; fill at next candle open with configured slippage")
@@ -464,7 +471,7 @@ def run(args: argparse.Namespace) -> int:
         fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period,
         rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at,
         initial_quote_balance=args.initial_quote_balance, position_fraction=args.position_fraction,
-        fee_rate=args.fee_rate, slippage_bps=args.slippage_bps,
+        fee_rate=args.fee_rate, slippage_bps=args.slippage_bps, spread_bps=args.spread_bps,
         max_entries_per_30d=args.max_entries_per_30d,
     )
     config.validate()
