@@ -733,7 +733,7 @@ def test_daily_metrics_equity_pnl_fees_reconcile_for_valid_buy_hold_sell_sequenc
     first = datetime(2026, 11, 1, tzinfo=timezone.utc)
     close_1ms = timedelta(milliseconds=1)
     buy = _virtual_fill(first, "BUY", price="10", fee="0.1")
-    sell = _virtual_fill(first + timedelta(days=1, hours=6), "SELL", price="12", fee="0.12", realized="1.78")
+    sell = _virtual_fill(first + timedelta(days=2, hours=6), "SELL", price="12", fee="0.12", realized="1.78")
     points = [
         _equity_point(first + timedelta(days=1) - close_1ms, close="10", quote="989.9", position="1", equity="999.9"),
         _equity_point(first + timedelta(days=2) - close_1ms, close="12", quote="989.9", position="1", equity="1001.9"),
