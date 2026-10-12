@@ -373,7 +373,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(f"ARS budget={args.initial_ars}; indicative ARSUSDT public spot price={ars_market.price} USDT/ARS; bid={ars_market.bid}; ask={ars_market.ask}; spread={ars_market.spread_pct}%; route/funding/fees=UNKNOWN; conversion=CONVERSION_UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Normalized USDT scenarios are separate research assumptions, not conversions.")
-    print("\\nARS CAPITAL SCENARIOS — CONVERSION UNKNOWN")
+    print("\nARS CAPITAL SCENARIOS — CONVERSION UNKNOWN")
     print("Scenario | Capital ARS | Conversion | Net USDT | Conversion costs | Fee reserve | Max usable | Uninvested | Affordable candidates | Round-trip cost ARS | Net historical return | Drawdown | Decision")
     for scenario in ars_capital_scenarios():
         print(f"{scenario['scenario']} | {scenario['capital_ars']} | {scenario['conversion']} | {scenario['usdt_net']} | {scenario['conversion_costs']} | {scenario['fees_reserve']} | {scenario['max_usable']} | {scenario['uninvested']} | {scenario['affordable_candidates']} | {scenario['full_trade_cost_ars']} | {scenario['historical_net_return']} | {scenario['drawdown']} | {scenario['decision']}")
@@ -411,6 +411,8 @@ def run(args: argparse.Namespace) -> int:
     print(f"Universe active USDT Spot={len(universe)}; valid ticker snapshots={len(ticker)}; candidates backtested={len(candidates)}")
     btc_by_start = {item.payload.start: item for item in btc_items}
     rows = []
+    normalized_rows: list[tuple[Decimal, str, bool | None, str, BacktestResult]] = []
+    normalized_budgets = (D("100"), D("250"), D("500"))
     for symbol, tick in candidates:
         try:
             items = fetch_history(adapter, symbol, args.days, now)
@@ -428,6 +430,21 @@ def run(args: argparse.Namespace) -> int:
             full = backtest(symbol, items, bars, universe[symbol].filters, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
             # A fixed-parameter 60-day held-out slice is reported separately from the 180-day result.
             oos = backtest(symbol, items[-60 * 6:], 60 * 6, universe[symbol].filters, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
+            for normalized_budget in normalized_budgets:
+                affordable, affordability_reason = normalized_affordability(
+                    tick.price, universe[symbol].filters, normalized_budget,
+                    fee_rate=args.fee_rate, spread_bps=args.spread_bps,
+                    slippage_bps=args.slippage_bps, position_fraction=args.position_fraction,
+                )
+                normalized_result = backtest(
+                    symbol, items, bars, universe[symbol].filters,
+                    initial_quote_balance=normalized_budget, fee_rate=args.fee_rate,
+                    spread_bps=args.spread_bps, slippage_bps=args.slippage_bps,
+                    fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period,
+                    rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min,
+                    rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction,
+                )
+                normalized_rows.append((normalized_budget, symbol, affordable, affordability_reason, normalized_result))
             reasons = []
             if regime != "BULLISH":
                 reasons.append("BTC_REGIME_NOT_BULLISH")
@@ -459,6 +476,15 @@ def run(args: argparse.Namespace) -> int:
         print(f"  held-out 60d return={oos_ret}%; held-out drawdown={oos.max_drawdown * D('100')}%; held-out exposure={exposure_pct(items[-60 * 6:], oos.fills)}%; held-out entries={sum(f.side == 'BUY' for f in oos.fills)}; fees={oos.total_fees} USDT; estimated spread+slippage={modeled_spread_slippage_cost(oos.fills, args.spread_bps, args.slippage_bps)} USDT")
         print(f"  research filter={'PASS' if not reasons else 'REJECT'}; reasons={','.join(reasons) if reasons else 'none'}")
     print(f"Research candidates passing non-budget controls: {sum(1 for row in rows if not row[11])}")
+    print("\nNORMALIZED USDT CAPITAL SENSITIVITY — NOT ARS CONVERSION")
+    print("The 100/250/500 USDT budgets are hypothetical computational scenarios only; no exchange rate or ARS affordability is implied.")
+    print("Budget USDT | Candidate | Affordable at current snapshot | Reason | Virtual BUY entries | Net return | Max drawdown | Fees USDT | Decision")
+    for budget, symbol, affordable, reason, result in normalized_rows:
+        net_return = (result.final_equity / result.config.initial_quote_balance - ONE) * D("100")
+        buys = sum(fill.side == "BUY" for fill in result.fills)
+        affordability_label = "UNKNOWN" if affordable is None else ("YES" if affordable else "NO")
+        decision = "NO_TRADE" if not buys or net_return <= ZERO else "RESEARCH_ONLY"
+        print(f"{budget} | {symbol} | {affordability_label} | {reason} | {buys} | {net_return}% | {result.max_drawdown * D('100')}% | {result.total_fees} | {decision}")
     print("\nEXCLUSIONS (first 30)")
     for symbol, reason in excluded[:30]:
         print(f"  {symbol}: {reason}")
