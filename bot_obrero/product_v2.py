@@ -333,13 +333,28 @@ def historical_btc_entry_admission(
             result = (False, "BTC_HISTORY_NOT_TEMPORALLY_ALIGNED")
             cache[index] = result
             return result
-        if any(
-            getattr(item, "quality", None) is None or getattr(item.quality, "value", item.quality) != "VALID"
-            or getattr(item, "completeness", None) is None
-            or getattr(item.completeness, "value", item.completeness) != "COMPLETE"
-            for item in (*candidate_prefix, *btc_prefix)
-        ):
-            result = (False, "BTC_METRICS_INSUFFICIENT: historical data quality/completeness unknown")
+        def admissible_gate_candle(item: Any) -> bool:
+            quality = getattr(item, "quality", None)
+            envelope_completeness = getattr(item, "completeness", None)
+            candle = getattr(item, "payload", None)
+            state = getattr(getattr(candle, "candle_state", None), "value", getattr(candle, "candle_state", None))
+            candle_completeness = getattr(getattr(candle, "completeness", None), "value", getattr(candle, "completeness", None))
+            finality = getattr(getattr(candle, "finality", None), "value", getattr(candle, "finality", None))
+            envelope_value = getattr(envelope_completeness, "value", envelope_completeness)
+            quality_value = getattr(quality, "value", quality)
+            # The canonical historical adapter may leave envelope completeness UNKNOWN.
+            # The actual Candle must still be explicitly CLOSED and COMPLETE; a partial
+            # envelope or explicitly non-final candle is never admissible.
+            return (
+                quality_value == "VALID"
+                and envelope_value in ("UNKNOWN", "COMPLETE")
+                and state == "CLOSED"
+                and candle_completeness == "COMPLETE"
+                and finality not in (None, "NOT_FINAL")
+            )
+
+        if any(not admissible_gate_candle(item) for item in (*candidate_prefix, *btc_prefix)):
+            result = (False, "BTC_METRICS_INSUFFICIENT: historical data quality/completeness unknown or inadmissible")
             cache[index] = result
             return result
         asset_returns, btc_returns = return_series(candidate_prefix), return_series(btc_prefix)

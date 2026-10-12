@@ -340,9 +340,16 @@ def test_historical_btc_gate_uses_only_past_aligned_data(monkeypatch):
         for i in range(700):
             close = Decimal(100 + i)
             result.append(SimpleNamespace(
-                payload=SimpleNamespace(start=start + timedelta(hours=4 * i), end=start + timedelta(hours=4 * i + 4), close=close),
+                payload=SimpleNamespace(
+                    start=start + timedelta(hours=4 * i),
+                    end=start + timedelta(hours=4 * i + 4),
+                    close=close,
+                    candle_state=SimpleNamespace(value="CLOSED"),
+                    completeness=SimpleNamespace(value="COMPLETE"),
+                    finality=SimpleNamespace(value="UNKNOWN"),
+                ),
                 instrument=SimpleNamespace(symbol="ALT/USDT"),
-                quality=SimpleNamespace(value="VALID"), completeness=SimpleNamespace(value="COMPLETE"),
+                quality=SimpleNamespace(value="VALID"), completeness=SimpleNamespace(value="UNKNOWN"),
             ))
         return result
 
@@ -385,10 +392,13 @@ def test_historical_btc_gate_rejects_non_bullish_regime_even_when_correlations_p
                     start=start + timedelta(hours=4 * i),
                     end=start + timedelta(hours=4 * i + 4),
                     close=Decimal(100 + i),
+                    candle_state=SimpleNamespace(value="CLOSED"),
+                    completeness=SimpleNamespace(value="COMPLETE"),
+                    finality=SimpleNamespace(value="UNKNOWN"),
                 ),
                 instrument=SimpleNamespace(symbol="ALT/USDT"),
                 quality=SimpleNamespace(value="VALID"),
-                completeness=SimpleNamespace(value="COMPLETE"),
+                completeness=SimpleNamespace(value="UNKNOWN"),
             )
             for i in range(700)
         ]
@@ -408,3 +418,44 @@ def test_historical_btc_gate_rejects_non_bullish_regime_even_when_correlations_p
     assert allowed is False
     assert "BTC_REGIME_NOT_BULLISH" in detail
     assert "corr30d=" in detail and "corr90d=" in detail
+
+
+
+def test_historical_btc_gate_rejects_partial_marketdata_envelope_fail_closed(monkeypatch):
+    import bot_obrero.product_v2 as product
+
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def make_history():
+        return [
+            SimpleNamespace(
+                payload=SimpleNamespace(
+                    start=start + timedelta(hours=4 * i),
+                    end=start + timedelta(hours=4 * i + 4),
+                    close=Decimal(100 + i),
+                    candle_state=SimpleNamespace(value="CLOSED"),
+                    completeness=SimpleNamespace(value="COMPLETE"),
+                    finality=SimpleNamespace(value="UNKNOWN"),
+                ),
+                instrument=SimpleNamespace(symbol="ALT/USDT"),
+                quality=SimpleNamespace(value="VALID"),
+                completeness=SimpleNamespace(value="UNKNOWN"),
+            )
+            for i in range(700)
+        ]
+
+    monkeypatch.setattr(product, "_observation", lambda item: SimpleNamespace(symbol="BTC/USDT"))
+    monkeypatch.setattr(product, "_indicators", lambda observations, config: {
+        "fast_ema": Decimal("120"), "slow_ema": Decimal("110"), "rsi": Decimal("60")
+    })
+    candidate, btc = make_history(), make_history()
+    candidate[10].completeness = SimpleNamespace(value="PARTIAL")
+    gate = product.historical_btc_entry_admission(
+        candidate, btc, fast_ema_period=12, slow_ema_period=26, rsi_period=14,
+        rsi_buy_min=Decimal("50"), minimum_corr30d=Decimal("0.50"),
+        minimum_corr90d=Decimal("0.60"),
+    )
+
+    allowed, detail = gate(600, ())
+    assert allowed is False
+    assert "BTC_METRICS_INSUFFICIENT" in detail
