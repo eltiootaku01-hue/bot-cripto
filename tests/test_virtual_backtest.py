@@ -256,3 +256,16 @@ def test_virtual_buy_respects_quantity_step_and_minimum_notional():
 def test_virtual_backtest_rejects_invalid_instrument_filters():
     with pytest.raises(BacktestError, match="quantity_step"):
         run_virtual_backtest(_series(), _config(quantity_step=Decimal("0")))
+
+
+def test_backtest_enforces_maximum_five_buy_entries_in_any_rolling_30_days():
+    pattern = ("10", "9", "8", "9", "10", "11", "12", "11", "10", "9", "8", "7", "6")
+    prices = pattern * 10
+    items = [_item(i, value) for i, value in enumerate(prices)]
+    result = run_virtual_backtest(
+        items,
+        _config(candles=len(items), max_entries_per_30d=5),
+    )
+    buys = [fill for fill in result.fills if fill.side == "BUY"]
+    assert len(buys) == 5
+    assert buys[-1].timestamp - buys[0].timestamp < timedelta(days=30)
