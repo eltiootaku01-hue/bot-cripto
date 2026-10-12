@@ -339,7 +339,9 @@ def run(args: argparse.Namespace) -> int:
         print(f"ARS budget={args.initial_ars}; indicative ARSUSDT public spot price={ars_market.price} USDT/ARS; bid={ars_market.bid}; ask={ars_market.ask}; spread={ars_market.spread_pct}%; route/funding/fees=UNKNOWN; conversion=CONVERSION_UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Research backtests use a separate normalized 1000 USDT, not the ARS budget.")
     print(f"Strategy: EMA{args.fast_ema_period}/EMA{args.slow_ema_period} crossover + RSI{args.rsi_period}; RSI buy minimum={args.rsi_buy_min}; sell threshold={args.rsi_sell_at}; position fraction={args.position_fraction}; fee/fill={args.fee_rate}; assumed full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps; max 5 BUY entries/rolling 30 days.")
-    print("Historical spread is not observable from klines; 10 bps is a conservative configurable model assumption, not a measured historical spread.")
+    print(f"Cost assumptions: fee/fill={args.fee_rate}; full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps.")
+    print("Exposure metric: percentage of evaluated 4h bars spent in a virtual position; candidate-level exposure appears when its history is admissible.")
+    print("Historical spread is not observable from klines; the configured spread is a model assumption, not a measured historical spread.")
     print("No BNB discount, private endpoints, API keys, real orders, leverage, or financial runtime.")
 
     excluded: list[tuple[str, str]] = []
