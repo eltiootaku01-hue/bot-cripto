@@ -269,3 +269,22 @@ def test_backtest_enforces_maximum_five_buy_entries_in_any_rolling_30_days():
     buys = [fill for fill in result.fills if fill.side == "BUY"]
     assert len(buys) == 5
     assert buys[-1].timestamp - buys[0].timestamp < timedelta(days=30)
+
+
+
+def test_entry_gate_only_controls_buys_and_does_not_block_exits():
+    items = _series()
+    result = run_virtual_backtest(items, _config(), entry_admission=lambda index, observations: (True, "historical BTC gates passed"))
+    assert [fill.side for fill in result.fills] == ["BUY", "SELL"]
+    assert "historical BTC gates passed" in result.fills[0].reason
+    assert result.fills[-1].side == "SELL"
+
+
+def test_evaluation_window_excludes_warmup_from_metrics():
+    items = _series()
+    result = run_virtual_backtest(items, _config(candles=6),
+        evaluation_start=items[6].payload.start, evaluation_end=items[12].payload.start)
+    assert result.candle_count == 6
+    assert result.first_candle == items[6].payload.start
+    assert result.last_candle == items[11].payload.start
+    assert len(result.equity_curve) == 6

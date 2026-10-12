@@ -325,3 +325,37 @@ def test_round_trip_break_even_includes_both_fees_spread_and_slippage():
     assert more_fees > baseline
     assert more_spread > baseline
     assert more_slippage > baseline
+
+
+
+def test_historical_btc_gate_uses_only_past_aligned_data(monkeypatch):
+    from types import SimpleNamespace
+    import bot_obrero.product_v2 as product
+
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    def make_history():
+        result = []
+        for i in range(700):
+            close = Decimal(100 + i)
+            result.append(SimpleNamespace(
+                payload=SimpleNamespace(start=start + timedelta(hours=4 * i), end=start + timedelta(hours=4 * i + 4), close=close),
+                instrument=SimpleNamespace(symbol="ALT/USDT"),
+                quality=SimpleNamespace(value="VALID"), completeness=SimpleNamespace(value="COMPLETE"),
+            ))
+        return result
+
+    monkeypatch.setattr(product, "_observation", lambda item: SimpleNamespace(symbol="BTC/USDT"))
+    monkeypatch.setattr(product, "_indicators", lambda observations, config: {
+        "fast_ema": Decimal("120"), "slow_ema": Decimal("110"), "rsi": Decimal("60")
+    })
+    candidate, btc = make_history(), make_history()
+    gate = product.historical_btc_entry_admission(candidate, btc, fast_ema_period=12, slow_ema_period=26,
+        rsi_period=14, rsi_buy_min=Decimal("50"), minimum_corr30d=Decimal("0.5"), minimum_corr90d=Decimal("0.6"))
+    expected = gate(600, ())
+    changed_future = make_history()
+    for i in range(601, len(changed_future)):
+        changed_future[i].payload.close = Decimal(1000000 + i)
+    future_gate = product.historical_btc_entry_admission(changed_future, btc, fast_ema_period=12, slow_ema_period=26,
+        rsi_period=14, rsi_buy_min=Decimal("50"), minimum_corr30d=Decimal("0.5"), minimum_corr90d=Decimal("0.6"))
+    assert expected == future_gate(600, ())
+    assert expected[0] is True

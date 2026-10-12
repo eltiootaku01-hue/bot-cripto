@@ -78,3 +78,12 @@ Estas páginas demuestran que P2P es una vía documentada y que pueden existir c
 ## Coste mínimo modelado de una operación completa
 
 El informe calcula el retorno bruto aproximado de equilibrio de una ida y vuelta con comisión por entrada/salida, medio spread supuesto en cada lado y deslizamiento por fill. También muestra las comisiones totales y el coste modelado de spread/deslizamiento de los backtests. El punto de equilibrio es una aproximación del modelo, no una comisión real observada ni una predicción. Los costes expresados en ARS siguen siendo UNKNOWN mientras no se verifique una conversión ejecutable.
+
+
+## Product V2 — baseline frente a estrategia integrada
+
+La salida separa **BASELINE EMA/RSI** (referencia sin filtros BTC históricos) de **INTEGRATED BTC-GATED** (simulación donde cada nueva entrada exige régimen BTC BULLISH y correlaciones de retornos de 30/90 días calculadas sobre velas 4h alineadas hasta el cierre de la señal). Una entrada admitida se ejecuta como máximo en la apertura de la vela siguiente. El filtro no bloquea salidas válidas.
+
+El período contiene 90 días de calentamiento, 180 días de evaluación y 60 días finales de validación independiente con parámetros fijos. No se ajustan parámetros con la ventana de validación. Si falta histórico o las velas BTC/candidata no se alinean, la candidata se excluye; el período no se reduce silenciosamente.
+
+Los informes comparan retorno neto, drawdown, entradas/salidas, exposición y rechazos por filtros para baseline e integrada; los escenarios hipotéticos de 100/250/500 USDT se ejecutan en ambas variantes. Los importes de 10.000/25.000/50.000 ARS siguen en `CONVERSION_UNKNOWN` y `NO_TRADE` sin ruta de conversión ejecutable y costes verificados. Los resultados históricos no prueban rentabilidad futura.

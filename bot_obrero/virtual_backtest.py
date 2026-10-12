@@ -12,7 +12,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
-from typing import Sequence
+from typing import Callable, Sequence
 
 from .analysis_contracts import ArtifactNature, MarketObservation, Provenance
 from .analysis_ema import EMAAlgorithm
@@ -187,6 +187,7 @@ class BacktestResult:
     excluded_final_candles: int
     unknown_marketdata_completeness_count: int
     unknown_finality_count: int
+    entry_rejections: tuple[str, ...] = ()
 
 
 def _next_month(value: datetime) -> datetime:
@@ -322,26 +323,47 @@ def _indicators(observations: Sequence[MarketObservation], config: BacktestConfi
     return {"sma": sma["sma"], "fast_ema": fast["ema"], "slow_ema": slow["ema"], "rsi": rsi["rsi"]}
 
 
-def run_virtual_backtest(items: Sequence[MarketData], config: BacktestConfig) -> BacktestResult:
+def run_virtual_backtest(
+    items: Sequence[MarketData], config: BacktestConfig, *,
+    evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
+    entry_admission: Callable[[int, Sequence[MarketObservation]], tuple[bool, str]] | None = None,
+) -> BacktestResult:
+    """Run virtual accounting with optional warm-up and per-entry admission.
+
+    Evaluation bounds exclude warm-up from metrics but preserve it for indicators.
+    Admission applies only to new BUYs; exits are never blocked by entry filters.
+    """
     config.validate()
     accepted, excluded, unknown_completeness, unknown_finality = _validate_history(items, config.interval)
-    candles = accepted[-config.candles:]
+    if evaluation_end is not None and evaluation_start is None:
+        raise BacktestError("evaluation_start is required when evaluation_end is supplied")
+    if evaluation_start is None:
+        history = accepted[-config.candles:]
+        candles = history
+    else:
+        history = accepted
+        candles = [item for item in history if item.payload.start >= evaluation_start
+                   and (evaluation_end is None or item.payload.start < evaluation_end)]
     if len(candles) < config.candles:
-        raise BacktestError(f"insufficient closed candles: requested {config.candles}, got {len(candles)}")
-    observations = [_observation(item) for item in candles]
+        raise BacktestError(f"insufficient evaluation candles: requested {config.candles}, got {len(candles)}")
+    if len(candles) != config.candles:
+        raise BacktestError(f"evaluation window must contain exactly {config.candles} candles, got {len(candles)}")
+    observations = [_observation(item) for item in history]
+    index_by_start = {item.payload.start: index for index, item in enumerate(history)}
     quote, position, entry_cost = config.initial_quote_balance, _ZERO, _ZERO
     realized = total_fees = _ZERO
     fills: list[VirtualFill] = []
     curve: list[EquityPoint] = []
+    rejections: list[str] = []
     peak = config.initial_quote_balance
     first_signal_index = max(config.slow_ema_period, config.rsi_period + 1)
     pending: tuple[str, str] | None = None
 
-    for index, item in enumerate(candles):
+    for eval_index, item in enumerate(candles):
         candle = item.payload
+        history_index = index_by_start[candle.start]
         if pending is not None:
             side, reason = pending
-            # Apply half of the assumed full spread plus slippage on each side.
             slippage = (config.slippage_bps + config.spread_bps / Decimal("2")) / _BPS
             if side == "BUY" and position == _ZERO:
                 fill_price = candle.open * (_ONE + slippage)
@@ -350,11 +372,7 @@ def run_virtual_backtest(items: Sequence[MarketData], config: BacktestConfig) ->
                 if config.quantity_step is not None:
                     quantity = (raw_quantity / config.quantity_step).to_integral_value(rounding=ROUND_DOWN) * config.quantity_step
                 notional = quantity * fill_price
-                if (
-                    quantity > _ZERO
-                    and (config.min_qty is None or quantity >= config.min_qty)
-                    and (config.min_notional is None or notional >= config.min_notional)
-                ):
+                if quantity > _ZERO and (config.min_qty is None or quantity >= config.min_qty) and (config.min_notional is None or notional >= config.min_notional):
                     fee = notional * config.fee_rate
                     cost = notional + fee
                     quote -= cost
@@ -378,24 +396,31 @@ def run_virtual_backtest(items: Sequence[MarketData], config: BacktestConfig) ->
         peak = max(peak, equity)
         curve.append(EquityPoint(candle.end, candle.close, quote, position, equity,
                                  equity / peak - _ONE if peak > _ZERO else _ZERO))
-
-        # A signal uses bars only through this close. The pending order, if any,
-        # can execute only at the following candle's open.
-        if index < first_signal_index or index >= len(candles) - 1:
+        if eval_index >= len(candles) - 1 or history_index < first_signal_index:
             continue
-        current = _indicators(observations[:index + 1], config)
-        previous = _indicators(observations[:index], config)
+        current = _indicators(observations[:history_index + 1], config)
+        previous = _indicators(observations[:history_index], config)
         crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
         crossed_down = previous["fast_ema"] >= previous["slow_ema"] and current["fast_ema"] < current["slow_ema"]
         if position == _ZERO and crossed_up and current["rsi"] >= config.rsi_buy_min:
             cutoff = candle.end - timedelta(days=30)
             recent_entries = sum(1 for fill in fills if fill.side == "BUY" and cutoff < fill.timestamp <= candle.end)
-            if recent_entries < config.max_entries_per_30d:
-                pending = ("BUY", "fast EMA crossed above slow EMA and RSI filter passed; rolling entry cap passed")
+            if recent_entries >= config.max_entries_per_30d:
+                continue
+            if entry_admission is not None:
+                allowed, detail = entry_admission(history_index, observations[:history_index + 1])
+                if not allowed:
+                    rejections.append(f"{candle.end.isoformat()}:{detail}")
+                    continue
+                reason = f"EMA/RSI entry passed; {detail}"
+            else:
+                reason = "fast EMA crossed above slow EMA and RSI filter passed; rolling entry cap passed"
+            pending = ("BUY", reason)
         elif position > _ZERO and (crossed_down or current["rsi"] >= config.rsi_sell_at):
             pending = ("SELL", "fast EMA crossed below slow EMA" if crossed_down else "RSI reached sell threshold")
 
-    final_values = _indicators(observations, config)
+    last_eval_index = index_by_start[candles[-1].payload.start]
+    final_values = _indicators(observations[:last_eval_index + 1], config)
     final_equity = curve[-1].equity
     unrealized = position * candles[-1].payload.close - entry_cost if position > _ZERO else _ZERO
     return BacktestResult(
@@ -409,9 +434,8 @@ def run_virtual_backtest(items: Sequence[MarketData], config: BacktestConfig) ->
         final_slow_ema=final_values["slow_ema"], final_rsi=final_values["rsi"],
         excluded_final_candles=excluded,
         unknown_marketdata_completeness_count=unknown_completeness,
-        unknown_finality_count=unknown_finality,
+        unknown_finality_count=unknown_finality, entry_rejections=tuple(rejections),
     )
-
 
 def _subtract_months(value: datetime, count: int) -> datetime:
     absolute = value.year * 12 + value.month - 1 - count
