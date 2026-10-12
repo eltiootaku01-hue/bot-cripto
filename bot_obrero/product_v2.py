@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from typing import Any, Mapping, Sequence
 
 from .binance_instruments import BinanceMetadataBackedAdapter, BinanceSpotInstrumentMetadata
@@ -227,6 +227,7 @@ def fetch_history(adapter: BinanceMetadataBackedAdapter, symbol: str, days: int,
 
 def backtest(
     symbol: str, items: Sequence[Any], bars: int, filters: InstrumentFilters | None = None, *,
+    initial_quote_balance: Decimal = D("1000"),
     fee_rate: Decimal = FEE, spread_bps: Decimal = D("10"), slippage_bps: Decimal = SLIPPAGE_BPS,
     fast_ema_period: int = 12, slow_ema_period: int = 26, rsi_period: int = 14,
     rsi_buy_min: Decimal = D("50"), rsi_sell_at: Decimal = D("70"),
@@ -235,13 +236,47 @@ def backtest(
     config = BacktestConfig(
         symbol=symbol, interval="4h", candles=bars, fast_ema_period=fast_ema_period,
         slow_ema_period=slow_ema_period, rsi_period=rsi_period, rsi_buy_min=rsi_buy_min, rsi_sell_at=rsi_sell_at,
-        initial_quote_balance=D("1000"), position_fraction=position_fraction,
+        initial_quote_balance=initial_quote_balance, position_fraction=position_fraction,
         fee_rate=fee_rate, slippage_bps=slippage_bps, spread_bps=spread_bps, max_entries_per_30d=5,
         min_qty=filters.min_qty if filters else None,
         quantity_step=filters.step_size if filters else None,
         min_notional=filters.min_notional if filters else None,
     )
     return run_virtual_backtest(items, config)
+
+
+def normalized_affordability(
+    price: Decimal, filters: InstrumentFilters, budget_usdt: Decimal, *,
+    fee_rate: Decimal, spread_bps: Decimal, slippage_bps: Decimal,
+    position_fraction: Decimal,
+) -> tuple[bool | None, str]:
+    """Estimate affordability at current public ticker, only for normalized research."""
+    if price <= ZERO or filters.min_qty is None or filters.step_size is None or filters.min_notional is None:
+        return None, "FILTERS_OR_PRICE_UNKNOWN"
+    entry_cost_rate = (spread_bps / D("2") + slippage_bps) / D("10000")
+    unit_cost = price * (ONE + entry_cost_rate) * (ONE + fee_rate)
+    raw_qty = budget_usdt * position_fraction / unit_cost
+    qty = (raw_qty / filters.step_size).to_integral_value(rounding=ROUND_DOWN) * filters.step_size
+    if qty < filters.min_qty:
+        return False, "MIN_QTY"
+    if qty * price < filters.min_notional:
+        return False, "MIN_NOTIONAL"
+    if qty * unit_cost > budget_usdt:
+        return False, "COSTS_EXCEED_BUDGET"
+    return True, "PASS"
+
+
+def ars_capital_scenarios() -> tuple[dict[str, Any], ...]:
+    """Never infer ARS-to-USDT conversion or claim funds available."""
+    return tuple({
+        "scenario": label, "capital_ars": amount,
+        "conversion": "CONVERSION_UNKNOWN", "usdt_net": "UNKNOWN",
+        "conversion_costs": "UNKNOWN", "fees_reserve": "UNKNOWN",
+        "max_usable": "UNKNOWN", "uninvested": "UNKNOWN",
+        "affordable_candidates": "UNKNOWN", "full_trade_cost_ars": "UNKNOWN",
+        "historical_net_return": "NOT_COMPUTABLE", "drawdown": "NOT_COMPUTABLE",
+        "decision": "NO_TRADE",
+    } for label, amount in (("A", D("10000")), ("B", D("25000")), ("C", D("50000"))))
 
 
 def buy_hold_net_return(
@@ -337,7 +372,11 @@ def run(args: argparse.Namespace) -> int:
         print(f"ARS budget={args.initial_ars}; direct ARSUSDT Spot quote not found in active public universe; conversion=CONVERSION_UNKNOWN")
     else:
         print(f"ARS budget={args.initial_ars}; indicative ARSUSDT public spot price={ars_market.price} USDT/ARS; bid={ars_market.bid}; ask={ars_market.ask}; spread={ars_market.spread_pct}%; route/funding/fees=UNKNOWN; conversion=CONVERSION_UNKNOWN")
-    print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Research backtests use a separate normalized 1000 USDT, not the ARS budget.")
+    print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Normalized USDT scenarios are separate research assumptions, not conversions.")
+    print("\\nARS CAPITAL SCENARIOS — CONVERSION UNKNOWN")
+    print("Scenario | Capital ARS | Conversion | Net USDT | Conversion costs | Fee reserve | Max usable | Uninvested | Affordable candidates | Round-trip cost ARS | Net historical return | Drawdown | Decision")
+    for scenario in ars_capital_scenarios():
+        print(f"{scenario['scenario']} | {scenario['capital_ars']} | {scenario['conversion']} | {scenario['usdt_net']} | {scenario['conversion_costs']} | {scenario['fees_reserve']} | {scenario['max_usable']} | {scenario['uninvested']} | {scenario['affordable_candidates']} | {scenario['full_trade_cost_ars']} | {scenario['historical_net_return']} | {scenario['drawdown']} | {scenario['decision']}")
     print(f"Strategy: EMA{args.fast_ema_period}/EMA{args.slow_ema_period} crossover + RSI{args.rsi_period}; RSI buy minimum={args.rsi_buy_min}; sell threshold={args.rsi_sell_at}; position fraction={args.position_fraction}; fee/fill={args.fee_rate}; assumed full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps; max 5 BUY entries/rolling 30 days.")
     print(f"Cost assumptions: fee/fill={args.fee_rate}; full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps.")
     print("Exposure metric: percentage of evaluated 4h bars spent in a virtual position; candidate-level exposure appears when its history is admissible.")
