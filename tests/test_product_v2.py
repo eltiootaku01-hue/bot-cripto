@@ -311,3 +311,17 @@ def test_usdt_spot_universe_is_not_a_complete_ars_fiat_or_p2p_conversion_search(
     ]})
     assert "ALTUSDT" in universe
     assert "BTCARS" not in universe
+
+
+
+def test_round_trip_break_even_includes_both_fees_spread_and_slippage():
+    from bot_obrero.product_v2 import modeled_round_trip_breakeven_pct
+
+    baseline = modeled_round_trip_breakeven_pct(Decimal("0.001"), Decimal("10"), Decimal("5"))
+    more_fees = modeled_round_trip_breakeven_pct(Decimal("0.002"), Decimal("10"), Decimal("5"))
+    more_spread = modeled_round_trip_breakeven_pct(Decimal("0.001"), Decimal("20"), Decimal("5"))
+    more_slippage = modeled_round_trip_breakeven_pct(Decimal("0.001"), Decimal("10"), Decimal("8"))
+    assert baseline > 0
+    assert more_fees > baseline
+    assert more_spread > baseline
+    assert more_slippage > baseline

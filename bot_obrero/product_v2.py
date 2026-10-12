@@ -251,6 +251,19 @@ def modeled_spread_slippage_cost(fills: Sequence[Any], spread_bps: Decimal, slip
     return sum((fill.quantity * fill.price * rate for fill in fills), ZERO)
 
 
+
+def modeled_round_trip_breakeven_pct(
+    fee_rate: Decimal, spread_bps: Decimal, slippage_bps: Decimal
+) -> Decimal:
+    """Approximate gross market return needed to offset modeled entry/exit costs."""
+    cost_per_side = (spread_bps / D("2") + slippage_bps) / D("10000")
+    buy_cost_multiplier = (ONE + cost_per_side) * (ONE + fee_rate)
+    sell_proceeds_multiplier = (ONE - cost_per_side) * (ONE - fee_rate)
+    if sell_proceeds_multiplier <= ZERO:
+        raise ProductV2Error("modeled exit costs leave no positive proceeds")
+    return (buy_cost_multiplier / sell_proceeds_multiplier - ONE) * D("100")
+
+
 def return_pct(items: Sequence[Any], bars: int) -> Decimal | None:
     if len(items) <= bars or items[-bars - 1].payload.close <= 0:
         return None
@@ -425,6 +438,7 @@ def run(args: argparse.Namespace) -> int:
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Normalized USDT scenarios are separate research assumptions, not conversions.")
     print(f"Strategy: EMA{args.fast_ema_period}/EMA{args.slow_ema_period} crossover + RSI{args.rsi_period}; RSI buy minimum={args.rsi_buy_min}; sell threshold={args.rsi_sell_at}; position fraction={args.position_fraction}; fee/fill={args.fee_rate}; assumed full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps; max 5 BUY entries/rolling 30 days.")
     print(f"Cost assumptions: fee/fill={args.fee_rate}; full spread={args.spread_bps} bps; slippage/fill={args.slippage_bps} bps.")
+    print(f"Modeled round-trip break-even return (approximate, not a forecast): {modeled_round_trip_breakeven_pct(args.fee_rate, args.spread_bps, args.slippage_bps)}% of traded notional.")
     print("Exposure metric: percentage of evaluated 4h bars spent in a virtual position; candidate-level exposure appears when its history is admissible.")
     print("Historical spread is not observable from klines; the configured spread is a model assumption, not a measured historical spread.")
     print("No BNB discount, private endpoints, API keys, real orders, leverage, or financial runtime.")
@@ -531,7 +545,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"Research candidates passing non-budget controls: {sum(1 for row in rows if not row[11])}")
     print("\nNORMALIZED USDT CAPITAL SENSITIVITY — NOT ARS CONVERSION")
     print("The 100/250/500 USDT budgets are hypothetical computational scenarios only; no exchange rate or ARS affordability is implied.")
-    print("Hypothetical USDT | Candidate | BTC relationship controls | Affordable at current snapshot | Affordability reason | Virtual BUY entries | Net return | Max drawdown | Fees USDT | Decision")
+    print("Hypothetical USDT | Candidate | BTC relationship controls | Affordable at current snapshot | Affordability reason | Virtual BUY entries | Round-trip break-even | Net return | Max drawdown | Fees USDT | Decision")
     for budget, symbol, affordable, reason, result in normalized_rows:
         net_return = (result.final_equity / result.config.initial_quote_balance - ONE) * D("100")
         buys = sum(fill.side == "BUY" for fill in result.fills)
@@ -539,7 +553,8 @@ def run(args: argparse.Namespace) -> int:
         decision = "NO_TRADE" if not buys or net_return <= ZERO else "RESEARCH_ONLY"
         candidate_row = next((candidate for candidate in rows if candidate[0] == symbol), None)
         relationship_label = "UNKNOWN" if candidate_row is None else ("PASS" if not any(code in candidate_row[11] for code in ("BTC_METRICS_INSUFFICIENT", "BTC_CORRELATION_30D_BELOW_MINIMUM", "BTC_CORRELATION_90D_BELOW_MINIMUM")) else "REJECT")
-        print(f"{budget} | {symbol} | {relationship_label} | {affordability_label} | {reason} | {buys} | {net_return}% | {result.max_drawdown * D('100')}% | {result.total_fees} | {decision}")
+        break_even = modeled_round_trip_breakeven_pct(args.fee_rate, args.spread_bps, args.slippage_bps)
+        print(f"{budget} | {symbol} | {relationship_label} | {affordability_label} | {reason} | {buys} | {break_even}% | {net_return}% | {result.max_drawdown * D('100')}% | {result.total_fees} | {decision}")
     print("\nEXCLUSIONS (first 30)")
     for symbol, reason in excluded[:30]:
         print(f"  {symbol}: {reason}")

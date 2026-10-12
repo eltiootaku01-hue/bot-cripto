@@ -73,3 +73,8 @@ La comparación separada de 100 / 250 / 500 USDT es matemática y normalizada, n
 - El anuncio oficial de 2025 incluyó ARS entre los mercados fiat con tarifa taker de 0,06–0,08 USDT por orden en la Zona P2P; esto no verifica la tarifa actual de una orden concreta: https://www.binance.com/es-AR/support/announcement/detail/70c92ace9acb45529cd4541195248c91
 
 Estas páginas demuestran que P2P es una vía documentada y que pueden existir comisiones, pero no constituyen una cotización ejecutable actual para una cuenta concreta. En esta revisión no se verificaron anuncios en vivo, método de pago disponible, límites para 10.000/25.000/50.000 ARS, precio efectivo, spread, comisión aplicable ni USDT netos. Por eso los tres escenarios siguen en CONVERSION_UNKNOWN y NO_TRADE. No se usa una tasa tomada de una fuente genérica ni se presenta una ruta P2P como disponible sin verificarla.
+
+
+## Coste mínimo modelado de una operación completa
+
+El informe calcula el retorno bruto aproximado de equilibrio de una ida y vuelta con comisión por entrada/salida, medio spread supuesto en cada lado y deslizamiento por fill. También muestra las comisiones totales y el coste modelado de spread/deslizamiento de los backtests. El punto de equilibrio es una aproximación del modelo, no una comisión real observada ni una predicción. Los costes expresados en ARS siguen siendo UNKNOWN mientras no se verifique una conversión ejecutable.
