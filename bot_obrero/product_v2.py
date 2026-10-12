@@ -20,7 +20,7 @@ from typing import Any, Mapping, Sequence
 
 from .binance_instruments import BinanceMetadataBackedAdapter, BinanceSpotInstrumentMetadata
 from .binance_spot import BinanceSpotRestConfig
-from .virtual_backtest import BacktestConfig, BacktestError, BacktestResult, run_virtual_backtest
+from .virtual_backtest import BacktestConfig, BacktestError, BacktestResult, _validate_history, run_virtual_backtest
 
 D = Decimal
 ZERO, ONE = D("0"), D("1")
@@ -186,11 +186,13 @@ def return_pct(items: Sequence[Any], bars: int) -> Decimal | None:
 def fetch_history(adapter: BinanceMetadataBackedAdapter, symbol: str, days: int, now: datetime) -> list[Any]:
     start = now - timedelta(days=days)
     count = days * 6 + 3  # 6 four-hour bars/day; reserve a bounded pagination margin.
-    return adapter.fetch_historical_market_data(
+    items = adapter.fetch_historical_market_data(
         symbol=symbol, interval="4h", start_time=int(start.timestamp() * 1000),
         end_time=int(now.timestamp() * 1000), page_limit=1000,
         max_requests=max(2, (count + 999) // 1000 + 1),
     )
+    accepted, _, _, _ = _validate_history(items, "4h")
+    return accepted
 
 
 def backtest(symbol: str, items: Sequence[Any], bars: int) -> BacktestResult:
@@ -257,6 +259,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"Observation UTC: {now.isoformat()}; timeframe=4h; requested history={args.days} days")
     print(f"BTC panel: regime={regime}; price={ticker['BTCUSDT'].price} USDT; EMA12={btc_result.final_fast_ema}; EMA26={btc_result.final_slow_ema}; RSI14={btc_result.final_rsi}")
     print(f"BTC closed bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}")
+    print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
     print(f"BTC buy-and-hold price return before modeled costs={btc_hold}%; cash reference=0%")
     print(f"ARS budget={args.initial_ars}; conversion=CONVERSION_UNKNOWN; source/time/cost=UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Research backtests use a separate normalized 1000 USDT, not the ARS budget.")
@@ -323,7 +326,7 @@ def run(args: argparse.Namespace) -> int:
     print("\nALTCOIN RESULTS")
     if not rows:
         print("No candidate passed the data prerequisites.")
-    for row in sorted(rows, key=lambda x: (not x[10] and not x[11], x[1].quote_volume), reverse=True):
+    for row in sorted(rows, key=lambda x: (not x[11], x[1].quote_volume), reverse=True):
         sym, tick, filt, c30, c90, beta90, strength, full, oos, ret, oos_ret, reasons = row
         print(f"{sym}: price={tick.price} USDT; quoteVolume24h={tick.quote_volume}; spread={tick.spread_pct}%")
         print(f"  corr30d={c30}; corr90d={c90}; beta90d={beta90}; relativeStrength30d={strength}%")
