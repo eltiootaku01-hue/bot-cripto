@@ -208,6 +208,15 @@ def backtest(symbol: str, items: Sequence[Any], bars: int, filters: InstrumentFi
     return run_virtual_backtest(items, config)
 
 
+def buy_hold_net_return(items: Sequence[Any]) -> Decimal:
+    """Buy-and-hold reference after the same fee, spread and slippage assumptions."""
+    first, last = items[0].payload.close, items[-1].payload.close
+    half_spread_and_slippage = (SLIPPAGE_BPS + D("10") / D("2")) / D("10000")
+    entry = first * (ONE + half_spread_and_slippage)
+    exit_price = last * (ONE - half_spread_and_slippage)
+    return ((exit_price * (ONE - FEE)) / (entry * (ONE + FEE)) - ONE) * D("100")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="BTC regime + liquid USDT altcoin scan and 4h virtual backtest.")
     parser.add_argument("--days", type=int, default=180)
@@ -256,14 +265,14 @@ def run(args: argparse.Namespace) -> int:
     regime = "BULLISH" if btc_result.final_fast_ema > btc_result.final_slow_ema and btc_result.final_rsi >= D("50") else (
         "BEARISH" if btc_result.final_fast_ema < btc_result.final_slow_ema and btc_result.final_rsi < D("50") else "NEUTRAL"
     )
-    btc_hold = (btc_items[-1].payload.close / btc_items[-bars].payload.close - ONE) * D("100")
+    btc_hold = buy_hold_net_return(btc_items[-bars:])
 
     print("BOT-CRIPTO PRODUCT V2 — PUBLIC BINANCE SPOT")
     print(f"Observation UTC: {now.isoformat()}; timeframe=4h; requested history={args.days} days")
     print(f"BTC panel: regime={regime}; price={ticker['BTCUSDT'].price} USDT; EMA12={btc_result.final_fast_ema}; EMA26={btc_result.final_slow_ema}; RSI14={btc_result.final_rsi}")
     print(f"BTC closed bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}")
     print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
-    print(f"BTC buy-and-hold price return before modeled costs={btc_hold}%; cash reference=0%")
+    print(f"BTC buy-and-hold net reference after fee/spread/slippage assumptions={btc_hold}%; cash reference=0%")
     print(f"ARS budget={args.initial_ars}; conversion=CONVERSION_UNKNOWN; source/time/cost=UNKNOWN")
     print("WARNING: no verified ARS-to-USDT route; affordability is blocked. Research backtests use a separate normalized 1000 USDT, not the ARS budget.")
     print(f"Strategy: EMA12/EMA26 crossover + RSI14; fee/fill={FEE}; assumed full spread={D('10')} bps; slippage/fill={SLIPPAGE_BPS} bps; max 5 BUY entries/rolling 30 days.")
@@ -341,8 +350,8 @@ def run(args: argparse.Namespace) -> int:
     print("\nEXCLUSIONS (first 30)")
     for symbol, reason in excluded[:30]:
         print(f"  {symbol}: {reason}")
-    print("\nFINAL DECISION: CONVERSION_UNKNOWN")
-    print("No candidate is declared affordable with 10000 ARS; ARS→USDT route and costs were not verified.")
+    print("\nFINAL DECISION: NO_TRADE")
+    print("Budget gate: CONVERSION_UNKNOWN. No candidate is declared affordable with 10000 ARS; ARS→USDT route and costs were not verified.")
     print("Research backtests are not evidence of future profitability. No real order is placed.")
     return 0
 
