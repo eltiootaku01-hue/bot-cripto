@@ -199,6 +199,24 @@ def test_command_reports_unknown_symbol_without_success_report(monkeypatch, caps
     adapter.fetch_historical_market_data.assert_not_called()
 
 
+
+def test_command_reports_historical_transport_failure_without_success_report(monkeypatch, capsys):
+    from bot_obrero import virtual_backtest
+    item = _series()[0]
+    metadata = Mock()
+    metadata.resolve_active.return_value = item.instrument
+    adapter = Mock()
+    adapter.fetch_historical_market_data.side_effect = TimeoutError("simulated public REST timeout")
+    monkeypatch.setattr(virtual_backtest, "BinanceSpotInstrumentMetadata", Mock(return_value=metadata))
+    monkeypatch.setattr(virtual_backtest, "BinanceMetadataBackedAdapter", Mock(return_value=adapter))
+    monkeypatch.setattr(virtual_backtest, "_utc_now", Mock(return_value=datetime(2026, 1, 2, tzinfo=timezone.utc)))
+    code = main(["--symbol", "BTCUSDT", "--interval", "1m", "--candles", "13",
+                 "--fast-ema-period", "2", "--slow-ema-period", "3", "--rsi-period", "2"])
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "simulated public REST timeout" in captured.err
+    assert "VIRTUAL HISTORICAL BACKTEST" not in captured.out
+
 def test_module_does_not_import_or_invoke_financial_execution():
     import inspect
     import bot_obrero.virtual_backtest as module
