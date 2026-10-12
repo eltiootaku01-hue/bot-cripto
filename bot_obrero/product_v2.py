@@ -750,9 +750,10 @@ def run(args: argparse.Namespace) -> int:
         print(f"  BENCHMARK window={v['window']} cost={v['cost']} cash_return=0% cash_drawdown=0% BTC_buy_hold_return={v['btc_return']}% BTC_buy_hold_drawdown={v['btc_dd']}% hypothetical_initial_usdt={args.hypothetical_usdt_balance}")
         for strategy_name, result in (("BASELINE", b), ("INTEGRATED", i)):
             for fill in result.fills:
-                print(f"  VALIDATION_FILL window={v['window']} symbol={v['symbol']} cost={v['cost']} strategy=${strategy_name} side=${fill.side} timestamp=${fill.timestamp.isoformat()} price=${fill.price} quantity=${fill.quantity} fee=${fill.fee} realized_pnl=${fill.realized_pnl} quote_balance_after=${fill.quote_balance_after} reason=${fill.reason}")
-        for rejection in i.entry_rejections:
-            print(f"  VALIDATION_REJECTION window={v['window']} symbol={v['symbol']} cost={v['cost']} detail=${rejection}")
+                print(f"  VALIDATION_FILL window={v['window']} symbol={v['symbol']} cost={v['cost']} strategy={strategy_name} side={fill.side} timestamp={fill.timestamp.isoformat()} price={fill.price} quantity={fill.quantity} fee={fill.fee} realized_pnl={fill.realized_pnl} quote_balance_after={fill.quote_balance_after} reason={fill.reason}")
+        for strategy_name, result in (("BASELINE", b), ("INTEGRATED", i)):
+            for rejection in result.entry_rejections:
+                print(f"  VALIDATION_REJECTION window={v['window']} symbol={v['symbol']} cost={v['cost']} strategy={strategy_name} detail={rejection}")
     print(f"Walk-forward rows={len(validation_rows)}; maximum expected={len(candidates)*VALIDATION_WINDOW_COUNT*len(VALIDATION_COST_SCENARIOS)}.")
 
     print("\n180-DAY EVALUATION — HYPOTHETICAL CAPITAL AND COST SCENARIOS")
@@ -766,6 +767,8 @@ def run(args: argparse.Namespace) -> int:
             modeled_cost = modeled_spread_slippage_cost(result.fills, e["spread"], e["slip"])
             order_rejections = sum("ORDER_REJECTED:" in reason for reason in result.entry_rejections)
             print(f"EVALUATION symbol={e['symbol']} cost={e['cost']} strategy={strategy_name} initial_usdt={result.config.initial_quote_balance} final_equity_usdt={result.final_equity} net_pnl_usdt={net_pnl} return={ret}% drawdown={result.max_drawdown*D('100')}% buys={buys} sells={sells} fills={len(result.fills)} fees_usdt={result.total_fees} modeled_spread_slippage_usdt={modeled_cost} uninvested_quote_usdt={result.final_quote_balance} order_rejections={order_rejections} gate_or_data_rejections={len(result.entry_rejections)-order_rejections} cash_benchmark_return=0% BTC_buy_hold_return={e['btc_return']}% BTC_buy_hold_drawdown={e['btc_dd']}%")
+            for rejection in result.entry_rejections:
+                print(f"  EVALUATION_REJECTION symbol={e['symbol']} cost={e['cost']} strategy={strategy_name} detail={rejection}")
 
     print(f"Research candidates passing current-snapshot non-budget controls: {sum(1 for row in rows if not row[15])}")
     print("Comparison: BASELINE EMA/RSI is ungated reference; INTEGRATED BTC-GATED applies historical regime/correlation admission at each entry. Exits are never blocked by entry filters.")
