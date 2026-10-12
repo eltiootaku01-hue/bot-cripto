@@ -172,3 +172,19 @@ def test_exposure_is_calculated_from_fill_timestamps():
 def test_modeled_spread_and_slippage_cost_is_explicit_and_decimal():
     fill = SimpleNamespace(quantity=Decimal("2"), price=Decimal("10"))
     assert modeled_spread_slippage_cost([fill], Decimal("10"), Decimal("5")) == Decimal("0.020")
+
+
+def test_product_v2_strategy_and_cost_parameters_are_configurable():
+    args = _parser().parse_args([
+        "--fee-rate", "0.002", "--spread-bps", "20", "--slippage-bps", "8",
+        "--fast-ema-period", "10", "--slow-ema-period", "30", "--rsi-period", "9",
+        "--rsi-buy-min", "55", "--rsi-sell-at", "75", "--position-fraction", "0.8",
+    ])
+    _validate_args(args)
+    assert args.fee_rate == Decimal("0.002")
+    assert args.spread_bps == Decimal("20")
+    assert args.slippage_bps == Decimal("8")
+    assert (args.fast_ema_period, args.slow_ema_period, args.rsi_period) == (10, 30, 9)
+    assert args.rsi_buy_min == Decimal("55")
+    assert args.rsi_sell_at == Decimal("75")
+    assert args.position_fraction == Decimal("0.8")
