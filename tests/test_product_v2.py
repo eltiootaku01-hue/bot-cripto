@@ -10,6 +10,9 @@ from bot_obrero.product_v2 import (
     ProductV2Error,
     Ticker,
     buy_hold_net_return,
+    btc_relationship_reasons,
+    classify_btc_regime,
+    histories_temporally_aligned,
     active_usdt_universe,
     correlation_beta,
     exposure_pct,
@@ -236,3 +239,63 @@ def test_normalized_backtest_budget_is_forwarded_without_claiming_ars_conversion
     assert [config.initial_quote_balance for config in captured] == [
         Decimal("100"), Decimal("250"), Decimal("500"),
     ]
+
+
+
+def test_low_btc_correlation_rejects_otherwise_profitable_candidate():
+    reasons = btc_relationship_reasons(0.30, 0.40, 1.2, Decimal("5"), Decimal("0.50"), Decimal("0.60"))
+    assert reasons == ["BTC_CORRELATION_30D_BELOW_MINIMUM", "BTC_CORRELATION_90D_BELOW_MINIMUM"]
+
+
+def test_sufficient_btc_correlations_only_clear_relationship_gate_not_other_controls():
+    reasons = btc_relationship_reasons(0.75, 0.82, 1.1, Decimal("3"), Decimal("0.50"), Decimal("0.60"))
+    assert reasons == []
+
+
+@pytest.mark.parametrize("metrics", [
+    (None, 0.8, 1.0, Decimal("1")),
+    (0.8, None, 1.0, Decimal("1")),
+    (float("nan"), 0.8, 1.0, Decimal("1")),
+    (0.8, 0.8, None, Decimal("1")),
+    (0.8, 0.8, 1.0, None),
+])
+def test_unknown_or_invalid_btc_metrics_fail_closed(metrics):
+    assert btc_relationship_reasons(*metrics, Decimal("0.50"), Decimal("0.60")) == ["BTC_METRICS_INSUFFICIENT"]
+
+
+def test_btc_below_both_emas_is_not_bullish():
+    assert classify_btc_regime(Decimal("90"), Decimal("100"), Decimal("110"), Decimal("45"), Decimal("50")) == "BEARISH"
+
+
+def test_btc_regime_uses_closed_candle_close_not_an_independent_spot_price():
+    closed_candle_close = Decimal("105")
+    fast, slow, rsi = Decimal("100"), Decimal("103"), Decimal("55")
+    spot_price = Decimal("80")
+    regime = classify_btc_regime(closed_candle_close, fast, slow, rsi, Decimal("50"))
+    assert regime == "BULLISH"
+    assert spot_price < slow
+    assert classify_btc_regime(closed_candle_close, fast, slow, rsi, Decimal("50")) == regime
+
+
+def test_history_timestamp_misalignment_fails_closed():
+    btc = _series(["100", "101", "102"])
+    alt = _series(["100", "101", "102"])
+    assert histories_temporally_aligned(alt, btc)
+    alt[1].payload.start = alt[1].payload.start + timedelta(hours=4)
+    assert not histories_temporally_aligned(alt, btc)
+
+
+@pytest.mark.parametrize("argv", [
+    ["--min-btc-corr-30d", "-1.1"],
+    ["--min-btc-corr-90d", "1.1"],
+])
+def test_invalid_btc_correlation_thresholds_are_rejected_before_network(argv):
+    args = _parser().parse_args(argv)
+    with pytest.raises(ProductV2Error, match="correlation minimums"):
+        _validate_args(args)
+
+
+def test_btc_correlation_threshold_cli_defaults_are_explicit():
+    args = _parser().parse_args([])
+    assert args.min_btc_corr_30d == Decimal("0.50")
+    assert args.min_btc_corr_90d == Decimal("0.60")

@@ -184,6 +184,50 @@ def correlation_beta(
     return covariance / math.sqrt(vx * vy), covariance / vx
 
 
+def classify_btc_regime(
+    last_closed_close: Decimal,
+    fast_ema: Decimal,
+    slow_ema: Decimal,
+    rsi: Decimal,
+    rsi_buy_min: Decimal,
+) -> str:
+    """Classify BTC using only the same final closed 4h bar and indicators."""
+    if last_closed_close > fast_ema and last_closed_close > slow_ema and fast_ema > slow_ema and rsi >= rsi_buy_min:
+        return "BULLISH"
+    if last_closed_close < fast_ema and last_closed_close < slow_ema and fast_ema < slow_ema and rsi < D("50"):
+        return "BEARISH"
+    return "NEUTRAL"
+
+
+def btc_relationship_reasons(
+    corr30d: float | None,
+    corr90d: float | None,
+    beta90d: float | None,
+    relative_strength30d: Decimal | None,
+    minimum_corr30d: Decimal,
+    minimum_corr90d: Decimal,
+) -> list[str]:
+    """Return explicit, fail-closed BTC relationship admission reasons."""
+    metrics = (corr30d, corr90d, beta90d)
+    if (
+        any(value is None or not math.isfinite(value) for value in metrics)
+        or relative_strength30d is None
+        or not relative_strength30d.is_finite()
+    ):
+        return ["BTC_METRICS_INSUFFICIENT"]
+    reasons = []
+    if D(str(corr30d)) < minimum_corr30d:
+        reasons.append("BTC_CORRELATION_30D_BELOW_MINIMUM")
+    if D(str(corr90d)) < minimum_corr90d:
+        reasons.append("BTC_CORRELATION_90D_BELOW_MINIMUM")
+    return reasons
+
+
+def histories_temporally_aligned(asset_items: Sequence[Any], btc_items: Sequence[Any]) -> bool:
+    """Require the same candle-open timestamps for the compared historical window."""
+    return [item.payload.start for item in asset_items] == [item.payload.start for item in btc_items]
+
+
 def exposure_pct(items: Sequence[Any], fills: Sequence[Any]) -> Decimal:
     """Percent of bars with a virtual position, based only on timestamped fills."""
     if not items:
@@ -309,6 +353,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--rsi-buy-min", type=exact_arg, default=D("50"))
     parser.add_argument("--rsi-sell-at", type=exact_arg, default=D("70"))
     parser.add_argument("--position-fraction", type=exact_arg, default=D("0.95"))
+    parser.add_argument("--min-btc-corr-30d", type=exact_arg, default=D("0.50"), help="minimum 30-day return correlation with BTC; research threshold")
+    parser.add_argument("--min-btc-corr-90d", type=exact_arg, default=D("0.60"), help="minimum 90-day return correlation with BTC; research threshold")
     return parser
 
 
@@ -337,6 +383,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ProductV2Error("position fraction must be > 0 and <= 1")
     if not D("0") <= args.fee_rate <= D("0.05") or not D("0") <= args.spread_bps <= D("1000") or not D("0") <= args.slippage_bps <= D("1000"):
         raise ProductV2Error("fee rate must be 0..0.05 and spread/slippage 0..1000 bps")
+    if not D("-1") <= args.min_btc_corr_30d <= D("1") or not D("-1") <= args.min_btc_corr_90d <= D("1"):
+        raise ProductV2Error("BTC correlation minimums must be between -1 and 1")
 
 
 def run(args: argparse.Namespace) -> int:
@@ -356,14 +404,19 @@ def run(args: argparse.Namespace) -> int:
         raise ProductV2Error(f"BTC history insufficient: requested at least {bars}, received {len(btc_items)}")
     btc_result = backtest("BTCUSDT", btc_items, bars, universe.get("BTCUSDT").filters if universe.get("BTCUSDT") else None, fee_rate=args.fee_rate, spread_bps=args.spread_bps, slippage_bps=args.slippage_bps, fast_ema_period=args.fast_ema_period, slow_ema_period=args.slow_ema_period, rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at, position_fraction=args.position_fraction)
     btc_returns = return_series(btc_items)
-    regime = "BULLISH" if btc_result.final_fast_ema > btc_result.final_slow_ema and btc_result.final_rsi >= args.rsi_buy_min else (
-        "BEARISH" if btc_result.final_fast_ema < btc_result.final_slow_ema and btc_result.final_rsi < D("50") else "NEUTRAL"
+    btc_last_closed = btc_items[-1]
+    btc_last_closed_close = btc_last_closed.payload.close
+    regime = classify_btc_regime(
+        btc_last_closed_close, btc_result.final_fast_ema, btc_result.final_slow_ema,
+        btc_result.final_rsi, args.rsi_buy_min,
     )
     btc_hold = buy_hold_net_return(btc_items[-bars:], args.fee_rate, args.spread_bps, args.slippage_bps)
 
     print("BOT-CRIPTO PRODUCT V2 — PUBLIC BINANCE SPOT")
     print(f"Observation UTC: {now.isoformat()}; timeframe=4h; requested history={args.days} days")
-    print(f"BTC panel: regime={regime}; price={ticker['BTCUSDT'].price} USDT; EMA{args.fast_ema_period}={btc_result.final_fast_ema}; EMA{args.slow_ema_period}={btc_result.final_slow_ema}; RSI{args.rsi_period}={btc_result.final_rsi}")
+    print(f"BTC panel: regime={regime}; last closed 4h close={btc_last_closed_close} USDT at {btc_last_closed.payload.end.isoformat()}; EMA{args.fast_ema_period}={btc_result.final_fast_ema}; EMA{args.slow_ema_period}={btc_result.final_slow_ema}; RSI{args.rsi_period}={btc_result.final_rsi}")
+    print(f"BTC spot ticker (separate snapshot, not regime input): price={ticker['BTCUSDT'].price} USDT; observed UTC={now.isoformat()}")
+    print(f"BTC relationship thresholds (research defaults, not validated): corr30d>={args.min_btc_corr_30d}; corr90d>={args.min_btc_corr_90d}")
     print(f"BTC closed bars={btc_result.candle_count}; range={btc_result.first_candle.isoformat()} .. {btc_result.last_candle.isoformat()}")
     print("Temporal caveat: historical available_at may be UNKNOWN; the simulator explicitly models decision at bar close and fills no earlier than the next bar open.")
     print(f"BTC buy-and-hold net reference after fee/spread/slippage assumptions={btc_hold}%; cash reference=0%")
@@ -406,9 +459,9 @@ def run(args: argparse.Namespace) -> int:
     candidates = eligible_snapshot[:args.universe_limit]
     print(f"Universe active USDT Spot={len(universe)}; valid ticker snapshots={len(ticker)}; candidates passing filters={len(eligible_snapshot)}; candidates backtested={len(candidates)}")
     print("\nARS CAPITAL SENSITIVITY — CONVERSION UNKNOWN")
-    print("Capital ARS | Conversion verified | USDT net | Candidates passing filters | Candidates affordable | Full-operation cost ARS / % capital | Break-even return | Net historical return | Drawdown | Decision")
+    print("Capital ARS | Conversion verificada | USDT netos estimados | Candidatas pasan filtros | Candidatas asequibles | Coste operación completa | Retorno neto histórico | Drawdown | Decisión")
     for scenario in ars_capital_scenarios():
-        print(f"{scenario['capital_ars']} | {scenario['conversion']} | {scenario['usdt_net']} | {len(eligible_snapshot)} | {scenario['affordable_candidates']} | UNKNOWN / UNKNOWN | UNKNOWN | {scenario['historical_net_return']} | {scenario['drawdown']} | {scenario['decision']}")
+        print(f"{scenario['capital_ars']} | {scenario['conversion']} | {scenario['usdt_net']} | {len(eligible_snapshot)} | {scenario['affordable_candidates']} | {scenario['full_trade_cost_ars']} | {scenario['historical_net_return']} | {scenario['drawdown']} | {scenario['decision']}")
 
     btc_by_start = {item.payload.start: item for item in btc_items}
     rows = []
@@ -420,7 +473,7 @@ def run(args: argparse.Namespace) -> int:
             if len(items) < bars:
                 excluded.append((symbol, "INSUFFICIENT_HISTORY"))
                 continue
-            if [x.payload.start for x in items[-bars:]] != [x.payload.start for x in btc_items[-bars:]]:
+            if not histories_temporally_aligned(items[-bars:], btc_items[-bars:]):
                 excluded.append((symbol, "BTC_HISTORY_NOT_TEMPORALLY_ALIGNED"))
                 continue
             asset_returns = return_series(items)
@@ -449,8 +502,10 @@ def run(args: argparse.Namespace) -> int:
             reasons = []
             if regime != "BULLISH":
                 reasons.append("BTC_REGIME_NOT_BULLISH")
-            if c30 is None or c90 is None or beta90 is None or relative_strength is None:
-                reasons.append("BTC_METRICS_INSUFFICIENT")
+            reasons.extend(btc_relationship_reasons(
+                c30, c90, beta90, relative_strength,
+                args.min_btc_corr_30d, args.min_btc_corr_90d,
+            ))
             if tick.spread_pct is None or tick.spread_pct > args.max_spread_pct:
                 reasons.append("SPREAD_TOO_WIDE")
             ret = (full.final_equity / full.config.initial_quote_balance - ONE) * D("100")
@@ -461,7 +516,7 @@ def run(args: argparse.Namespace) -> int:
                 reasons.append("NET_FULL_PERIOD_RETURN_NOT_POSITIVE")
             if oos_ret <= 0:
                 reasons.append("HELD_OUT_RETURN_NOT_POSITIVE")
-            rows.append((symbol, tick, universe[symbol].filters, c30, c90, beta90, relative_strength, full, oos, ret, oos_ret, reasons))
+            rows.append((symbol, tick, universe[symbol].filters, c30, c90, beta90, relative_strength, full, oos, ret, oos_ret, reasons, items[-bars:]))
         except (ProductV2Error, BacktestError, RuntimeError, ValueError) as exc:
             excluded.append((symbol, f"DATA_OR_BACKTEST_ERROR:{type(exc).__name__}:{exc}"))
 
@@ -469,23 +524,25 @@ def run(args: argparse.Namespace) -> int:
     if not rows:
         print("No candidate passed the data prerequisites.")
     for row in sorted(rows, key=lambda x: (not x[11], x[1].quote_volume), reverse=True):
-        sym, tick, filt, c30, c90, beta90, strength, full, oos, ret, oos_ret, reasons = row
+        sym, tick, filt, c30, c90, beta90, strength, full, oos, ret, oos_ret, reasons, candidate_items = row
         print(f"{sym}: price={tick.price} USDT; quoteVolume24h={tick.quote_volume}; spread={tick.spread_pct}%")
         print(f"  corr30d={c30}; corr90d={c90}; beta90d={beta90}; relativeStrength30d={strength}%")
         print(f"  minQty={filt.min_qty}; stepSize={filt.step_size}; minNotional={filt.min_notional}")
-        print(f"  180d net research return={ret}%; max drawdown={full.max_drawdown * D('100')}%; exposure={exposure_pct(items[-bars:], full.fills)}%; entries={sum(f.side == 'BUY' for f in full.fills)}; fees={full.total_fees} USDT; estimated spread+slippage={modeled_spread_slippage_cost(full.fills, args.spread_bps, args.slippage_bps)} USDT")
+        print(f"  180d net research return={ret}%; max drawdown={full.max_drawdown * D('100')}%; exposure={exposure_pct(candidate_items, full.fills)}%; entries={sum(f.side == 'BUY' for f in full.fills)}; fees={full.total_fees} USDT; estimated spread+slippage={modeled_spread_slippage_cost(full.fills, args.spread_bps, args.slippage_bps)} USDT")
         print(f"  held-out 60d return={oos_ret}%; held-out drawdown={oos.max_drawdown * D('100')}%; held-out exposure={exposure_pct(items[-60 * 6:], oos.fills)}%; held-out entries={sum(f.side == 'BUY' for f in oos.fills)}; fees={oos.total_fees} USDT; estimated spread+slippage={modeled_spread_slippage_cost(oos.fills, args.spread_bps, args.slippage_bps)} USDT")
         print(f"  research filter={'PASS' if not reasons else 'REJECT'}; reasons={','.join(reasons) if reasons else 'none'}")
     print(f"Research candidates passing non-budget controls: {sum(1 for row in rows if not row[11])}")
     print("\nNORMALIZED USDT CAPITAL SENSITIVITY — NOT ARS CONVERSION")
     print("The 100/250/500 USDT budgets are hypothetical computational scenarios only; no exchange rate or ARS affordability is implied.")
-    print("Budget USDT | Candidate | Affordable at current snapshot | Reason | Virtual BUY entries | Net return | Max drawdown | Fees USDT | Decision")
+    print("Hypothetical USDT | Candidate | BTC relationship controls | Affordable at current snapshot | Affordability reason | Virtual BUY entries | Net return | Max drawdown | Fees USDT | Decision")
     for budget, symbol, affordable, reason, result in normalized_rows:
         net_return = (result.final_equity / result.config.initial_quote_balance - ONE) * D("100")
         buys = sum(fill.side == "BUY" for fill in result.fills)
         affordability_label = "UNKNOWN" if affordable is None else ("YES" if affordable else "NO")
         decision = "NO_TRADE" if not buys or net_return <= ZERO else "RESEARCH_ONLY"
-        print(f"{budget} | {symbol} | {affordability_label} | {reason} | {buys} | {net_return}% | {result.max_drawdown * D('100')}% | {result.total_fees} | {decision}")
+        candidate_row = next((candidate for candidate in rows if candidate[0] == symbol), None)
+        relationship_label = "UNKNOWN" if candidate_row is None else ("PASS" if not any(code in candidate_row[11] for code in ("BTC_METRICS_INSUFFICIENT", "BTC_CORRELATION_30D_BELOW_MINIMUM", "BTC_CORRELATION_90D_BELOW_MINIMUM")) else "REJECT")
+        print(f"{budget} | {symbol} | {relationship_label} | {affordability_label} | {reason} | {buys} | {net_return}% | {result.max_drawdown * D('100')}% | {result.total_fees} | {decision}")
     print("\nEXCLUSIONS (first 30)")
     for symbol, reason in excluded[:30]:
         print(f"  {symbol}: {reason}")

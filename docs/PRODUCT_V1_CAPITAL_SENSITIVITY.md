@@ -1,4 +1,4 @@
-# Product V1 — sensibilidad del capital y protección del presupuesto
+# Product V2 — filtros BTC y sensibilidad del capital
 
 ## Conversión ARS → USDT
 
@@ -40,3 +40,27 @@ Comando de investigación:
 python -m bot_obrero.product_v2 --days 180 --universe-limit 5 --initial-ars 10000
 pytest -q tests/test_product_v2.py
 ```
+
+
+## Filtro explícito de relación con BTC
+
+Product V2 usa ahora umbrales de investigación configurables para las correlaciones de retornos alineados temporalmente:
+
+- --min-btc-corr-30d 0.50
+- --min-btc-corr-90d 0.60
+
+Son valores iniciales de producto, no umbrales científicamente validados ni garantías de calidad futura. Una candidata con métrica desconocida, varianza insuficiente o historia no alineada se rechaza de forma conservadora. Los rechazos se informan con BTC_CORRELATION_30D_BELOW_MINIMUM, BTC_CORRELATION_90D_BELOW_MINIMUM o BTC_METRICS_INSUFFICIENT, junto con las demás razones aplicables.
+
+## Régimen BTC temporalmente coherente
+
+BULLISH requiere que el cierre de la última vela 4h cerrada esté por encima de ambas EMA, que la EMA rápida supere la lenta y que el RSI cumpla el umbral configurado. BEARISH requiere cierre por debajo de ambas EMA, EMA rápida por debajo de lenta y RSI por debajo de 50. Las demás combinaciones son NEUTRAL. El precio spot actual se muestra como una observación separada y no clasifica el régimen.
+
+Si BTC no es BULLISH, no se presentan candidatas como entradas aprobadas. Los resultados históricos pueden mostrarse para investigación.
+
+## Escenarios de capital y límites de evidencia
+
+Los escenarios nominales de 10.000 / 25.000 / 50.000 ARS permanecen en CONVERSION_UNKNOWN: no se ha verificado una ruta de conversión ejecutable, hora, costes, saldo neto, reserva de comisiones ni coste de operación expresable en ARS. Por tanto, las celdas ARS que dependen de conversión permanecen UNKNOWN o NOT_COMPUTABLE, y la decisión es NO_TRADE.
+
+La comparación separada de 100 / 250 / 500 USDT es matemática y normalizada, no una equivalencia de ARS. Reutiliza el mismo histórico, estrategia y supuestos de costes para explorar mínimos de cantidad/nocional, fills, retorno neto y drawdown. La asequibilidad de ese bloque solo se refiere a un snapshot público actual del instrumento; no prueba conversión de ARS ni garantiza que haya señal histórica. No se escala automáticamente el tamaño para consumir todo el saldo y se conserva el máximo de cinco entradas en cualquier ventana móvil de 30 días.
+
+**Conclusión actual:** el bloqueo principal verificable de los tres presupuestos ARS es la falta de conversión comprobada. No puede afirmarse que 25.000 o 50.000 ARS amplíen oportunidades reales. Solo el resultado remoto de la suite y del E2E sobre el SHA final podrá acreditar la validación de código; ningún backtest demuestra rentabilidad futura.
