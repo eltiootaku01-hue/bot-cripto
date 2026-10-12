@@ -353,7 +353,16 @@ def test_historical_btc_gate_uses_only_past_aligned_data(monkeypatch):
     candidate, btc = make_history(), make_history()
     gate = product.historical_btc_entry_admission(candidate, btc, fast_ema_period=12, slow_ema_period=26,
         rsi_period=14, rsi_buy_min=Decimal("50"), minimum_corr30d=Decimal("0.5"), minimum_corr90d=Decimal("0.6"))
+    requested_windows = []
+    original_correlation_beta = product.correlation_beta
+
+    def recording_correlation_beta(asset_returns, btc_returns, periods):
+        requested_windows.append(periods)
+        return original_correlation_beta(asset_returns, btc_returns, periods)
+
+    monkeypatch.setattr(product, "correlation_beta", recording_correlation_beta)
     expected = gate(600, ())
+    assert requested_windows == [30 * 6, 90 * 6]
     changed_future = make_history()
     for i in range(601, len(changed_future)):
         changed_future[i].payload.close = Decimal(1000000 + i)

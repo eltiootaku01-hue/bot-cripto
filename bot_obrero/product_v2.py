@@ -343,8 +343,8 @@ def historical_btc_entry_admission(
             cache[index] = result
             return result
         asset_returns, btc_returns = return_series(candidate_prefix), return_series(btc_prefix)
-        corr30, _ = correlation_beta(asset_returns, btc_returns, 30 * 6 - 1)
-        corr90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6 - 1)
+        corr30, _ = correlation_beta(asset_returns, btc_returns, 30 * 6)
+        corr90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6)
         asset_return30, btc_return30 = return_pct(candidate_prefix, 30 * 6), return_pct(btc_prefix, 30 * 6)
         strength = asset_return30 - btc_return30 if asset_return30 is not None and btc_return30 is not None else None
         reasons = btc_relationship_reasons(corr30, corr90, beta90, strength, minimum_corr30d, minimum_corr90d)
