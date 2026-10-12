@@ -25,7 +25,7 @@ from .virtual_backtest import BacktestConfig, BacktestError, BacktestResult, _va
 D = Decimal
 ZERO, ONE = D("0"), D("1")
 FEE, SLIPPAGE_BPS = D("0.001"), D("5")
-BASE_URL, TIMEOUT = "https://api.binance.com", 12.0
+BASE_URL, TIMEOUT = "https://data-api.binance.vision", 12.0
 MAX_UNIVERSE = 12
 SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
 
