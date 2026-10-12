@@ -12,6 +12,8 @@ from bot_obrero.product_v2 import (
     buy_hold_net_return,
     active_usdt_universe,
     correlation_beta,
+    exposure_pct,
+    modeled_spread_slippage_cost,
     parse_filters,
     return_pct,
     return_series,
@@ -156,3 +158,17 @@ def test_universe_instrument_preserves_provider_base_asset_for_stablecoin_exclus
          "status": "TRADING", "isSpotTradingAllowed": True, "filters": []},
     ]})
     assert universe["USD1USDT"].base_asset == "USD1"
+
+
+def test_exposure_is_calculated_from_fill_timestamps():
+    items = _series(["10", "11", "12"])
+    fills = [
+        SimpleNamespace(timestamp=items[1].payload.start, side="BUY", quantity=Decimal("2"), price=Decimal("10")),
+        SimpleNamespace(timestamp=items[2].payload.start, side="SELL", quantity=Decimal("2"), price=Decimal("12")),
+    ]
+    assert exposure_pct(items, fills) == Decimal("100") / Decimal("3")
+
+
+def test_modeled_spread_and_slippage_cost_is_explicit_and_decimal():
+    fill = SimpleNamespace(quantity=Decimal("2"), price=Decimal("10"))
+    assert modeled_spread_slippage_cost([fill], Decimal("10"), Decimal("5")) == Decimal("0.020")
