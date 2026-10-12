@@ -731,12 +731,13 @@ def test_daily_metrics_sell_without_known_buy_does_not_fabricate_zero_cost_basis
 
 def test_daily_metrics_equity_pnl_fees_reconcile_for_valid_buy_hold_sell_sequence():
     first = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    close_1ms = timedelta(milliseconds=1)
     buy = _virtual_fill(first, "BUY", price="10", fee="0.1")
-    sell = _virtual_fill(first + timedelta(hours=5), "SELL", price="12", fee="0.12", realized="1.78")
+    sell = _virtual_fill(first + timedelta(days=1, hours=6), "SELL", price="12", fee="0.12", realized="1.78")
     points = [
-        _equity_point(first + timedelta(hours=4), close="10", quote="989.9", position="1", equity="999.9"),
-        _equity_point(first + timedelta(hours=8), close="12", quote="989.9", position="1", equity="1001.9"),
-        _equity_point(first + timedelta(hours=12), close="12", quote="1001.78", position="0", equity="1001.78"),
+        _equity_point(first + timedelta(days=1) - close_1ms, close="10", quote="989.9", position="1", equity="999.9"),
+        _equity_point(first + timedelta(days=2) - close_1ms, close="12", quote="989.9", position="1", equity="1001.9"),
+        _equity_point(first + timedelta(days=3) - close_1ms, close="12", quote="1001.78", position="0", equity="1001.78"),
     ]
     rows, summary = daily_equity_metrics(_daily_metrics_result(points, [buy, sell], first_candle=first))
     assert rows[0]["unrealized_pnl"] == Decimal("-0.1")
