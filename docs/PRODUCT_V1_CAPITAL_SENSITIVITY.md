@@ -124,3 +124,20 @@ El parámetro `--hypothetical-usdt-balance 31` establece un saldo ficticio de in
 La referencia `--initial-ars 50000` se informa por separado y permanece `CONVERSION_UNKNOWN`. El origen del saldo de simulación es `HYPOTHETICAL_SCENARIO_NOT_ARS_CONVERSION`: no es una cotización, conversión ni afirmación sobre el dinero que se recibiría. Si los mínimos del instrumento o los costes impiden una compra, la orden se registra como rechazada; no se reducen los filtros ni se inventan fracciones negociables.
 
 El informe distingue el capital inicial, equity final, PnL neto, retorno, drawdown, fills BUY/SELL, comisiones, costes modelados de spread/deslizamiento, saldo no invertido y rechazos. Los benchmarks de efectivo (0%) y BTC buy-and-hold usan supuestos de coste equivalentes. Las pruebas y los resultados históricos no demuestran rentabilidad futura ni autorizan operaciones reales.
+
+
+## Auditoría de rentabilidad diaria neta (Product V2-R3)
+
+La sección `DAILY NET PROFITABILITY AUDIT` deriva sus métricas de la misma `BacktestResult` y su curva de equity; no crea un motor contable paralelo. Se imprime para el baseline EMA/RSI y la estrategia integrada, en la evaluación principal de 180 días y en cada ventana walk-forward de 60 días, bajo cada escenario de costes (base, estrés 1 y estrés 2).
+
+- Agrupación: UTC. El timestamp de `EquityPoint` representa el final exclusivo de la vela; una vela que termina exactamente a las 00:00 UTC se asigna al cierre del día UTC anterior.
+- Cambio neto diario: `equity_cierre_día - equity_cierre_día_anterior`. Para el primer día observado se usa el saldo inicial hipotético como referencia.
+- Retorno diario: `cambio_neto_diario / equity_referencia * 100`. No se suman retornos porcentuales para calcular el acumulado.
+- PnL realizado diario: suma del PnL de fills SELL, cuyo motor ya descuenta el coste de entrada y los costes de salida. El PnL no realizado se calcula al cierre del día como valor de la posición abierta menos su coste de entrada, incluida la comisión de compra.
+- Comisiones: suma de fees de los fills cuyo timestamp de ejecución cae en ese día UTC. Los costes modelados de spread/slippage ya están reflejados en los precios simulados de los fills; no se vuelven a restar de la equity.
+- Días parciales: Product V2 opera con velas 4h; los días con menos de seis cierres observados se marcan `PARTIAL_UTC_DAY`. Los resúmenes incluyen esos días y reportan su cantidad, por lo que la media diaria debe leerse junto a esa limitación.
+- Drawdown diario: se calcula sobre cierres diarios de equity, incluyendo el saldo inicial como máximo de referencia. Es distinto del máximo drawdown intradía/por vela que informa el motor.
+- Sin operaciones: un día sin fills se marca explícitamente y cuenta en las estadísticas diarias. La estrategia puede mantener una posición abierta ese día; por eso el cambio de equity puede no ser cero.
+- Rechazos: el motor conserva motivos de rechazo agregados, pero no persiste una fecha por rechazo. El informe marca su atribución diaria como `UNKNOWN`/no disponible y muestra el conjunto agregado por separado; no inventa un día para esos rechazos.
+- Costes: cada escenario aplica sus propios parámetros a baseline e integrada. Los spreads y slippages son supuestos del experimento, no mediciones históricas.
+- Decisión: la media positiva o una alta proporción de días positivos no demuestra rentabilidad fiable ni rentabilidad futura. Evaluar conjuntamente net PnL, mediana, distribución de días, drawdown, rachas, operaciones, costes y ventanas de validación.

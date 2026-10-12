@@ -16,6 +16,7 @@ from bot_obrero.product_v2 import (
     active_usdt_universe,
     correlation_beta,
     exposure_pct,
+    daily_equity_metrics,
     modeled_spread_slippage_cost,
     parse_filters,
     return_pct,
@@ -508,3 +509,73 @@ def test_buy_hold_benchmark_reports_net_return_and_drawdown_under_costs():
     ret, dd = buy_hold_metrics(_series(["100", "120", "90", "110"]), Decimal("0.001"), Decimal("10"), Decimal("5"))
     assert ret < Decimal("10")
     assert dd < 0
+
+
+
+def test_daily_equity_metrics_separate_equity_change_realized_unrealized_and_costs():
+    from bot_obrero.virtual_backtest import EquityPoint, VirtualFill
+
+    day1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    day2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    points = (
+        EquityPoint(day1 + timedelta(hours=4), Decimal("1000"), Decimal("989.9"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=8), Decimal("1005"), Decimal("989.9"), Decimal("1"), Decimal("1005"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=12), Decimal("1010"), Decimal("989.9"), Decimal("1"), Decimal("1010"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=16), Decimal("1008"), Decimal("989.9"), Decimal("1"), Decimal("1008"), Decimal("0")),
+        EquityPoint(day1 + timedelta(hours=20), Decimal("1012"), Decimal("989.9"), Decimal("1"), Decimal("1012"), Decimal("0")),
+        EquityPoint(day2, Decimal("1015"), Decimal("989.9"), Decimal("1"), Decimal("1015"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=4), Decimal("1010"), Decimal("990"), Decimal("1"), Decimal("1010"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=8), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=12), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=16), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(hours=20), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+        EquityPoint(day2 + timedelta(days=1), Decimal("1000"), Decimal("990"), Decimal("1"), Decimal("1000"), Decimal("0")),
+    )
+    fills = (
+        VirtualFill(day1 + timedelta(hours=1), "BUY", Decimal("1"), Decimal("10"), Decimal("0.1"), Decimal("989.9"), "entry"),
+        VirtualFill(day1 + timedelta(hours=5), "SELL", Decimal("1"), Decimal("12"), Decimal("0.12"), Decimal("1001.88"), "exit", Decimal("1.78")),
+        VirtualFill(day1 + timedelta(hours=7), "BUY", Decimal("1"), Decimal("10"), Decimal("0.1"), Decimal("990"), "entry"),
+    )
+    result = SimpleNamespace(
+        equity_curve=points, fills=fills, entry_rejections=("ORDER_REJECTED:MIN_NOTIONAL",),
+        config=SimpleNamespace(initial_quote_balance=Decimal("1000")),
+    )
+
+    rows, summary = daily_equity_metrics(result)
+    assert len(rows) == 2
+    assert rows[0]["day_utc"] == "2026-01-01"
+    assert rows[0]["day_status"] == "FULL_UTC_DAY"
+    assert rows[0]["net_change"] == Decimal("15")
+    assert rows[0]["realized_pnl"] == Decimal("1.78")
+    assert rows[0]["fees"] == Decimal("0.32")
+    assert rows[0]["buys"] == 2 and rows[0]["sells"] == 1
+    assert rows[1]["day_utc"] == "2026-01-02"
+    assert rows[1]["day_status"] == "FULL_UTC_DAY"
+    assert rows[1]["net_change"] == Decimal("-15")
+    assert rows[1]["unrealized_pnl"] == Decimal("-0.1")
+    assert rows[1]["no_trade"] is True
+    assert summary["net_pnl"] == Decimal("0")
+    assert summary["positive_days"] == 1 and summary["negative_days"] == 1
+    assert summary["no_trade_days"] == 1
+    assert summary["max_consecutive_losing_days"] == 1
+    assert summary["rejection_reasons"] == ("ORDER_REJECTED:MIN_NOTIONAL",)
+
+
+def test_daily_equity_metrics_marks_partial_days_and_uses_prior_close_reference():
+    from bot_obrero.virtual_backtest import EquityPoint
+
+    start = datetime(2026, 2, 1, 4, tzinfo=timezone.utc)
+    result = SimpleNamespace(
+        equity_curve=(
+            EquityPoint(start, Decimal("110"), Decimal("110"), Decimal("0"), Decimal("110"), Decimal("0")),
+            EquityPoint(start + timedelta(hours=4), Decimal("120"), Decimal("120"), Decimal("0"), Decimal("120"), Decimal("0")),
+        ),
+        fills=(), entry_rejections=(),
+        config=SimpleNamespace(initial_quote_balance=Decimal("100")),
+    )
+    rows, summary = daily_equity_metrics(result)
+    assert rows[0]["day_status"] == "PARTIAL_UTC_DAY"
+    assert rows[0]["net_change"] == Decimal("20")
+    assert rows[0]["return_pct"] == Decimal("20")
+    assert summary["partial_days"] == 1
+    assert summary["no_trade_days"] == 1
