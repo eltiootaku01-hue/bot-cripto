@@ -64,3 +64,12 @@ Los escenarios nominales de 10.000 / 25.000 / 50.000 ARS permanecen en CONVERSIO
 La comparación separada de 100 / 250 / 500 USDT es matemática y normalizada, no una equivalencia de ARS. Reutiliza el mismo histórico, estrategia y supuestos de costes para explorar mínimos de cantidad/nocional, fills, retorno neto y drawdown. La asequibilidad de ese bloque solo se refiere a un snapshot público actual del instrumento; no prueba conversión de ARS ni garantiza que haya señal histórica. No se escala automáticamente el tamaño para consumir todo el saldo y se conserva el máximo de cinco entradas en cualquier ventana móvil de 30 días.
 
 **Conclusión actual:** el bloqueo principal verificable de los tres presupuestos ARS es la falta de conversión comprobada. No puede afirmarse que 25.000 o 50.000 ARS amplíen oportunidades reales. Solo el resultado remoto de la suite y del E2E sobre el SHA final podrá acreditar la validación de código; ningún backtest demuestra rentabilidad futura.
+
+
+## Fuentes públicas investigadas para ARS → USDT
+
+- Binance describe el flujo de compra P2P de USDT mediante moneda fiat, método de pago y anuncios con límites por vendedor: https://www.binance.com/es-AR/support/faq/detail/360043832851
+- La página oficial de tarifas P2P indica que las tarifas aplicables varían por mercado y que las tasas personalizadas requieren iniciar sesión: https://www.binance.com/en/fee/p2pFeeRate
+- El anuncio oficial de 2025 incluyó ARS entre los mercados fiat con tarifa taker de 0,06–0,08 USDT por orden en la Zona P2P; esto no verifica la tarifa actual de una orden concreta: https://www.binance.com/es-AR/support/announcement/detail/70c92ace9acb45529cd4541195248c91
+
+Estas páginas demuestran que P2P es una vía documentada y que pueden existir comisiones, pero no constituyen una cotización ejecutable actual para una cuenta concreta. En esta revisión no se verificaron anuncios en vivo, método de pago disponible, límites para 10.000/25.000/50.000 ARS, precio efectivo, spread, comisión aplicable ni USDT netos. Por eso los tres escenarios siguen en CONVERSION_UNKNOWN y NO_TRADE. No se usa una tasa tomada de una fuente genérica ni se presenta una ruta P2P como disponible sin verificarla.

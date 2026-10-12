@@ -269,7 +269,7 @@ def test_btc_below_both_emas_is_not_bullish():
 
 def test_btc_regime_uses_closed_candle_close_not_an_independent_spot_price():
     closed_candle_close = Decimal("105")
-    fast, slow, rsi = Decimal("100"), Decimal("103"), Decimal("55")
+    fast, slow, rsi = Decimal("104"), Decimal("103"), Decimal("55")
     spot_price = Decimal("80")
     regime = classify_btc_regime(closed_candle_close, fast, slow, rsi, Decimal("50"))
     assert regime == "BULLISH"
@@ -299,3 +299,15 @@ def test_btc_correlation_threshold_cli_defaults_are_explicit():
     args = _parser().parse_args([])
     assert args.min_btc_corr_30d == Decimal("0.50")
     assert args.min_btc_corr_90d == Decimal("0.60")
+
+
+
+def test_usdt_spot_universe_is_not_a_complete_ars_fiat_or_p2p_conversion_search():
+    universe = active_usdt_universe({"symbols": [
+        {"symbol": "ALTUSDT", "baseAsset": "ALT", "quoteAsset": "USDT",
+         "status": "TRADING", "isSpotTradingAllowed": True, "filters": []},
+        {"symbol": "BTCARS", "baseAsset": "BTC", "quoteAsset": "ARS",
+         "status": "TRADING", "isSpotTradingAllowed": True, "filters": []},
+    ]})
+    assert "ALTUSDT" in universe
+    assert "BTCARS" not in universe
