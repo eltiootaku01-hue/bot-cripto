@@ -56,3 +56,20 @@ El workflow `.github/workflows/virtual-backtest-real-e2e.yml` se activa en `pull
 El job exige un código de salida cero y que el informe indique 100 velas simuladas, intervalo y rango histórico, estrategia, fills, saldo final, equity, comisiones, PnL, retorno y drawdown. La ausencia de fills o una rentabilidad negativa no constituye fallo por sí misma. El archivo `virtual-backtest-report.txt` se muestra en los logs y se publica como artefacto con retención de 14 días, incluso si falla la comprobación posterior al comando cuando el archivo llegó a generarse.
 
 La ejecución E2E usa solo ExchangeInfo y klines públicos de Binance Spot. No usa claves, endpoints privados ni órdenes reales. Es una observación puntual del histórico disponible y no demuestra rentabilidad futura ni disponibilidad temporal histórica perfecta.
+
+
+## Product V2 — BTC panel and selective altcoin research
+
+Install from the repository root with \`python -m pip install -e ".[test]"\`, then run:
+
+\`\`\`bash
+python -m bot_obrero.product_v2 --days 180 --universe-limit 5 --initial-ars 10000
+\`\`\`
+
+The command uses public Binance Spot ExchangeInfo, 24-hour ticker and bookTicker snapshots, then reuses the metadata-backed adapter and the existing virtual backtest for 4-hour historical candles. The bounded scan reports BTC regime, quote-volume and spread filters, nominal price range, current instrument quantity/notional filters, 30/90-day correlation, 90-day beta, relative strength, full-window results and a separate fixed-parameter 60-day slice. A candidate is never an order instruction.
+
+The research backtest uses a normalized fictitious 1,000 USDT ledger. It is not the 10,000 ARS budget. The conversion route ARS→USDT, its representative quote, observation time and costs are not verified by this tool; it therefore reports \`CONVERSION_UNKNOWN\` and refuses to claim that any candidate is affordable. To enable an affordability decision later, a separately reviewed conversion evidence source and explicit route-cost model are required.
+
+The virtual engine models 0.1% fee per fill, 5 bps slippage per fill and an assumed 10 bps full spread (half on each fill); the historical spread is not available from klines and is not represented as measured data. It caps BUY entries at five per rolling 30-day window. Signals are calculated through a closed bar and execute no earlier than the next bar open. Historical \`available_at\` may be unknown; the simulator labels its bar-close assumption instead of rewriting canonical data.
+
+The remote public-data workflow runs the Product V2 scan against Binance without HTTP mocks and stores the terminal report as an Actions artifact. Unit tests remain deterministic and offline. A green test suite and a positive historical result do not establish profitability or authorize real-money trading.
