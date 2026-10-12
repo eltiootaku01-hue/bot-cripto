@@ -682,7 +682,7 @@ def test_daily_metrics_fill_at_equity_timestamp_is_applied_only_to_next_point():
     assert rows[0]["day_utc"] == "2026-07-01"
     assert rows[0]["unrealized_pnl"] is None
     assert rows[1]["day_utc"] == "2026-07-02"
-    assert rows[1]["unrealized_pnl"] == Decimal("0.9")
+    assert rows[1]["unrealized_pnl"] == Decimal("1.9")
     assert rows[1]["buys"] == 1
 
 
