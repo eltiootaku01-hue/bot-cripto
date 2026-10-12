@@ -713,7 +713,15 @@ def run(args: argparse.Namespace) -> int:
     print("Parameters fixed before validation; no tuning on validation outcomes. Spreads are modeled assumptions, not observed history.")
     for v in validation_rows:
         b, i = v["baseline"], v["integrated"]
-        print(f"VALIDATION window={v['window']} symbol={v['symbol']} range={v['start'].isoformat()}..{v['end'].isoformat()} cost={v['cost']} fee/fill={v['fee']} assumed_full_spread_bps={v['spread']} slippage/fill_bps={v['slip']} | baseline_return={v['baseline_return']}% baseline_drawdown={b.max_drawdown*D('100')}% baseline_entries={v['baseline_entries']} | integrated_return={v['integrated_return']}% integrated_drawdown={i.max_drawdown*D('100')}% integrated_entries={v['integrated_entries']} regime/correlation/data_rejections={v['rejections']} | cash_return=0% cash_drawdown=0% BTC_buy_hold_return={v['btc_return']}% BTC_buy_hold_drawdown={v['btc_dd']}%")
+        regime_rejections = sum("BTC_REGIME_NOT_BULLISH" in reason for reason in i.entry_rejections)
+        correlation_rejections = sum("BTC_CORRELATION_" in reason for reason in i.entry_rejections)
+        data_rejections = sum(any(code in reason for code in ("BTC_METRICS_INSUFFICIENT", "BTC_HISTORY_NOT_TEMPORALLY_ALIGNED")) for reason in i.entry_rejections)
+        print(f"VALIDATION window=${v['window']} symbol=${v['symbol']} range=${v['start'].isoformat()}..${v['end'].isoformat()} cost=${v['cost']} fee/fill=${v['fee']} assumed_full_spread_bps=${v['spread']} slippage/fill_bps=${v['slip']} | baseline_return=${v['baseline_return']}% baseline_drawdown=${b.max_drawdown*D('100')}% baseline_entries=${v['baseline_entries']} | integrated_return=${v['integrated_return']}% integrated_drawdown=${i.max_drawdown*D('100')}% integrated_entries=${v['integrated_entries']} rejects_regime=${regime_rejections} rejects_correlation=${correlation_rejections} rejects_unknown_or_data=${data_rejections} | cash_return=0% cash_drawdown=0% BTC_buy_hold_return=${v['btc_return']}% BTC_buy_hold_drawdown=${v['btc_dd']}%")
+        for strategy_name, result in (("BASELINE", b), ("INTEGRATED", i)):
+            for fill in result.fills:
+                print(f"  VALIDATION_FILL window=${v['window']} symbol=${v['symbol']} cost=${v['cost']} strategy=${strategy_name} side=${fill.side} timestamp=${fill.timestamp.isoformat()} price=${fill.price} quantity=${fill.quantity} fee=${fill.fee} realized_pnl=${fill.realized_pnl} quote_balance_after=${fill.quote_balance_after} reason=${fill.reason}")
+        for rejection in i.entry_rejections:
+            print(f"  VALIDATION_REJECTION window=${v['window']} symbol=${v['symbol']} cost=${v['cost']} detail=${rejection}")
     print(f"Walk-forward rows={len(validation_rows)}; maximum expected={len(candidates)*VALIDATION_WINDOW_COUNT*len(VALIDATION_COST_SCENARIOS)}.")
 
     print(f"Research candidates passing current-snapshot non-budget controls: {sum(1 for row in rows if not row[15])}")

@@ -112,3 +112,6 @@ Each held-out window starts with an independent fictitious balance. EMA/RSI base
 | Stress 2 | 0.2% | 50 bps | 20 bps |
 
 The same cost scenario is applied to baseline, integrated strategy and BTC benchmark. Cash return/drawdown is 0% by definition. Spreads are modeled assumptions, not observed historical costs. This report does not prove profitability or suitability for real money. Exact outcome claims must be added only after completed GitHub Actions evidence for the exact SHA.
+
+
+Walk-forward logs emit one VALIDATION_FILL record per simulated baseline/integrated fill, including timestamp, side, price, quantity, fee, realized PnL, post-fill quote balance, and reason. Each integrated admission rejection is emitted as a separate VALIDATION_REJECTION record. Summary rejection counts are separated into BTC regime, correlation, and unknown/data categories. These are simulator decisions and modeled fills, not exchange executions.
