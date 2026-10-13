@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
 from typing import Mapping, Sequence, Any
 
 from .analysis_ema import EMAAlgorithm
@@ -188,7 +188,7 @@ def run_shared_portfolio(histories: Mapping[str, Sequence[Any]],
                         slip = (config.spread_bps / D("2") + config.slippage_bps) / D("10000")
                         price = selected.payload.open * (ONE + slip)
                         raw_qty = cash / (price * (ONE + config.fee_rate))
-                        qty = raw_qty.quantize(D("0.00000001"), rounding=ROUND_DOWN)
+                        qty = raw_qty
                         notional = qty * price
                         fee = notional * config.fee_rate
                         total = notional + fee

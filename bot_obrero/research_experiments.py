@@ -29,6 +29,7 @@ SCENARIOS = (
     ("STRESS_2", D("0.002"), D("50"), D("20")),
 )
 INITIAL_CASH = D("1000")
+ZERO = D("0")
 INTERVAL = "4h"
 
 
@@ -211,7 +212,7 @@ def _run_experiments(histories: dict[str, list[Any]], meta: dict[str, Any]) -> d
                 "return_pct": str((portfolio.final_equity / INITIAL_CASH - 1) * 100),
                 "max_drawdown_pct": str(portfolio.max_drawdown * 100),
                 "fills": len(portfolio.fills), "closed_trades": sum(fill.side == "SELL" for fill in portfolio.fills),
-                "fees_usdt": str(portfolio.total_fees), "exposure_pct": str(exposure),
+                "fees_usdt": str(portfolio.total_fees), "realized_pnl_usdt": str(sum((fill.realized_pnl for fill in portfolio.fills if fill.realized_pnl is not None), D("0"))), "exposure_pct": str(exposure),
                 "turnover_initial_capital_multiple": str(notionals / INITIAL_CASH),
                 "final_cash": str(portfolio.final_cash), "final_symbol": portfolio.final_symbol,
                 "final_quantity": str(portfolio.final_quantity),
