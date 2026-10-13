@@ -76,6 +76,7 @@ class SharedPortfolioResult:
     final_cash: Decimal
     final_symbol: str | None
     final_quantity: Decimal
+    final_entry_cost: Decimal
     final_equity: Decimal
     net_pnl: Decimal
     total_fees: Decimal
@@ -250,7 +251,8 @@ def run_shared_portfolio(histories: Mapping[str, Sequence[Any]],
     final_point = curve[-1]
     return SharedPortfolioResult(
         initial_cash=config.initial_cash, final_cash=cash, final_symbol=held_symbol,
-        final_quantity=quantity, final_equity=final_point.equity,
+        final_quantity=quantity, final_entry_cost=entry_cost if held_symbol is not None else ZERO,
+        final_equity=final_point.equity,
         net_pnl=final_point.equity - config.initial_cash, total_fees=fees_total,
         max_drawdown=min((point.drawdown for point in curve), default=ZERO),
         fills=tuple(fills), equity_curve=tuple(curve), decisions=tuple(decisions),

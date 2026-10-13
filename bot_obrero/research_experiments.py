@@ -17,6 +17,7 @@ from typing import Any
 from .binance_instruments import BinanceMetadataBackedAdapter, BinanceSpotInstrumentMetadata
 from .binance_spot import BinanceSpotRestConfig
 from .research_portfolio import PortfolioConfig, run_shared_portfolio
+from .product_v2 import modeled_spread_slippage_cost
 from .research_strategies import DonchianBreakoutStrategy, MeanReversionStrategy
 from .virtual_backtest import BacktestConfig, BacktestError, _expected_next_start, _validate_history, run_virtual_backtest
 
@@ -75,7 +76,7 @@ def _download_histories(days: int):
     return histories, meta
 
 
-def _metrics(result, initial: Decimal) -> dict[str, Any]:
+def _metrics(result, initial: Decimal, spread: Decimal, slippage: Decimal) -> dict[str, Any]:
     points = result.equity_curve
     daily: dict[Any, list[Any]] = {}
     for point in points:
@@ -101,6 +102,8 @@ def _metrics(result, initial: Decimal) -> dict[str, Any]:
         "fills": len(result.fills),
         "closed_trades": sum(fill.side == "SELL" for fill in result.fills),
         "fees_usdt": str(result.total_fees),
+        "modeled_spread_slippage_cost_usdt": str(modeled_spread_slippage_cost(result.fills, spread, slippage)),
+        "modeled_fees_plus_spread_slippage_usdt": str(result.total_fees + modeled_spread_slippage_cost(result.fills, spread, slippage)),
         "entry_rejections": list(result.entry_rejections),
         "exposure_pct": str(exposure) if exposure is not None else None,
         "turnover_initial_capital_multiple": str(notionals / initial),
@@ -108,6 +111,29 @@ def _metrics(result, initial: Decimal) -> dict[str, Any]:
         "complete_utc_days": len(complete_changes),
         "mean_complete_day_pnl_usdt": str(sum(complete_changes, D("0")) / D(len(complete_changes))) if complete_changes else None,
         "median_complete_day_pnl_usdt": str(median(complete_changes)) if complete_changes else None,
+    }
+
+
+
+def _portfolio_daily_stats(points, initial: Decimal) -> dict[str, Any]:
+    grouped: dict[Any, list[Any]] = {}
+    for point in points:
+        day = (point.timestamp.astimezone(timezone.utc) - timedelta(microseconds=1)).date()
+        grouped.setdefault(day, []).append(point)
+    changes: list[Decimal] = []
+    previous_equity = initial
+    for day in sorted(grouped):
+        day_points = grouped[day]
+        midnight = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+        expected = tuple(midnight + timedelta(hours=4*i) - timedelta(milliseconds=1) for i in range(1, 7))
+        stamps = tuple(point.timestamp.astimezone(timezone.utc) for point in day_points)
+        if stamps == expected:
+            changes.append(day_points[-1].equity - previous_equity)
+        previous_equity = day_points[-1].equity
+    return {
+        "complete_utc_days": len(changes),
+        "mean_complete_day_pnl_usdt": str(sum(changes, D("0")) / D(len(changes))) if changes else None,
+        "median_complete_day_pnl_usdt": str(median(changes)) if changes else None,
     }
 
 
@@ -149,7 +175,7 @@ def _run_single(symbol, items, btc_items, strategy, strategy_name, scenario, eva
         )
         try:
             result = run_virtual_backtest(items, cfg, evaluation_start=start, evaluation_end=end, strategy=strategy)
-            metrics = _metrics(result, INITIAL_CASH)
+            metrics = _metrics(result, INITIAL_CASH, spread, slippage)
             metrics["cash_benchmark_return_pct"] = "0"
             metrics["btc_buy_hold"] = _benchmark_btc(btc_items, btc_start.get(start, -1), count, fee, spread, slippage)
             metrics["first_candle"] = result.first_candle.isoformat()
@@ -204,6 +230,7 @@ def _run_experiments(histories: dict[str, list[Any]], meta: dict[str, Any]) -> d
             portfolio = run_shared_portfolio(research_histories, cfg, evaluation_start=eval_start)
             notionals = sum((fill.quantity * fill.price for fill in portfolio.fills), D("0"))
             exposure = D(sum(point.symbol is not None for point in portfolio.equity_curve)) / D(len(portfolio.equity_curve)) * D("100")
+            daily_stats = _portfolio_daily_stats(portfolio.equity_curve, INITIAL_CASH)
             btc_start = next((i for i, item in enumerate(btc_items) if item.payload.start == eval_start), -1)
             portfolio_rows.append({
                 "candidate": "C_SHARED_RELATIVE_STRENGTH", "scenario": scenario_name,
@@ -213,12 +240,31 @@ def _run_experiments(histories: dict[str, list[Any]], meta: dict[str, Any]) -> d
                 "return_pct": str((portfolio.final_equity / INITIAL_CASH - 1) * 100),
                 "max_drawdown_pct": str(portfolio.max_drawdown * 100),
                 "fills": len(portfolio.fills), "closed_trades": sum(fill.side == "SELL" for fill in portfolio.fills),
-                "fees_usdt": str(portfolio.total_fees), "realized_pnl_usdt": str(sum((fill.realized_pnl for fill in portfolio.fills if fill.realized_pnl is not None), D("0"))), "exposure_pct": str(exposure),
+                "fees_usdt": str(portfolio.total_fees),
+                "modeled_spread_slippage_cost_usdt": str(sum((fill.quantity * fill.price * ((spread / D("2") + slippage) / D("10000")) for fill in portfolio.fills), D("0"))),
+                "modeled_fees_plus_spread_slippage_usdt": str(portfolio.total_fees + sum((fill.quantity * fill.price * ((spread / D("2") + slippage) / D("10000")) for fill in portfolio.fills), D("0"))),
+                "realized_pnl_usdt": str(sum((fill.realized_pnl for fill in portfolio.fills if fill.realized_pnl is not None), D("0"))),
+                "final_entry_cost_usdt": str(portfolio.final_entry_cost),
+                "exposure_pct": str(exposure),
                 "turnover_initial_capital_multiple": str(notionals / INITIAL_CASH),
+                **daily_stats,
                 "final_cash": str(portfolio.final_cash), "final_symbol": portfolio.final_symbol,
                 "final_quantity": str(portfolio.final_quantity),
                 "rejected_transitions": list(portfolio.rejected_transitions),
-                "decisions": len(portfolio.decisions), "benchmark_cash_return_pct": "0",
+                "decisions": len(portfolio.decisions),
+                "decision_history": [
+                    {"timestamp": decision.timestamp.isoformat(), "selected_symbol": decision.selected_symbol,
+                     "momentum": str(decision.momentum) if decision.momentum is not None else None,
+                     "reason": decision.reason} for decision in portfolio.decisions
+                ],
+                "fills_detail": [
+                    {"timestamp": fill.timestamp.isoformat(), "symbol": fill.symbol, "side": fill.side,
+                     "quantity": str(fill.quantity), "price": str(fill.price), "fee": str(fill.fee),
+                     "cash_after": str(fill.cash_after), "reason": fill.reason,
+                     "realized_pnl": str(fill.realized_pnl) if fill.realized_pnl is not None else None}
+                    for fill in portfolio.fills
+                ],
+                "benchmark_cash_return_pct": "0",
                 "benchmark_btc_buy_hold": _benchmark_btc(btc_items, btc_start, evaluation_count, fee, spread, slippage),
             })
         except Exception as exc:

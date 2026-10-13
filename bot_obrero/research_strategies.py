@@ -113,8 +113,8 @@ class MeanReversionStrategy:
         variance = sum(((price - mean) ** 2 for price in previous_closes), Decimal("0")) / Decimal(20)
         if variance <= 0:
             close = bars[-1].values["close"]
-            if context.in_position and close >= mean:
-                return StrategySignal(SignalAction.SELL, "close returned to prior mean; prior variance is zero")
+            if context.in_position:
+                return StrategySignal(SignalAction.SELL, "zero variance collapses the 3σ stop to the prior mean")
             return StrategySignal(SignalAction.HOLD, "MEAN_REVERSION_ZERO_VARIANCE; no entry")
         deviation = variance.sqrt()
         close = bars[-1].values["close"]
