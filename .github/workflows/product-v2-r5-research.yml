@@ -1,0 +1,40 @@
+name: Product V2-R5 research experiments
+
+on:
+  push:
+    branches:
+      - research/product-v2-r5-independent-strategies
+    paths:
+      - "bot_obrero/research_*.py"
+      - "bot_obrero/virtual_backtest.py"
+      - "bot_obrero/product_v2.py"
+      - "tests/test_research_*.py"
+      - "docs/PRODUCT_V2_R5_RESEARCH.md"
+      - ".github/workflows/product-v2-r5-research.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Run deterministic research regressions
+        run: pytest -q tests/test_research_strategies.py tests/test_virtual_backtest.py
+      - name: Execute public historical experiments
+        run: python -m bot_obrero.research_experiments --days 180 --output product-v2-r5-report.json
+      - name: Upload reproducible research report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-v2-r5-report-${{ github.sha }}
+          path: product-v2-r5-report.json
+          if-no-files-found: warn
+          retention-days: 30

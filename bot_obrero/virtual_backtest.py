@@ -276,7 +276,7 @@ def _observation(item: MarketData) -> MarketObservation:
         observation_timestamp=candle.end,
         available_timestamp=candle.end,
         observation_type="HISTORICAL_CANDLE_CLOSE",
-        values={"close": candle.close},
+        values={"open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close},
         provenance=Provenance(
             source=item.source.source_id,
             nature=ArtifactNature.OBSERVED,
@@ -327,6 +327,7 @@ def run_virtual_backtest(
     items: Sequence[MarketData], config: BacktestConfig, *,
     evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
     entry_admission: Callable[[int, Sequence[MarketObservation]], tuple[bool, str]] | None = None,
+    strategy: object | None = None,
 ) -> BacktestResult:
     """Run virtual accounting with optional warm-up and per-entry admission.
 
@@ -356,7 +357,12 @@ def run_virtual_backtest(
     curve: list[EquityPoint] = []
     rejections: list[str] = []
     peak = config.initial_quote_balance
-    first_signal_index = max(config.slow_ema_period, config.rsi_period + 1)
+    from .research_strategies import StrategyContext, SignalAction
+
+    legacy_warmup = max(config.slow_ema_period, config.rsi_period + 1)
+    strategy_warmup = legacy_warmup if strategy is None else int(getattr(strategy, "warmup_bars", 1))
+    first_signal_index = strategy_warmup
+    needs_ema_rsi = strategy is None or bool(getattr(strategy, "requires_ema_rsi_indicators", False))
     pending: tuple[str, str] | None = None
 
     for eval_index, item in enumerate(candles):
@@ -407,26 +413,43 @@ def run_virtual_backtest(
                                  equity / peak - _ONE if peak > _ZERO else _ZERO))
         if eval_index >= len(candles) - 1 or history_index < first_signal_index:
             continue
-        current = _indicators(observations[:history_index + 1], config)
-        previous = _indicators(observations[:history_index], config)
-        crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
-        crossed_down = previous["fast_ema"] >= previous["slow_ema"] and current["fast_ema"] < current["slow_ema"]
-        if position == _ZERO and crossed_up and current["rsi"] >= config.rsi_buy_min:
-            cutoff = candle.end - timedelta(days=30)
-            recent_entries = sum(1 for fill in fills if fill.side == "BUY" and cutoff < fill.timestamp <= candle.end)
-            if recent_entries >= config.max_entries_per_30d:
-                continue
-            if entry_admission is not None:
-                allowed, detail = entry_admission(history_index, observations[:history_index + 1])
-                if not allowed:
-                    rejections.append(f"{candle.end.isoformat()}:{detail}")
+        current = _indicators(observations[:history_index + 1], config) if needs_ema_rsi else {}
+        previous = _indicators(observations[:history_index], config) if needs_ema_rsi else {}
+        cutoff = candle.end - timedelta(days=30)
+        recent_entries = sum(1 for fill in fills if fill.side == "BUY" and cutoff < fill.timestamp <= candle.end)
+        if strategy is None:
+            crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
+            crossed_down = previous["fast_ema"] >= previous["slow_ema"] and current["fast_ema"] < current["slow_ema"]
+            if position == _ZERO and crossed_up and current["rsi"] >= config.rsi_buy_min:
+                if recent_entries >= config.max_entries_per_30d:
                     continue
-                reason = f"EMA/RSI entry passed; {detail}"
-            else:
-                reason = "fast EMA crossed above slow EMA and RSI filter passed; rolling entry cap passed"
-            pending = ("BUY", reason)
-        elif position > _ZERO and (crossed_down or current["rsi"] >= config.rsi_sell_at):
-            pending = ("SELL", "fast EMA crossed below slow EMA" if crossed_down else "RSI reached sell threshold")
+                if entry_admission is not None:
+                    allowed, detail = entry_admission(history_index, observations[:history_index + 1])
+                    if not allowed:
+                        rejections.append(f"{candle.end.isoformat()}:{detail}")
+                        continue
+                    reason = f"EMA/RSI entry passed; {detail}"
+                else:
+                    reason = "fast EMA crossed above slow EMA and RSI filter passed; rolling entry cap passed"
+                pending = ("BUY", reason)
+            elif position > _ZERO and (crossed_down or current["rsi"] >= config.rsi_sell_at):
+                pending = ("SELL", "fast EMA crossed below slow EMA" if crossed_down else "RSI reached sell threshold")
+        else:
+            history_slice = tuple(observations[:history_index + 1])
+            previous_values = (_indicators(observations[:history_index], config) if history_index > 0 else {}) if needs_ema_rsi else {}
+            signal_context = StrategyContext(
+                history=history_slice, in_position=position > _ZERO, current_values=current,
+                previous_values=previous_values, timestamp=candle.end,
+                entries_in_rolling_window=recent_entries, interval=config.interval,
+            )
+            signal = strategy.decide(signal_context)
+            if signal.action is SignalAction.BUY and position == _ZERO:
+                if recent_entries >= config.max_entries_per_30d:
+                    rejections.append(f"{candle.end.isoformat()}:ENTRY_CAP_REACHED")
+                    continue
+                pending = ("BUY", signal.reason)
+            elif signal.action is SignalAction.SELL and position > _ZERO:
+                pending = ("SELL", signal.reason)
 
     last_eval_index = index_by_start[candles[-1].payload.start]
     final_values = _indicators(observations[:last_eval_index + 1], config)
