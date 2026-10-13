@@ -387,6 +387,16 @@ def run_virtual_backtest(
                 else:
                     fee = notional * config.fee_rate
                     cost = notional + fee
+                    # Decimal division can round a mathematically exact all-in
+                    # quantity upward by one context ULP. Reduce quantity only
+                    # as needed; do not turn a rounding artifact into a missed signal.
+                    adjustment_count = 0
+                    while cost > quote and quantity > _ZERO and adjustment_count < 4:
+                        quantity = (quantity - config.quantity_step) if config.quantity_step is not None else quantity.next_minus()
+                        notional = quantity * fill_price
+                        fee = notional * config.fee_rate
+                        cost = notional + fee
+                        adjustment_count += 1
                     if cost > quote:
                         rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:COSTS_EXCEED_BALANCE cost={cost} available={quote}")
                     else:

@@ -192,6 +192,14 @@ def run_shared_portfolio(histories: Mapping[str, Sequence[Any]],
                         notional = qty * price
                         fee = notional * config.fee_rate
                         total = notional + fee
+                        # Guard against Decimal context rounding at an all-cash buy.
+                        adjustments = 0
+                        while total > cash and qty > ZERO and adjustments < 4:
+                            qty = qty.next_minus()
+                            notional = qty * price
+                            fee = notional * config.fee_rate
+                            total = notional + fee
+                            adjustments += 1
                         if qty <= ZERO or total > cash:
                             rejected.append(f"{start.isoformat()}:BUY_REJECTED:INSUFFICIENT_CASH:{target}")
                         else:

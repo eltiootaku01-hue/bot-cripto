@@ -21,6 +21,6 @@ El saldo base de investigación procede del ledger normalizado existente de Prod
 | STRESS 1 | 0,1 % | 25 pb | 10 pb |
 | STRESS 2 | 0,2 % | 50 pb | 20 pb |
 
-El spread es una hipótesis, no una medición histórica. El panel XRPUSDT, STRKUSDT, WUSDT, SUIUSDT, ENAUSDT es exploratorio: no hay reconstrucción del universo histórico y los filtros de instrumento, cuando se usan, son metadatos actuales. La sincronización exige timestamps comunes; no se interpolan velas.
+El spread es una hipótesis, no una medición histórica. No se atribuye precisión de lote histórica a los activos; la cartera usa cantidades fraccionarias ideales acotadas por el efectivo disponible, porque los filtros actuales no reconstruyen filtros históricos. El panel XRPUSDT, STRKUSDT, WUSDT, SUIUSDT, ENAUSDT es exploratorio: no hay reconstrucción del universo histórico y los filtros de instrumento, cuando se usan, son metadatos actuales. La sincronización exige timestamps comunes; no se interpolan velas.
 
 La existencia de estas clases y sus pruebas no acredita rentabilidad. La clasificación transversal queda EXPLORATORY_ONLY; mantener NO_TRADE hasta que los experimentos remotos reproduzcan resultados y CEREBRO revise el informe.
