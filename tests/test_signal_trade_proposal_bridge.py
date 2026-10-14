@@ -81,6 +81,13 @@ def test_expired_by_timestamp_rejected():
         build_paper_trade_proposal(signal=signal, policy=policy(), decision_timestamp=NOW)
 
 
+def test_strategy_identity_and_version_must_match_signal_provenance():
+    with pytest.raises(SignalTradeProposalBridgeError, match="STRATEGY_IDENTITY"):
+        build_paper_trade_proposal(signal=make_signal(), policy=policy(strategy_identity="other"), decision_timestamp=NOW)
+    with pytest.raises(SignalTradeProposalBridgeError, match="STRATEGY_VERSION"):
+        build_paper_trade_proposal(signal=make_signal(), policy=policy(strategy_version="9.9"), decision_timestamp=NOW)
+
+
 def test_missing_policy_rejected():
     with pytest.raises(SignalTradeProposalBridgeError, match="EXPLICIT_PAPER_POLICY_REQUIRED"):
         build_paper_trade_proposal(signal=make_signal(), policy=None, decision_timestamp=NOW)
