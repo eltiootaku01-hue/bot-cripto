@@ -54,10 +54,15 @@ def make_order(*, side="BUY", quantity="0.2", max_spend="25", symbol="BTC/USDT",
     return OrderIntent(client_order_id, payload, "correlation-1")
 
 
-def make_adapter(path, *, quote_provider=None, account_id="paper-local", initial="100", clock=lambda: NOW):
+def make_adapter(path, *, quote_provider=None, account_id="paper-local", initial="100",
+                 initial_balances=None, clock=lambda: NOW):
+    configured = initial_balances if initial_balances is not None else {
+        "USDT": Decimal(initial), "BTC": Decimal("0")
+    }
     return PaperExecutionAdapter(
         database_path=path, account_id=account_id, quote_asset="USDT",
         initial_quote_balance=Decimal(initial), quote_provider=quote_provider or (lambda symbol: quote(symbol)),
+        initial_balances=configured,
         fee_rate=Decimal("0.001"), slippage_bps=Decimal("5"), clock=clock,
     )
 
@@ -218,3 +223,100 @@ def test_paper_adapter_has_no_live_or_financial_runtime_imports():
     imported.update(node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module)
     assert not any("financial_execution_runtime" in name for name in imported)
     assert not any("binance" in name.lower() for name in imported)
+
+def test_account_universe_persists_explicit_zero_and_rejects_unknown_asset(tmp_path):
+    path = tmp_path / "account-universe.sqlite3"
+    configured = {"USDT": Decimal("100"), "BTC": Decimal("0"), "ETH": Decimal("0")}
+    adapter = make_adapter(path, initial_balances=configured)
+    try:
+        snapshot = adapter.snapshot()
+        assert snapshot["completeness"] == "COMPLETE"
+        assert snapshot["asset_universe"] == {"BTC": "0", "ETH": "0", "USDT": "100"}
+        assert snapshot["balances"]["BTC"] == "0"
+        before_version = snapshot["state_version"]
+        with pytest.raises(PaperAdapterError, match="ASSET_UNKNOWN"):
+            adapter._submit(make_order(symbol="DOGE/USDT"))
+        assert adapter.snapshot()["fill_count"] == 0
+        assert adapter.snapshot()["state_version"] == before_version
+    finally:
+        adapter.close()
+    recovered = make_adapter(path, initial_balances=configured)
+    try:
+        snapshot = recovered.snapshot()
+        assert snapshot["completeness"] == "COMPLETE"
+        assert snapshot["balances"]["BTC"] == "0"
+        assert snapshot["state_version"] == 0
+    finally:
+        recovered.close()
+
+
+def test_account_version_increments_atomically_with_fill(tmp_path):
+    adapter = make_adapter(tmp_path / "version.sqlite3")
+    try:
+        before = adapter.snapshot()
+        result = adapter._submit(make_order())
+        after = adapter.snapshot()
+        assert result["status"] == "PAPER_FILLED"
+        assert after["state_version"] == before["state_version"] + 1
+        assert after["as_of"] == after["fills"][0]["filled_at"]
+        assert after["completeness"] == "COMPLETE"
+    finally:
+        adapter.close()
+
+
+def test_snapshot_is_coherent_across_two_adapter_instances(tmp_path):
+    import threading
+    path = tmp_path / "concurrent.sqlite3"
+    reader, writer = make_adapter(path), make_adapter(path)
+    failures = []
+    def write_fills():
+        try:
+            for index in range(1, 11):
+                writer._submit(make_order(client_order_id=f"concurrent-order-{index}"))
+        except Exception as exc:
+            failures.append(exc)
+    thread = threading.Thread(target=write_fills)
+    try:
+        thread.start()
+        while thread.is_alive():
+            snapshot = reader.snapshot()
+            assert snapshot["state_version"] == snapshot["fill_count"]
+            assert set(snapshot["asset_universe"]) == set(snapshot["balances"])
+            assert snapshot["completeness"] == "COMPLETE"
+        thread.join()
+        assert not failures
+        final = reader.snapshot()
+        assert final["state_version"] == final["fill_count"] == 10
+    finally:
+        thread.join()
+        writer.close()
+        reader.close()
+
+
+def test_missing_balance_for_known_asset_blocks_fill_and_completeness(tmp_path):
+    adapter = make_adapter(tmp_path / "missing-balance.sqlite3")
+    try:
+        adapter._connection.execute("DELETE FROM paper_balances WHERE asset='BTC'")
+        adapter._connection.commit()
+        assert adapter.snapshot()["completeness"] == "UNKNOWN"
+        with pytest.raises(PaperAdapterError, match="BALANCE_MISSING"):
+            adapter._submit(make_order())
+        assert adapter.snapshot()["fill_count"] == 0
+    finally:
+        adapter.close()
+
+
+def test_legacy_fill_history_without_asset_universe_is_not_promoted_to_complete(tmp_path):
+    import sqlite3
+    path = tmp_path / "legacy.sqlite3"
+    adapter = make_adapter(path)
+    adapter._submit(make_order())
+    adapter.close()
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("DROP TABLE paper_assets")
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(PaperAdapterError, match="UNIVERSE_UNKNOWN"):
+        make_adapter(path)

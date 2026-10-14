@@ -106,6 +106,7 @@ class PaperExecutionAdapter(ExchangeAdapter):
     def __init__(
         self, *, database_path: str | Path, account_id: str, quote_asset: str,
         initial_quote_balance: Decimal, quote_provider: Callable[[str], PaperMarketQuote],
+        initial_balances: Mapping[str, Decimal] | None = None,
         fee_rate: Decimal = Decimal("0.001"), slippage_bps: Decimal = Decimal("5"),
         max_quote_age: timedelta = timedelta(seconds=15),
         clock: Callable[[], datetime] | None = None,
@@ -114,7 +115,27 @@ class PaperExecutionAdapter(ExchangeAdapter):
             raise PaperAdapterError("account_id must be non-empty")
         if type(quote_asset) is not str or not quote_asset.strip():
             raise PaperAdapterError("quote_asset must be non-empty")
-        _decimal(initial_quote_balance, "initial_quote_balance", positive=True)
+        _decimal(initial_quote_balance, "initial_quote_balance")
+        if initial_quote_balance < _ZERO:
+            raise PaperAdapterError("initial_quote_balance must be non-negative")
+        if not re.fullmatch(r"[A-Z0-9]+", quote_asset):
+            raise PaperAdapterError("quote_asset must be canonical uppercase asset code")
+        if initial_balances is None:
+            configured_balances = {quote_asset: initial_quote_balance}
+        else:
+            if not isinstance(initial_balances, Mapping) or not initial_balances:
+                raise PaperAdapterError("initial_balances must explicitly define the PAPER asset universe")
+            configured_balances = dict(initial_balances)
+            if quote_asset not in configured_balances:
+                raise PaperAdapterError("initial_balances must include quote_asset")
+            if configured_balances[quote_asset] != initial_quote_balance:
+                raise PaperAdapterError("initial_quote_balance must match initial_balances quote asset")
+        for asset, balance in configured_balances.items():
+            if type(asset) is not str or not re.fullmatch(r"[A-Z0-9]+", asset):
+                raise PaperAdapterError("initial balance asset must be canonical uppercase code")
+            _decimal(balance, f"initial_balances[{asset}]")
+            if balance < _ZERO:
+                raise PaperAdapterError("initial asset balances must be non-negative")
         _decimal(fee_rate, "fee_rate")
         _decimal(slippage_bps, "slippage_bps")
         if not _ZERO <= fee_rate <= Decimal("0.05"):
@@ -147,7 +168,13 @@ class PaperExecutionAdapter(ExchangeAdapter):
                 account_id TEXT NOT NULL,
                 quote_asset TEXT NOT NULL,
                 initial_quote_balance TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                state_version INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS paper_assets (
+                asset TEXT PRIMARY KEY,
+                initial_balance TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS paper_balances (
                 asset TEXT PRIMARY KEY,
@@ -175,14 +202,20 @@ class PaperExecutionAdapter(ExchangeAdapter):
             );
             """
         )
+        # Additive migration for databases created by the earlier PAPER adapter.
+        account_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(paper_account)")}
+        if "state_version" not in account_columns:
+            self._connection.execute("ALTER TABLE paper_account ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0")
+        if "updated_at" not in account_columns:
+            self._connection.execute("ALTER TABLE paper_account ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
         self._connection.commit()
         now = _aware(self.clock(), "clock")
         with self._connection:
             self._connection.execute(
                 """INSERT OR IGNORE INTO paper_account
-                   (singleton,mode,account_id,quote_asset,initial_quote_balance,created_at)
-                   VALUES (1,'PAPER',?,?,?,?)""",
-                (account_id, quote_asset, _decimal_text(initial_quote_balance), now.isoformat()),
+                   (singleton,mode,account_id,quote_asset,initial_quote_balance,created_at,state_version,updated_at)
+                   VALUES (1,'PAPER',?,?,?,?,0,?)""",
+                (account_id, quote_asset, _decimal_text(initial_quote_balance), now.isoformat(), now.isoformat()),
             )
             account = self._connection.execute("SELECT * FROM paper_account WHERE singleton=1").fetchone()
             if (account["mode"] != "PAPER" or account["account_id"] != account_id
@@ -190,10 +223,28 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     or account["initial_quote_balance"] != _decimal_text(initial_quote_balance)):
                 self._connection.close()
                 raise PaperAdapterError("PERSISTED_PAPER_ACCOUNT_CONFIGURATION_MISMATCH")
-            self._connection.execute(
-                "INSERT OR IGNORE INTO paper_balances(asset,balance) VALUES (?,?)",
-                (quote_asset, _decimal_text(initial_quote_balance)),
-            )
+            existing_assets = {row["asset"]: row["initial_balance"] for row in self._connection.execute(
+                "SELECT asset,initial_balance FROM paper_assets")}
+            existing_balances = {row["asset"]: row["balance"] for row in self._connection.execute(
+                "SELECT asset,balance FROM paper_balances")}
+            fill_count = self._connection.execute("SELECT COUNT(*) FROM paper_fills").fetchone()[0]
+            if not existing_assets:
+                if fill_count or set(existing_balances) - {quote_asset}:
+                    raise PaperAdapterError("PAPER_ACCOUNT_UNIVERSE_UNKNOWN_REQUIRES_REVIEW")
+                for asset, balance in sorted(configured_balances.items()):
+                    self._connection.execute("INSERT INTO paper_assets(asset,initial_balance) VALUES (?,?)",
+                                              (asset, _decimal_text(balance)))
+                    self._connection.execute("INSERT OR IGNORE INTO paper_balances(asset,balance) VALUES (?,?)",
+                                              (asset, _decimal_text(balance)))
+            else:
+                expected = {asset: _decimal_text(balance) for asset, balance in configured_balances.items()}
+                if existing_assets != expected:
+                    raise PaperAdapterError("PERSISTED_PAPER_ASSET_UNIVERSE_MISMATCH")
+                if set(existing_balances) != set(existing_assets):
+                    raise PaperAdapterError("PAPER_ACCOUNT_BALANCES_INCOMPLETE_OR_INCONSISTENT")
+            account = self._connection.execute("SELECT updated_at FROM paper_account WHERE singleton=1").fetchone()
+            if not account["updated_at"]:
+                self._connection.execute("UPDATE paper_account SET updated_at=created_at WHERE singleton=1")
 
     def _validated_order(self, order: OrderIntent) -> tuple[dict[str, Any], str]:
         if not isinstance(order, OrderIntent):
@@ -309,14 +360,20 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     return {"mode": "PAPER", "status": "PAPER_ALREADY_FILLED",
                             "client_order_id": order.client_order_id, "price": existing["price"],
                             "quantity": existing["quantity"]}
+                known_assets = {row["asset"] for row in self._connection.execute(
+                    "SELECT asset FROM paper_assets").fetchall()}
+                if quote_asset not in known_assets or base_asset not in known_assets:
+                    raise PaperAdapterError("PAPER_ASSET_UNKNOWN_OR_OUTSIDE_ACCOUNT_UNIVERSE")
                 quote_row = self._connection.execute(
                     "SELECT balance FROM paper_balances WHERE asset=?", (quote_asset,)
                 ).fetchone()
                 base_row = self._connection.execute(
                     "SELECT balance FROM paper_balances WHERE asset=?", (base_asset,)
                 ).fetchone()
-                quote_balance = Decimal(quote_row["balance"]) if quote_row else _ZERO
-                base_balance = Decimal(base_row["balance"]) if base_row else _ZERO
+                if quote_row is None or base_row is None:
+                    raise PaperAdapterError("PAPER_ACCOUNT_BALANCE_MISSING_FOR_KNOWN_ASSET")
+                quote_balance = Decimal(quote_row["balance"])
+                base_balance = Decimal(base_row["balance"])
                 if side == "BUY":
                     debit = gross + fee
                     if debit > quote_balance:
@@ -348,6 +405,10 @@ class PaperExecutionAdapter(ExchangeAdapter):
                      side, _decimal_text(quantity), _decimal_text(fill_price), _decimal_text(fee),
                      now.isoformat(), _decimal_text(quote_after), _decimal_text(base_after), quote.source),
                 )
+                self._connection.execute(
+                    "UPDATE paper_account SET state_version=state_version+1, updated_at=? WHERE singleton=1",
+                    (now.isoformat(),),
+                )
                 self._connection.commit()
             except Exception:
                 self._connection.rollback()
@@ -364,16 +425,31 @@ class PaperExecutionAdapter(ExchangeAdapter):
         raise PaperAdapterError("PAPER_ORDERS_FILL_IMMEDIATELY; CANCELLATION_IS_NOT_AVAILABLE")
 
     def snapshot(self) -> Mapping[str, Any]:
+        # A read transaction pins one SQLite snapshot across independent connections.
         with self._lock:
-            account = self._connection.execute("SELECT * FROM paper_account WHERE singleton=1").fetchone()
-            balances = {row["asset"]: row["balance"] for row in self._connection.execute(
-                "SELECT asset,balance FROM paper_balances ORDER BY asset").fetchall()}
-            fills = tuple({key: value for key, value in dict(row).items() if key != "intent_json"}
-                for row in self._connection.execute(
-                    "SELECT * FROM paper_fills ORDER BY filled_at,client_order_id").fetchall())
-        return {"mode": "PAPER", "account_id": account["account_id"], "quote_asset": account["quote_asset"],
-                "initial_quote_balance": account["initial_quote_balance"], "balances": balances,
-                "fills": fills, "fill_count": len(fills)}
+            try:
+                self._connection.execute("BEGIN")
+                account = self._connection.execute("SELECT * FROM paper_account WHERE singleton=1").fetchone()
+                assets = {row["asset"]: row["initial_balance"] for row in self._connection.execute(
+                    "SELECT asset,initial_balance FROM paper_assets ORDER BY asset").fetchall()}
+                balances = {row["asset"]: row["balance"] for row in self._connection.execute(
+                    "SELECT asset,balance FROM paper_balances ORDER BY asset").fetchall()}
+                fills = tuple({key: value for key, value in dict(row).items() if key != "intent_json"}
+                    for row in self._connection.execute(
+                        "SELECT * FROM paper_fills ORDER BY filled_at,client_order_id").fetchall())
+                complete = bool(assets) and set(assets) == set(balances) and all(
+                    Decimal(value).is_finite() and Decimal(value) >= _ZERO for value in balances.values()
+                ) and account["state_version"] == len(fills)
+                result = {"mode": "PAPER", "account_id": account["account_id"],
+                    "quote_asset": account["quote_asset"], "initial_quote_balance": account["initial_quote_balance"],
+                    "asset_universe": assets, "balances": balances, "state_version": account["state_version"],
+                    "as_of": account["updated_at"], "completeness": "COMPLETE" if complete else "UNKNOWN",
+                    "fills": fills, "fill_count": len(fills)}
+                self._connection.commit()
+                return result
+            except Exception:
+                self._connection.rollback()
+                raise
 
     def close(self) -> None:
         with self._lock:

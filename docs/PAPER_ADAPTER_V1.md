@@ -43,3 +43,28 @@ Por tanto, no se ha conectado una señal de Product V2 a una TradeProposal, ni s
 - La etiqueta interna ExecutionDecision("SUBMITTED") significa que el orquestador local completó su paso de envío al adaptador; no significa aceptación de Binance. La evidencia de fill es el registro SQLite con mode=PAPER.
 - La prueba E2E de esta fase es determinista y no accede a Internet.
 - La suite local debe registrarse como NOT RUN si el terminal continúa sin resolver github.com; el resultado remoto de GitHub Actions se informará por separado.
+
+
+## R4 account persistence boundary
+
+The PAPER adapter records an explicit immutable asset universe and an explicit
+initial balance (including zero) for each configured asset. A fill is blocked if
+either instrument asset is outside that universe or if a known asset lacks a
+balance row. A transactionally coherent SQLite snapshot exposes the account
+state version and persisted update cutoff; the version increments in the same
+transaction as each successful fill. Legacy databases with fills but no provable
+asset universe are rejected rather than reconstructed from fills.
+
+This is an adapter-local additive schema extension. It does not change canonical
+risk, authorization, reservation, bridge, or intent contracts. The snapshot is
+not automatically promoted to CanonicalAccountState; that conversion remains
+blocked until its shared contract and provenance requirements are approved.
+
+## R4 quote identity boundary — BLOCKED
+
+The existing order-intent/reservation payload does not carry a verifiable
+PaperQuoteEvidence value. The adapter still obtains a quote from its provider
+during submission, after risk authorization. Therefore, the adapter cannot prove
+that the fill quote is the same evidence evaluated by risk. Enforcing this safely
+requires an approved shared-contract change; no quote identity guarantee is
+claimed by this increment.
