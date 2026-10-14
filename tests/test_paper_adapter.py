@@ -272,7 +272,7 @@ def test_snapshot_is_coherent_across_two_adapter_instances(tmp_path):
     def write_fills():
         try:
             for index in range(1, 11):
-                writer._submit(make_order(client_order_id=f"concurrent-order-{index}"))
+                writer._submit(make_order(quantity="0.01", max_spend="2", client_order_id=f"concurrent-order-{index}"))
         except Exception as exc:
             failures.append(exc)
     thread = threading.Thread(target=write_fills)
