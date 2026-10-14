@@ -90,6 +90,12 @@ def build_paper_trade_proposal(
         raise SignalTradeProposalBridgeError("DECISION_TIMESTAMP_PRECEDES_SIGNAL_GENERATION")
     if signal.validity is not SignalValidity.VALID or not signal.is_valid_at(decision_timestamp):
         raise SignalTradeProposalBridgeError("SIGNAL_INVALID_EXPIRED_OR_VALIDITY_UNKNOWN")
+    provenance_identity = signal.provenance.metadata.get("strategy_identity")
+    provenance_version = signal.provenance.metadata.get("strategy_version")
+    if provenance_identity != policy.strategy_identity:
+        raise SignalTradeProposalBridgeError("SIGNAL_STRATEGY_IDENTITY_MISSING_OR_MISMATCHED")
+    if provenance_version != policy.strategy_version:
+        raise SignalTradeProposalBridgeError("SIGNAL_STRATEGY_VERSION_MISSING_OR_MISMATCHED")
     if signal.direction not in policy.direction_to_side:
         raise SignalTradeProposalBridgeError("SIGNAL_DIRECTION_HAS_NO_EXPLICIT_SIDE_MAPPING")
 
