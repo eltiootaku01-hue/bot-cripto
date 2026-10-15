@@ -254,6 +254,6 @@ La siguiente fase no debe empezar implementando un estado nuevo de forma aislada
 - `WORKFLOWS_EXECUTED: none`
 - `MERGES_PERFORMED: none`
 - `NON_REPORT_FILES_MODIFIED: none`
-- `REPORT_PUBLICATION: PENDING_VERIFICATION`
+- `REPORT_PUBLICATION: VERIFIED`
 
 Este documento es una auditoría estática y una propuesta; no declara B1-R implementado, probado, aceptado ni listo para producción.
