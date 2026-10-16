@@ -208,7 +208,7 @@ El ejemplo queda `BLOCKED`: le faltan tiempos observados, payload recuperable, d
 - Un replay a tiempo `T` no puede leer una versión cuyo `available_at > T`, aunque esa versión sea hoy la más reciente.
 - `available_at=None`, una disponibilidad inferida o timestamps incoherentes cierran la admisión.
 - El tiempo de decisión se registra en la frontera real de consumo, no se iguala automáticamente a `close_time`.
-- La ejecución simulada no puede ocurrir antes de la decisión ni antes de que la evidencia necesaria esté disponible. Si el siguiente open de una vela sucede antes de `available_at), ese precio de apertura no puede presentarse como fill alcanzable por esta decisión; se requiere una referencia de precio posterior válida o la operación debe quedar bloqueada.
+- La ejecución simulada no puede ocurrir antes de la decisión ni antes de que la evidencia necesaria esté disponible. Si el siguiente open de una vela sucede antes de `available_at`, ese precio de apertura no puede presentarse como fill alcanzable por esta decisión; se requiere una referencia de precio posterior válida o la operación debe quedar bloqueada.
 - Un histórico REST consultado hoy, sin un registro histórico verificable de las versiones disponibles entonces, no demuestra por sí solo una reconstrucción STRICT_POINT_IN_TIME de ese pasado.
 - Pérdida de mensajes, falta de cobertura, persistencia fallida o conflicto irresuelto impiden declarar que el periodo afectado es íntegro y point-in-time.
 - Un dataset de “vintage actual” y un replay de capturas con cortes de conocimiento son productos distintos; no etiquetarlos como equivalentes.
@@ -245,7 +245,7 @@ No aprobar automáticamente datos históricos de 365 días para STRICT_POINT_IN_
 2. Binance Public Data — README y semántica de publicación de archivos: https://github.com/binance/binance-public-data/blob/master/README.md
 3. Política canónica existente: [`docs/PHASE1_12_AVAILABILITY_POLICY.md`](../PHASE1_12_AVAILABILITY_POLICY.md).
 4. Contrato temporal de consumo existente: [`docs/PHASE1_23_MARKET_DATA_CONSUMPTION_CONTRACT.md`](../PHASE1_23_MARKET_DATA_CONSUMPTION_CONTRACT.md).
-5. Auditoría de adquisición BTC/ETH: [`BTC_ETH_FOLLOW_RESEARCH_V1_DATA_ACQUISITION_AUDIT.md`](./BTC_ETH_FOLLOW_RESEARCH_V1_DATA_ACQUISITION_AUDIT.md), en `research/btc-eth-follow-v1` (artefacto de otra rama; la referencia navegable debe comprobarse al integrar documentos).
+5. Auditoría de adquisición BTC/ETH: [`BTC_ETH_FOLLOW_RESEARCH_V1_DATA_ACQUISITION_AUDIT.md`](https://github.com/eltiootaku01-hue/bot-cripto/blob/research/btc-eth-follow-v1/docs/research/BTC_ETH_FOLLOW_RESEARCH_V1_DATA_ACQUISITION_AUDIT.md), publicado en `research/btc-eth-follow-v1`.
 
 Las fuentes describen comportamientos y artefactos disponibles; no aportan por sí solas un historial completo de las versiones que Binance entregó en cada instante pasado ni una garantía de inmutabilidad perpetua.
 
