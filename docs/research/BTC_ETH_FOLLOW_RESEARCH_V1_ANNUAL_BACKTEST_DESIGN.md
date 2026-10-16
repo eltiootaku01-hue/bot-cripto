@@ -4,10 +4,10 @@
 - Modo: diseño documental de solo lectura; publicación de este informe únicamente.
 - Estado: **DESIGN_PROPOSED — IMPLEMENTATION_NOT_AUTHORIZED**
 - Decisión operativa: **NO_TRADE**
-- Rama: `research/btc-eth-follow-v1`
+- Ubicación publicada verificada: `main` (el commit de publicación terminó en la rama por defecto, no en la rama de investigación como se pretendía).
 - PR de continuidad: [#67](https://github.com/eltiootaku01-hue/bot-cripto/pull/67)
 - Código de referencia inspeccionado: `bot_obrero/virtual_backtest.py`, blob `4e7f73aaeae0d7e6f0fcea033d05c6caab0c405d`.
-- No se modificaron código, tests, workflows ni `main`. No se ejecutaron pruebas, backtests ni adquisiciones de mercado.
+- Alcance del contenido: solo documentación. **Corrección de publicación:** la creación del archivo terminó en `main` y avanzó esa rama mediante un commit documental; esto no era el destino previsto. No se modificaron código, tests ni workflows. No se ejecutaron pruebas, backtests ni adquisiciones de mercado.
 
 ## 1. Dictamen
 
