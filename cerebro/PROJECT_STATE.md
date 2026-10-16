@@ -16,3 +16,19 @@ Status at this documentation update: **IMPLEMENTATION IN PR #63; VERIFY LIVE BRA
 - Public E2E workflow: `.github/workflows/virtual-backtest-real-e2e.yml`; its result and artifacts must be checked for the exact PR HEAD. Local pytest remains unrun in the previously DNS-blocked terminal; remote CI must not be described as a local run.
 - No private API keys, private endpoints, real orders, StrategyRuntime, FinancialExecutionRuntime, leverage, or changes to the financial execution boundary are part of this product path.
 - The scanner/backtest are research tools, not a validated profitable strategy. Walk-forward/OOS reporting, costs and data-quality caveats must be evaluated; no result should be described as ready for real-money use.
+
+
+---
+
+# UNIVERSE-RECOVERY-R1 — BTC_ALT_CROSS_ASSET_RESEARCH_V1
+
+- **Checkpoint date:** 2026-10-16.
+- **Main SHA observed before this documentation branch:** `b9e34f2d836b99f711d6227f88c95c7b5ba7bd85`.
+- **Report:** [`docs/audits/BTC_ALT_CROSS_ASSET_RESEARCH_V1_UNIVERSE_RECOVERY_R1.md`](../docs/audits/BTC_ALT_CROSS_ASSET_RESEARCH_V1_UNIVERSE_RECOVERY_R1.md).
+- **Report commit on documentation branch:** `f8dcf8d5250955d7c54f17839a6ef105bfc0c4e4` (branch: `docs/btc-alt-cross-asset-universe-recovery-r1`; pending PR review).
+- **R5 branch / commit:** `research/product-v2-r5-independent-strategies` / `dae415947a5d45340e4af96644328a4ba95cb9bd`.
+- **R5 artifact:** `11812924702`, workflow run `38399941811`; downloaded ZIP SHA-256 matched GitHub's published digest `035624ca0a86b1ab1863f85660fe37a8c103d6a39a1f180d88422bd20d9b293f`.
+- **Finding:** the verified R5 artifact describes `XRPUSDT`, `STRKUSDT`, `WUSDT`, `SUIUSDT`, `ENAUSDT` as an `EXPLORATORY_ONLY` panel and `BTCUSDT` as benchmark. It does not identify or approve the remaining fourteen altcoins.
+- **State:** `PARTIAL`; `BLOCKED_UNIVERSE_DEFINITION` remains. The canonical twenty-instrument universe is unconfirmed.
+- **Next step:** CEREBRO/owner must locate primary evidence of the exact original list and its approval, or explicitly authorize a new universe without representing it as historical.
+- **Guardrails:** no symbols inferred, no new backtests/simulations, no functional changes, no financial operations, no PR merge. Publication is not universe approval.
