@@ -36,3 +36,21 @@ Status at this documentation update: **IMPLEMENTATION IN PR #63; VERIFY LIVE BRA
 - **State:** `PARTIAL`; `BLOCKED_UNIVERSE_DEFINITION` remains. The canonical twenty-instrument universe is unconfirmed.
 - **Next step:** CEREBRO/owner must locate primary evidence of the exact original list and its approval, or explicitly authorize a new universe without representing it as historical.
 - **Guardrails:** no symbols inferred; no backtests/simulations initiated manually by BOT OBRERO; no functional changes, no workflow edits, no financial operations, no PR merge. Record automated CI separately; publication is not universe approval.
+
+
+# UNIVERSE-RECOVERY-R2 — ampliación de búsqueda histórica
+
+- **Checkpoint date:** 2026-10-16.
+- **Base observada:** `main` = `b9e34f2d836b99f711d6227f88c95c7b5ba7bd85`; no se modificó `main`.
+- **Rama:** `docs/btc-alt-cross-asset-universe-recovery-r1`.
+- **PR:** [#66 — recuperación documental del universo BTC + altcoins](https://github.com/eltiootaku01-hue/bot-cripto/pull/66), abierto y sin merge al registrar este checkpoint.
+- **Informe R2:** [`docs/audits/BTC_ALT_CROSS_ASSET_RESEARCH_V1_UNIVERSE_RECOVERY_R2.md`](../docs/audits/BTC_ALT_CROSS_ASSET_RESEARCH_V1_UNIVERSE_RECOVERY_R2.md).
+- **Commit de creación del informe R2:** `2471ada4f3155ee873fe0a0c43cd5e5e2f91c077`; blob verificado tras publicación: `bb2bc46ceb172336134ee04819bd90f859921013`.
+- **Alcance ampliado:** 71 ramas/HEADs distintos y 71 árboles recursivos consultados sin truncamiento, por nombres/rutas; descripciones de los 66 PR accesibles; búsquedas de issues por el ID exacto y “19 altcoins”; búsquedas de mensajes de commit; contenido de Product V2/R5 relevante.
+- **Artefactos Product V2 descargados y hasheados:** 4 ZIP históricos; SHA-256 locales coincidieron con los digests publicados. Runs/artifacts: `38315700839 / 11777913249` (`fa01e78229eaf6979612edd6868552ee0cad04716046ed88d3a5f0bbd02a1c57`); `38281679096 / 11762850937` (`d3fb2653217b5ea604a78ac7a80df172f194dabcb625ebdc789c9318ec21e3ea`); `38269983472 / 11757110462` (`aefba64817e4536360378969aa30208b27a8a9f042e4271048282274d3c3cce9`); `38254482642 / 11749504673` (`c10c53db611fe6e7be81f12bffe2d42040cac066b0df78f5852c5895e99aa866`).
+- **Hallazgo principal:** Product V2 obtiene el universo activo Spot USDT desde ExchangeInfo y aplica filtros/snapshots actuales más un límite configurable de candidatos (predeterminado 5); R5 fija un panel de cinco altcoins como `EXPLORATORY_ONLY`, usa `BTCUSDT` como benchmark y declara que no reconstruye elegibilidad histórica.
+- **Limitación:** la inspección de las 71 ramas fue de nombres/rutas, no un grep completo del contenido de cada blob. La consulta de PR/commit/issues está delimitada a los resultados accesibles descritos en R2. No se puede concluir que una lista jamás haya existido.
+- **Estado R2:** `PARTIAL`; lista de veinte instrumentos canónica no recuperada; `UNKNOWN / BLOCKED_UNIVERSE_DEFINITION` permanece.
+- **Decisión operativa:** `NO_TRADE`; no inventar las catorce altcoins faltantes ni iniciar backtests con una lista inferida.
+- **Guardrails:** solo documentación y lectura/inspección de artefactos ya existentes. No se modificó código, estrategia, parámetros ni workflows; BOT OBRERO no inició manualmente pruebas/backtests. Las modificaciones documentales del PR pueden disparar workflows automáticos de CI; verificar cada ejecución contra el SHA correspondiente, sin reintentar manualmente.
+- **Próximo paso exacto:** localizar una fuente primaria con los veinte símbolos exactos y aprobación de la lista original, o elevar al propietario una propuesta explícitamente nueva y versionada. No describir una nueva lista como recuperación histórica.
