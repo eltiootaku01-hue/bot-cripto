@@ -128,7 +128,8 @@ Esto confirma que R5 fue un experimento con un panel exploratorio. **No conviert
 |---|---|---|
 | AC-01 — Estado remoto identificado | `PASS` | SHA de main, rama R5, PR relacionadas y metadatos del artefacto registrados en §2. Las limitaciones de consultas de workflows/estados se declaran expresamente. |
 | AC-02 — Fuentes trazables | `PARTIAL` | Cada afirmación material tiene una fuente o una declaración explícita de ausencia; las búsquedas no cubren exhaustivamente todos los blobs/comentarios/artefactos históricos. |
-| AC-03A — Recuperación de la lista canónica | `NOT MET` / `UNKNOWN` | No hay fuente primaria accesible con veinte símbolos exactos y aprobación demostrada. La lista histórica sigue sin confirmarse. |\n| AC-03B — Diagnóstico negativo correctamente delimitado | `PASS` | El informe describe las fuentes consultadas y los límites de cobertura, y no concluye que la lista nunca existió. La búsqueda negativa no se presenta como prueba exhaustiva de inexistencia. |
+| AC-03A — Recuperación de la lista canónica | `NOT MET` / `UNKNOWN` | No hay fuente primaria accesible con veinte símbolos exactos y aprobación demostrada. La lista histórica sigue sin confirmarse. |
+| AC-03B — Diagnóstico negativo correctamente delimitado | `PASS` | El informe describe las fuentes consultadas y los límites de cobertura, y no concluye que la lista nunca existió. La búsqueda negativa no se presenta como prueba exhaustiva de inexistencia. |
 | AC-04 — Símbolos y roles diferenciados | `PASS` | BTC se separa como benchmark; cinco altcoins como panel exploratorio; candidatos ejecutados y universo aprobado no se confunden. |
 | AC-05 — Discrepancias registradas | `PARTIAL` | Se registra la discrepancia principal entre objetivo de veinte y panel exploratorio de seis símbolos. La historia completa del universo permanece desconocida. |
 | AC-06 — No se inventaron datos | `PASS` | No se añadieron símbolos ausentes ni se elevó el panel R5 a lista canónica. |
