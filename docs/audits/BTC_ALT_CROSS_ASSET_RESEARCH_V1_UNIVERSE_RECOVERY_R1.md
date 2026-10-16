@@ -4,7 +4,7 @@
 - **Repositorio:** https://github.com/eltiootaku01-hue/bot-cripto
 - **Tarea:** `UNIVERSE-RECOVERY-R1`
 - **Autoridad:** propietario > CEREBRO / IA-CHAN > BOT OBRERO
-- **Modo:** inspección documental remota e integridad de artefacto; no se ejecutaron pruebas, backtests ni simulaciones nuevas.
+- **Modo:** inspección documental remota e integridad de artefacto. BOT OBRERO no inició manualmente pruebas, backtests ni simulaciones; después de abrir el PR, GitHub disparó automáticamente workflows de CI. Sus estados verificados se registran en §9.
 - **Resultado:** `PARTIAL`
 - **Estado del universo canónico:** **no confirmado; evidencia insuficiente**
 - **Dictamen:** `BLOCKED_UNIVERSE_DEFINITION` permanece vigente. Este informe no aprueba una lista ni autoriza backtesting nuevo.
@@ -128,16 +128,16 @@ Esto confirma que R5 fue un experimento con un panel exploratorio. **No conviert
 |---|---|---|
 | AC-01 — Estado remoto identificado | `PASS` | SHA de main, rama R5, PR relacionadas y metadatos del artefacto registrados en §2. Las limitaciones de consultas de workflows/estados se declaran expresamente. |
 | AC-02 — Fuentes trazables | `PARTIAL` | Cada afirmación material tiene una fuente o una declaración explícita de ausencia; las búsquedas no cubren exhaustivamente todos los blobs/comentarios/artefactos históricos. |
-| AC-03 — Lista canónica recuperada o ausencia correctamente declarada | `NOT MET` / `UNKNOWN` | No hay fuente primaria accesible con veinte símbolos exactos y aprobación demostrada. Se declara el límite sin concluir que nunca existió. |
+| AC-03A — Recuperación de la lista canónica | `NOT MET` / `UNKNOWN` | No hay fuente primaria accesible con veinte símbolos exactos y aprobación demostrada. La lista histórica sigue sin confirmarse. |\n| AC-03B — Diagnóstico negativo correctamente delimitado | `PASS` | El informe describe las fuentes consultadas y los límites de cobertura, y no concluye que la lista nunca existió. La búsqueda negativa no se presenta como prueba exhaustiva de inexistencia. |
 | AC-04 — Símbolos y roles diferenciados | `PASS` | BTC se separa como benchmark; cinco altcoins como panel exploratorio; candidatos ejecutados y universo aprobado no se confunden. |
 | AC-05 — Discrepancias registradas | `PARTIAL` | Se registra la discrepancia principal entre objetivo de veinte y panel exploratorio de seis símbolos. La historia completa del universo permanece desconocida. |
 | AC-06 — No se inventaron datos | `PASS` | No se añadieron símbolos ausentes ni se elevó el panel R5 a lista canónica. |
-| AC-07 — Informe publicado de forma revisable | `PENDING` | Se completará cuando el informe y el registro de continuidad estén en la rama/commit y exista un PR verificable. |
+| AC-07 — Informe publicado de forma revisable | `PASS` | El informe y el checkpoint de continuidad están publicados en la rama documental del PR #66; el PR es accesible, permanece abierto y no está fusionado. Esto confirma publicación revisable, no aprobación del universo. |
 | AC-08 — Estado final coherente | `PASS` | Resultado `PARTIAL`; lista no confirmada; `BLOCKED_UNIVERSE_DEFINITION` se mantiene. |
 
 ## 9. Cambios permitidos, publicación y continuidad
 
-La inspección no modificó código, estrategias, contratos, parámetros, workflows, pruebas ni artefactos históricos. No se ejecutaron pruebas de software, backtests ni simulaciones nuevas. El artefacto R5 se descargó solo para verificar integridad y leer su contenido; no fue modificado ni regenerado.
+La auditoría no modificó código, estrategias, contratos, parámetros, definiciones de workflows ni artefactos históricos; tampoco inició manualmente pruebas, backtests ni simulaciones económicas. Después de abrir el PR #66, GitHub Actions disparó automáticamente tres workflows por el evento `pull_request`, asociados inicialmente al HEAD documental `74ef1cd293120af2bc3eac83138756cbccb17350`. En la comprobación actual, los tres aparecen como `completed` / `success`: [tests, run 38939511004](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38939511004), [phase1.31-sma-real-e2e, run 38939510983](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38939510983) y [phase1.34-indicators-real-e2e, run 38939510952](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38939510952). BOT OBRERO no los solicitó, reintentó ni canceló. Esos resultados corresponden a comprobaciones automáticas sobre ese HEAD; no validan el universo canónico, la calidad económica ni la rentabilidad. La edición documental actual puede generar nuevas ejecuciones automáticas por sincronización del PR; sus resultados, si aparecen, deben verificarse por separado y nunca iniciarse manualmente dentro de este encargo. El artefacto R5 solo se descargó para verificar integridad y leer su contenido; no fue modificado ni regenerado.
 
 El informe se publica en una rama documental separada y no se fusionará. Para evitar crear un segundo registro de continuidad que compita con el principal, se actualizará el registro existente `cerebro/PROJECT_STATE.md` con un checkpoint breve, conservando su contenido previo y añadiendo referencias a este informe. La documentación publicada no implica que el universo haya sido aprobado.
 
@@ -164,7 +164,7 @@ Hasta entonces:
 - **Informe:** `docs/audits/BTC_ALT_CROSS_ASSET_RESEARCH_V1_UNIVERSE_RECOVERY_R1.md`
 - **Estado:** `PARTIAL`; universo canónico no confirmado; `BLOCKED_UNIVERSE_DEFINITION`.
 - **Decisiones confirmadas:** cinco altcoins R5 son exploratorias; BTCUSDT es benchmark; no se infieren símbolos faltantes.
-- **Límites vigentes:** solo documentación; sin cambios funcionales, sin pruebas/backtests, sin operaciones financieras; no mergear el PR.
+- **Límites vigentes:** solo documentación; sin cambios funcionales, sin pruebas/backtests iniciados manualmente por BOT OBRERO, sin operaciones financieras y sin mergear el PR. Registrar aparte cualquier workflow automático disparado por el PR.
 - **Próximo paso exacto:** CEREBRO/propietario localiza evidencia primaria de la lista original o decide explícitamente si autoriza una lista nueva.
 - **Condición de salida del bloqueo:** fuente trazable con los veinte símbolos y evidencia de aprobación, o decisión explícita del propietario que cree un universo nuevo sin presentarlo como histórico.
 
