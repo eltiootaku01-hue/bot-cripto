@@ -612,7 +612,7 @@ def historical_btc_entry_admission(
         raise ProductV2Error("periods_per_day must be a positive integer")
     if not candidate_items or len(candidate_items) != len(btc_items) or not histories_temporally_aligned(candidate_items, btc_items):
         raise ProductV2Error("candidate and BTC histories are not fully aligned")
-    interval = candidate_items[0].payload.timeframe
+    interval = getattr(candidate_items[0].payload, "timeframe", "4h")
     btc_observations = [_observation(item) for item in btc_items]
     indicator_config = BacktestConfig(
         symbol="BTCUSDT", interval=interval, candles=max(90 * periods_per_day + 1, slow_ema_period + 2),
