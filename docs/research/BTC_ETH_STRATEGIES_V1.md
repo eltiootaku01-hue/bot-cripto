@@ -111,7 +111,7 @@ No hay una estrategia activa con retorno neto positivo en los tres folds de vali
 Hashes del cálculo de este estudio:
 - Script ejecutado SHA-256: `5a4b0b5c26d711655bb793eff827f28f548bd0050b5134ea307a6e9c3af32cd7`.
 - JSON de resultados SHA-256: `db7f58f0956b794ec1a1e62008896e782efa34c47e8985a1af71cc5294949624`.
-- Runtime local: Python 3.13.5, NumPy 2.3.5, pandas 2.2.3. El script y el resultado JSON completos se adjuntan a la respuesta de esta revisión; el informe versionado aquí conserva hashes y métricas principales.
+- Runtime local: Python 3.13.5, NumPy 2.3.5, pandas 2.2.3. El ejecutable de investigación está versionado en `research/btc_eth_strategies_v1.py` y sus dependencias en `research/requirements-btc-eth-strategies-v1.txt`. Se añadió `.github/workflows/btc-eth-strategies-v1-replay.yml` para descargar el artefacto fuente, reproducir el estudio y comprobar hashes, cortes, anti-lookahead y métricas de control. No se considera verificado por CI hasta revisar una ejecución exitosa de ese workflow. El script exacto ejecutado y el JSON de 120 métricas también se adjuntan a la respuesta.
 
 ## 9. Bloqueos y decisión
 
