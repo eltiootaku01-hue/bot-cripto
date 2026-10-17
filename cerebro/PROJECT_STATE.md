@@ -2,15 +2,15 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**HEAD de main verificado:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0` (PR #74 integrada después de PR #71–#73).
+**HEAD de main de la última integración técnica verificada:** `9e10c34566ed4e068c6360297d49ee6d4dc13e3f` (PR #76 añadió pruebas anti-lookahead; PR #74 sigue siendo el último cambio de composición operativa).
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
-- **Evaluación ponderada actual:** **71/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
-- **CI del main actual:** [run 39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856) terminó `success`, **1578 pruebas aprobadas en 10.30 s** en el SHA exacto `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`. En la punta de PR #74 también pasaron [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681), [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684) y la suite [39072943527](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072943527), todas `success`.
-- **Próximos gates de mayor prioridad:** completar captura prospectiva validada de 24 horas; ejecutar el análisis anti-lookahead de sufijo futuro para el estudio BTC/ETH completo; validar edge neto en un holdout independiente y operar la captura con supervisión sostenida. `NO_TRADE` sigue mientras no exista evidencia económica.
+- **Evaluación ponderada actual:** **72/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
+- **CI de main tras PR #76:** [run 39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775) terminó `success`, **1580 pruebas aprobadas en 8.21 s** en el SHA exacto `9e10c34566ed4e068c6360297d49ee6d4dc13e3f`. El CI anterior tras PR #74 fue [39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), con 1578 pruebas. En la punta de PR #74 también pasaron [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681), [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684) y la suite [39072943527](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072943527), todas `success`.
+- **Próximos gates de mayor prioridad:** completar captura prospectiva validada de 24 horas; extender la defensa anti-lookahead al reporte/artefactos del estudio BTC→ETH completo; validar edge neto en un holdout independiente y demostrar supervisión sostenida. `NO_TRADE` sigue mientras no exista evidencia económica.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
 - **LIVE:** no implementado/habilitado. No usar dinero real, claves privadas ni endpoints privados.
@@ -55,6 +55,8 @@
 - [PR #72 — productor de señal de velas cerradas y finality (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/72)
 - [PR #73 — procedencia de fuente/finality fail-closed (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/73)
 - [PR #74 — integración de señal con riesgo/admisión/PAPER (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/74)
+- [PR #76 — invariancia de sufijo futuro anti-lookahead (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/76)
+- [CI de main con pruebas anti-lookahead, 1580 aprobadas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775)
 - [CI post-merge de main, 1578 pruebas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856)
 - [PR #64 — rama PAPER original (cerrada como supersedida)](https://github.com/eltiootaku01-hue/bot-cripto/pull/64)
 - [PR #66 — recuperación del universo BTC/altcoins](https://github.com/eltiootaku01-hue/bot-cripto/pull/66)
@@ -81,5 +83,14 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - **Main:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; PR #74 fusionada.
 - **CI post-merge:** [39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), `success`, 1578 pruebas aprobadas en 10.30 s.
 - **Cambio probado:** `market_signal_paper_runtime.py` compone la salida canónica de mercado/señal/propuesta con contexto, política de riesgo y runtime PAPER existente. El E2E usa cotización/evidencias sintéticas; no son datos de rendimiento en vivo.
-- **Preparación ponderada revisada:** 71/100. El aumento de +3 se limita al ciclo señal→riesgo→PAPER que ya tiene una composición y prueba integral. No se otorgan puntos por ventaja económica o captura prospectiva aún no demostradas.
-- **Bloqueos preservados:** `NO_TRADE`, validación anti-lookahead completa, 24 h de captura con integridad/finality/recuperación, supervisión sostenida y ausencia de atomicidad global entre SQLite independientes. Sin LIVE, claves privadas ni dinero real.
+- **Preparación ponderada revisada antes de PR #76:** 71/100 por el ciclo señal→riesgo→PAPER. La revisión actual suma un punto adicional por pruebas de invariancia a sufijo futuro en backtest y gate BTC→ETH; no se otorgan puntos por ventaja económica o captura prospectiva aún no demostradas.
+- **Preparación actual:** 72/100; [CI post-merge PR #76](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775) pasó 1580 pruebas.
+- **Bloqueos preservados:** `NO_TRADE`, verificación anti-lookahead de todo el reporte/artefactos BTC→ETH, 24 h de captura con integridad/finality/recuperación, supervisión sostenida y ausencia de atomicidad global entre SQLite independientes. Sin LIVE, claves privadas ni dinero real.
+
+
+## Actualización anti-lookahead — PR #76 (2026-10-17)
+
+- PR #76 se fusionó en `9e10c34566ed4e068c6360297d49ee6d4dc13e3f`. Añade una prueba que perturba solo las barras posteriores al periodo evaluado y exige que el resultado del backtest virtual no cambie; otra prueba altera el sufijo posterior al instante de decisión y exige que el gate histórico BTC→ETH preserve la misma decisión/motivo.
+- CI de main para ese SHA: [run 39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775), `success`, **1580 pruebas en 8.21 s**. Los E2E SMA/indicadores y backtest público también aprobaron en el head de PR #76.
+- Puntuación ponderada: **72/100** (antes 71). El punto adicional corresponde a esta defensa causal de regresión, no a edge económico demostrado.
+- Aún no existe un ensayo de invariancia sobre todos los outputs/artefactos del estudio anual como ejecución completa, ni prueba de 24 h de captura prospectiva íntegra. `NO_TRADE` se mantiene.
