@@ -17,7 +17,7 @@ Esta revisión R3 consolida las aclaraciones necesarias para que una implementac
 Se separan siete propiedades:
 
 1. Cierre de fuente: la fuente declara que terminó una vela en una observación concreta.
-2. Disponibilidad temporal: una versión exacta pudo ser recuperada por el consumidor en un instante demostrable.
+2. Disponibilidad temporal: un bundle exacto de contenido y evidencia pudo ser recuperado por el consumidor correspondiente en un instante demostrable.
 3. Finality: una política de fuente versionada permite clasificar la condición terminal de una versión dentro de un alcance declarado.
 4. Revisión: hay evidencia de otra versión o de una discrepancia de contenido.
 5. Completitud de vela: el payload individual satisface los requisitos aplicables a una vela.
@@ -334,30 +334,40 @@ Una corrección posterior no prueba automáticamente que la evaluación final an
 
 ### 8.1 Registro de revisión
 
-Una revisión o discrepancia material se registra como un evento append-only, no como modificación destructiva de un único registro de vela. El evento enlaza la identidad lógica, versiones previas y candidatas cuando existan, el evento que descubre la diferencia, detected_at, disponibilidad demostrada de la nueva versión, digests comparados, motivo, evidencia de resolución y resolved_at cuando aplique.
+Una revisión o discrepancia material se registra como un evento append-only; nunca como modificación destructiva de una vela o versión económica existente. El evento enlaza, cuando corresponda:
+
+- identidad lógica de la vela;
+- `content_version_id` previo y candidato;
+- `capture_event_id` o evento de evidencia que detectó la diferencia;
+- `detected_at`, con su propia evidencia temporal;
+- `revision_event_status`, motivo y digests comparados;
+- referencias a bundles anteriores y nuevos si se construyeron;
+- evidencia de resolución y `resolved_at`, cuando aplique.
+
+La disponibilidad temporal no es un atributo de la versión económica candidata por el mero hecho de que exista ese contenido. Si la nueva evidencia se añade a un `EvidenceBundle`, se registra el `available_at` demostrable de ese bundle y su ámbito de consumidor. El evento de revisión puede referenciar esa evidencia de disponibilidad, pero no reemplazarla con un timestamp supuesto.
 
 Estados propuestos del evento:
 
-- REVISION_CANDIDATE: hay una diferencia material, todavía sin relación demostrada.
-- REVISION_CONFIRMED: la evidencia verifica que se trata de una revisión de la misma vela lógica bajo la política declarada.
-- CONFLICT_UNRESOLVED: hay representaciones discrepantes y la relación no se puede resolver.
-- REJECTED_AS_REVISION: hay evidencia de que la discrepancia no es una revisión de esa misma vela.
+- `REVISION_CANDIDATE`: existe una diferencia material cuya relación todavía no se demuestra.
+- `REVISION_CONFIRMED`: evidencia verificable confirma que se trata de una revisión de la misma vela lógica bajo la política aplicable.
+- `CONFLICT_UNRESOLVED`: existen representaciones discrepantes y la relación no puede resolverse.
+- `REJECTED_AS_REVISION`: la evidencia descarta que la diferencia sea una revisión de esa misma vela.
 
-SUPERSEDED no es un estado del evento de revisión. Es una relación derivada de una versión dentro de una vista temporal posterior, una vez confirmada la sustitución.
+`SUPERSEDED` no es un estado del evento de revisión. Es una relación derivada de una versión de contenido en una vista posterior, una vez confirmada la sustitución. No elimina la versión histórica.
 
 ### 8.2 Ausencia de revisiones observadas
 
-NO_REVISION_OBSERVED_AS_OF_TIME solo puede afirmarse para una fuente, alcance, intervalo de cobertura y límite temporal explícitos, cuando la evidencia de integridad de cobertura es suficiente. Significa únicamente que no se observó otra versión dentro del historial declarado; no prueba ausencia universal de revisiones.
+`NO_REVISION_OBSERVED_AS_OF_TIME` solo puede declararse para una fuente, alcance, intervalo de cobertura y límite temporal explícitos, si la integridad de cobertura es suficiente. Significa únicamente que no se observó otra versión dentro del historial declarado; no demuestra ausencia universal de revisiones.
 
-Si la captura tuvo interrupciones, retención incompleta o limitaciones de detección no resueltas, la ausencia de revisión es UNKNOWN.
+Si la captura tuvo interrupciones, retención incompleta o limitaciones de detección no resueltas, la ausencia de revisión es `UNKNOWN`.
 
-### 8.3 Tres vistas separadas
+### 8.3 Vistas temporales
 
-- Replay original point-in-time: reconstruye las versiones disponibles y admisibles en el instante de decisión original. No incluye una revisión futura de forma retroactiva.
-- Vista corregida actual: usa las revisiones confirmadas conocidas y admisibles al corte temporal actual. Se etiqueta como vista corregida, no como replay original.
-- Auditoría posterior: añade un evento nuevo que señala que una decisión pasada puede haber quedado afectada por evidencia posterior. No modifica su payload, timestamps, digests ni manifiesto original.
+- **Replay original point-in-time:** reconstruye los bundles que estaban disponibles y eran admisibles en el instante de la decisión original. No incluye de forma retroactiva una versión de contenido, afirmación de cierre, evaluación de finality o relación de revisión que aún no estaba disponible.
+- **Vista corregida actual:** utiliza contenido y revisiones confirmadas conocidas, junto con los bundles admisibles, al corte temporal actual. Se etiqueta como vista corregida, no como replay original.
+- **Auditoría posterior:** añade un evento nuevo que señala que una decisión pasada puede haber sido afectada por evidencia posterior. No modifica el bundle, payload, timestamps, digests ni manifiesto original de la decisión.
 
-Una revisión detectada después no altera lo que se conocía antes. Puede bloquear nuevas decisiones que dependan de evidencia actualmente en conflicto.
+Una revisión detectada después no altera qué contenido o afirmaciones se conocían antes. Puede bloquear decisiones nuevas que dependan de evidencia actualmente en conflicto, pero no reescribe la decisión registrada con el bundle original.
 
 ## 9. Esquema mínimo documental R3
 
