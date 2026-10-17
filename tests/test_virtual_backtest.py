@@ -406,3 +406,26 @@ def test_virtual_backtest_rejects_quantity_over_market_max_quantity():
     result = run_virtual_backtest(_series(), _config(max_qty=Decimal("0.01")))
     assert not result.fills
     assert any("ORDER_REJECTED:MAX_QTY" in reason for reason in result.entry_rejections)
+
+
+def test_backtest_metrics_are_invariant_to_suffix_strictly_after_evaluation_window():
+    """Changing unseen future bars must not rewrite decisions or fills before the cutoff."""
+    items = _series((
+        "10", "9", "8", "9", "10", "11", "12", "11", "10", "9",
+        "8", "7", "6", "80", "0.5",
+    ))
+    start_index, end_index = 3, 10
+    start, end = items[start_index].payload.start, items[end_index].payload.start
+    config = _config(candles=end_index - start_index, liquidate_at_end=True)
+
+    changed_future = list(items)
+    for index, future_close in ((10, "900"), (11, "0.05"), (12, "700"), (13, "0.01"), (14, "5000")):
+        changed_future[index] = _item(index, future_close)
+
+    baseline = run_virtual_backtest(
+        items, config, evaluation_start=start, evaluation_end=end,
+    )
+    perturbed = run_virtual_backtest(
+        changed_future, config, evaluation_start=start, evaluation_end=end,
+    )
+    assert baseline == perturbed
