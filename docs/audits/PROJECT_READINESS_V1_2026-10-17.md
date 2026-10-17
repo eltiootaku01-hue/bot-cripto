@@ -1,13 +1,13 @@
 # BOT-CRIPTO — Evaluación de preparación técnica y ruta hacia >90%
 
 **Evaluación:** 2026-10-17  
-**Base funcional integrada (PAPER + productor de señal + composición a riesgo/PAPER):** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`  
-**Actualización de puntuación:** 2026-10-17, después de integrar PR #74; criterios revisados por el CI de main y el E2E integrado.  
+**Base funcional de composición (PAPER + señal→riesgo/PAPER):** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; **HEAD de main con pruebas anti-lookahead:** `9e10c34566ed4e068c6360297d49ee6d4dc13e3f`  
+**Actualización de puntuación:** 2026-10-17, después de PR #74 (integración) y PR #76 (invariancia de sufijo futuro); revisión basada en CI de main y E2E.  
 **Propósito del porcentaje:** preparación demostrada para un bot de investigación y PAPER; no es porcentaje de líneas de código, probabilidad de beneficio ni autorización para operar con dinero real.
 
 ## Dictamen
 
-**Preparación operativa basada en evidencia: 71/100. El umbral >90 todavía no está alcanzado.**
+**Preparación operativa basada en evidencia: 72/100. El umbral >90 todavía no está alcanzado.**
 
 El porcentaje usa pesos publicados y puntúa solo capacidades con evidencia observada. La decisión económica sigue siendo `NO_TRADE`. Un buen CI no acredita una estrategia rentable, y una integración PAPER recuperable no acredita un productor operativo de señales ni 24 horas de captura prospectiva.
 
@@ -15,19 +15,19 @@ El porcentaje usa pesos publicados y puntúa solo capacidades con evidencia obse
 
 | Área | Peso | Puntaje | Evidencia para el puntaje | Brecha que impide puntaje completo |
 |---|---:|---:|---|---|
-| Integridad del repositorio y CI reproducible | 10 | 10 | PR #71–#74 fusionadas; CI de main posterior a PR #74 con 1578 pruebas y E2E SMA/indicadores de la punta PR #74 aprobados | Seguir exigiendo CI en cada SHA de main |
+| Integridad del repositorio y CI reproducible | 10 | 10 | PR #71–#76 fusionadas; CI de main tras PR #76 con 1580 pruebas y E2E públicos de la punta PR #76 aprobados | Seguir exigiendo CI en cada SHA de main |
 | Adquisición pública y contratos temporales | 15 | 12 | Adaptadores Binance REST/WebSocket, validación de vela cerrada y continuidad, finality diferenciada por fuente y procedencia conservada | Finality REST derivada del reloj local; `available_at`/`finality` históricos pueden seguir UNKNOWN; falta captura prospectiva validada de 24 h |
-| Análisis, backtest y defensa anti-lookahead | 15 | 13 | SMA/EMA/RSI canónicos, cálculo incremental y decisión simulada en cierre con fill en apertura siguiente; suite general y E2E pasan | Sigue pendiente la prueba de invariancia frente a sufijo futuro para el estudio BTC→ETH completo y la integridad prospectiva |
+| Análisis, backtest y defensa anti-lookahead | 15 | 14 | SMA/EMA/RSI canónicos, cálculo incremental; PR #76 compara resultados al alterar solo el sufijo posterior a evaluación y el gate histórico BTC→ETH con sufijo posterior al corte; 1580 pruebas pasan | Falta ejecutar/contrastar la invariancia sobre el reporte y artefactos completos del estudio, y validar la evidencia temporal prospectiva |
 | Evidencia económica de estrategia | 20 | 5 | Backtests, benchmarks cash/buy-and-hold y evaluación walk-forward están implementados; el resultado conserva honestamente `NO_TRADE` | Las estrategias evaluadas perdieron dinero neto o no demostraron robustez; falta una validación independiente que justifique avance |
 | Ciclo mercado→Signal→TradeProposal→riesgo→PAPER | 15 | 14 | PR #74 compone la salida de la pipeline canónica con contexto de riesgo completo, snapshot PAPER persistido, admisión/reserva y runtime PAPER existente; E2E sintético cubre fill y conciliación. `NO_TRADE` no invoca el runtime | El caller aún debe proporcionar la observación pública de libro, context factory, política y evidencia de readiness; no hay captura sostenida de producción y la estrategia no está validada económicamente |
 | Persistencia económica y recuperación PAPER | 15 | 14 | Quote versionado/hash-bound; replay; conciliación de cuenta/reserva/binding/ledger; prueba de fallo tras commit del fill, reinicio y dos reconciliaciones idempotentes; CI reciente 1576 tests pasa | Los archivos SQLite independientes no forman una transacción global. Reparación parcial debe seguir en UNKNOWN/BLOCKED hasta conciliar |
 | Operación sostenida, supervisión y captura prospectiva | 10 | 3 | Endpoints públicos, workflows de CI y pruebas E2E existentes | No se ha demostrado captura continua de 24 h, reconexión/reparación de huecos con evidencia, alertas operativas y aceptación de un estudio nuevo completo |
-| **TOTAL** | **100** | **71** | | |
+| **TOTAL** | **100** | **72** | | |
 
 ### Cómo interpretar la cifra
 
-- **71/100** es una puntuación de preparación demostrada bajo la matriz anterior, no una estimación del trabajo de programación restante.
-- **1.578 pruebas aprobadas** en el SHA post-merge `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0` (run [39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856)) prueban la suite en ese commit concreto; no demuestran que toda situación operativa esté cubierta ni que la estrategia sea rentable.
+- **72/100** es una puntuación de preparación demostrada bajo la matriz anterior, no una estimación del trabajo de programación restante.
+- **1.580 pruebas aprobadas** en main `9e10c34566ed4e068c6360297d49ee6d4dc13e3f` (run [39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775)) pasan en el SHA probado; no demuestran que toda situación operativa esté cubierta ni que la estrategia sea rentable.
 - El objetivo >90 debe tratarse como un *release gate*, no como una meta de apariencia. No se dan puntos por una función solo diseñada o por una prueba que no se ejecutó.
 - `NO_TRADE` no es un defecto que deba quitarse para aumentar el porcentaje. Es el bloqueo correcto mientras falte evidencia económica.
 
@@ -39,7 +39,7 @@ El porcentaje usa pesos publicados y puntúa solo capacidades con evidencia obse
 **Criterios de salida:**
 1. Congelar estrategia, parámetros, dataset, costes y benchmarks antes de mirar el holdout.
 2. Evaluar frente a cash y buy-and-hold con costes idénticos; separar evaluación y walk-forward no solapado.
-3. Cambiar sufijos futuros y demostrar que no cambian señales, indicadores ni fills anteriores al corte.
+3. Cambiar sufijos futuros y demostrar que no cambian señales, indicadores ni fills anteriores al corte. **Parcialmente cubierto por PR #76:** backtest virtual con `evaluation_end` y gate BTC→ETH en un índice de decisión permanecen idénticos al perturbar solo el sufijo futuro. Falta extender la propiedad al reporte/artefactos de la ejecución anual completa.
 4. Registrar resultados netos, drawdown, fees, spread/slippage modelados y muestras completas/incompletas.
 5. Aceptar avance solo si los umbrales económicos definidos antes de la corrida se cumplen en el periodo independiente; si no, mantener `NO_TRADE`.
 
@@ -70,6 +70,7 @@ QuantConnect publicó en junio de 2026 una corrección a LEAN para impedir que �
 
 - Integración PAPER y reconciliación: [PR #71 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/71).
 - Composición canónica señal→riesgo→PAPER: [PR #74 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/74), CI de main [39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), `success`, 1578 pruebas en 10.30 s.
+- Defensa anti-lookahead suffix invariance: [PR #76 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/76), CI de main [39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775), `success`, 1580 pruebas en 8.21 s; SMA E2E [39073419193](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419193), indicadores E2E [39073419196](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419196) y backtest público [39073419200](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419200), todos `success` en la punta de PR #76.
 - CI de main tras el merge: [run 39069869061](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069869061), `success`, 1561 pruebas.
 - CI de punta de integración: [tests 39069780762](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780762), [SMA 39069780537](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780537), [indicadores 39069780522](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780522), [backtest/Product V2 con datos públicos 39069780401](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780401): todos `success` en `0d139afdf7719d86b7d938ef0cb2a2e8dac949dc`.
 - CI de la punta PR #72: [tests 39071436733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436733) y [39071432824](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071432824), ambas `success`, 1574 pruebas; E2E SMA [39071436664](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436664), indicadores [39071436711](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436711) y backtest público [39071436661](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436661), todos `success`.
@@ -96,3 +97,12 @@ El puntaje se actualiza de 64 a 68 por estas capacidades implementadas y probada
 PR #74 quedó fusionada en [`a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`](https://github.com/eltiootaku01-hue/bot-cripto/commit/a00e78a634ea7bac4ad266a3ae7b3394c709b6e0). El CI post-merge de main [run 39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856) terminó `success`, **1578 pruebas aprobadas en 10.30 s**. En la punta de PR #74 también terminaron `success` [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681) y [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684).
 
 La puntuación aumenta de 68 a **71/100**: +3 en el ciclo mercado→Signal→TradeProposal→riesgo→PAPER por una composición implementada y E2E sintético verificado. No aumentan los puntos de evidencia económica ni captura prospectiva. Siguen pendientes 24 horas de captura íntegra, prueba anti-lookahead/sufijo futuro del estudio BTC/ETH y validación neta independiente. `NO_TRADE` se mantiene.
+
+
+## Actualización de preparación tras PR #76 — 17 de octubre de 2026
+
+La PR #76 añade dos regresiones anti-lookahead: (1) el resultado de `run_virtual_backtest` permanece igual al modificar precios estrictamente posteriores al periodo definido por `evaluation_end`; (2) el gate histórico BTC→ETH conserva decisión y motivo cuando se cambia el sufijo posterior al índice de decisión, manteniendo igual el prefijo. Estas pruebas evidencian una propiedad causal para esas rutas; no son una verificación exhaustiva de cada salida/artefacto anual.
+
+PR #76 mergeada en [`9e10c34566ed4e068c6360297d49ee6d4dc13e3f`](https://github.com/eltiootaku01-hue/bot-cripto/commit/9e10c34566ed4e068c6360297d49ee6d4dc13e3f); CI post-merge main [39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775): `success`, **1580 pruebas aprobadas en 8.21 s**. E2E SMA, indicadores y backtest público en la punta PR #76 también finalizaron `success`.
+
+La cifra ponderada aumenta de **71 a 72/100** (+1 en análisis/defensa anti-lookahead). Siguen bloqueados: 24 horas de captura prospectiva con recuperación/integridad y procedencia temporal, validación neta de estrategia en holdout independiente y verificación de los resultados del estudio BTC→ETH completo. Decisión económica: `NO_TRADE`.
