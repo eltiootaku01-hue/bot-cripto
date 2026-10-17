@@ -158,6 +158,8 @@ def reconcile_paper_runtime(
             elif binding.state == "PREPARED" and reservation.state is ReservationState.ACTIVE:
                 if binding.client_order_id in record_by_client:
                     mismatches.append(f"PREPARED_BINDING_HAS_LEDGER_RECORD:{binding.client_order_id}")
+                else:
+                    unknowns.append(f"PREPARED_EXECUTION_WITHOUT_PAPER_FILL:{binding.client_order_id}")
             elif binding.state in {"SUBMISSION_STARTED", "UNKNOWN"} or reservation.state is ReservationState.UNKNOWN:
                 unknowns.append(f"AMBIGUOUS_EXECUTION_WITHOUT_PAPER_FILL:{binding.client_order_id}")
             elif binding.state == "SUBMITTED":

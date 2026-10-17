@@ -441,9 +441,14 @@ def test_read_set_exposes_only_the_canonical_account_api():
     assert "def all_reservations(" not in source
 
 
-def test_no_new_effective_capacity_or_temporal_surface_is_added():
+def test_no_new_effective_capacity_or_temporal_fields_are_added_to_reservation_contract():
     source = Path("bot_obrero/reservation.py").read_text(encoding="utf-8")
+    start = source.index("class Reservation:")
+    end = source.index("class ReservationTransition:", start)
+    canonical_reservation = source[start:end]
 
+    # Quote availability belongs to the immutable admission-terms snapshot,
+    # not to the canonical Reservation model or its transition surface.
     assert "EffectiveCapacity" not in source
-    assert "available_at" not in source
+    assert "available_at" not in canonical_reservation
     assert "atomic snapshot" not in source.lower()

@@ -186,6 +186,14 @@ class FinancialExecutionRuntime:
             reservation_id=existing[0].reservation_id,
         )
 
+    def _paper_adapter(self):
+        """Return the local PAPER adapter without changing the orchestrator's public contract."""
+        from .paper_adapter import PaperExecutionAdapter
+
+        boundary = getattr(self.execution_orchestrator, "boundary", None)
+        candidate = getattr(boundary, "_adapter", None)
+        return candidate if isinstance(candidate, PaperExecutionAdapter) else None
+
     def start(
         self,
         *,
@@ -231,8 +239,9 @@ class FinancialExecutionRuntime:
                 proposal_id=proposal_id,
             )
 
-        from .paper_adapter import PaperExecutionAdapter, canonical_account_state_from_paper_snapshot
-        if isinstance(self.execution_orchestrator.adapter, PaperExecutionAdapter):
+        from .paper_adapter import canonical_account_state_from_paper_snapshot
+        paper_adapter = self._paper_adapter()
+        if paper_adapter is not None:
             if (
                 context.instrument.market != "SPOT"
                 or context.market_observation is None
@@ -245,7 +254,7 @@ class FinancialExecutionRuntime:
                 )
             try:
                 persisted_state = canonical_account_state_from_paper_snapshot(
-                    self.execution_orchestrator.adapter.snapshot()
+                    paper_adapter.snapshot()
                 )
             except Exception as exc:
                 return self._result(
@@ -264,7 +273,7 @@ class FinancialExecutionRuntime:
                 reconcile_paper_runtime,
             )
             reconciliation = reconcile_paper_runtime(
-                adapter=self.execution_orchestrator.adapter,
+                adapter=paper_adapter,
                 store=self.store,
                 bridge=self.reservation_bridge,
                 ledger=self.execution_orchestrator.ledger,
@@ -523,8 +532,8 @@ class FinancialExecutionRuntime:
                 proposal_id=proposal_id,
                 reservation_id=prepared.reservation_id,
             )
-        from .paper_adapter import PaperExecutionAdapter
-        if isinstance(self.execution_orchestrator.adapter, PaperExecutionAdapter):
+        paper_adapter = self._paper_adapter()
+        if paper_adapter is not None:
             try:
                 from .paper_quote_evidence import validate_paper_quote_evidence
                 validate_paper_quote_evidence(
@@ -533,7 +542,7 @@ class FinancialExecutionRuntime:
                     expected_decision_timestamp=datetime.fromisoformat(binding.payload["decision_timestamp"]),
                     expected_context_id=binding.payload["evaluation_context_id"],
                     now=now,
-                    max_age=self.execution_orchestrator.adapter.max_quote_age,
+                    max_age=paper_adapter.max_quote_age,
                 )
             except Exception as exc:
                 return self._result(
@@ -578,14 +587,14 @@ class FinancialExecutionRuntime:
                 reservation_id=prepared.reservation_id,
             )
         if execution.allowed and execution.reason == "SUBMITTED":
-            from .paper_adapter import PaperExecutionAdapter
-            if isinstance(self.execution_orchestrator.adapter, PaperExecutionAdapter):
+            paper_adapter = self._paper_adapter()
+            if paper_adapter is not None:
                 from .paper_runtime_reconciliation import (
                     PaperRuntimeReconciliationStatus,
                     reconcile_paper_runtime,
                 )
                 reconciliation = reconcile_paper_runtime(
-                    adapter=self.execution_orchestrator.adapter,
+                    adapter=paper_adapter,
                     store=self.store,
                     bridge=self.reservation_bridge,
                     ledger=self.execution_orchestrator.ledger,

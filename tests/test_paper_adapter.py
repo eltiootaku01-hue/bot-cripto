@@ -88,7 +88,7 @@ def make_order(*, side="BUY", quantity="0.2", max_spend="25", symbol="BTC/USDT",
         "reserved_amount": max_spend if side == "BUY" else quantity, "terms_hash": "a" * 64,
     }
     if include_quote:
-        payload["paper_quote_evidence"] = quote_evidence() if quote_evidence_payload is None else quote_evidence_payload
+        payload["paper_quote_evidence"] = quote_evidence(symbol=symbol) if quote_evidence_payload is None else quote_evidence_payload
     return OrderIntent(client_order_id, payload, "correlation-1")
 
 
