@@ -12,7 +12,8 @@ from bot_obrero.market_data import (
     InstrumentIdentity, InstrumentType, MarketData, SourceIdentity,
 )
 from bot_obrero.virtual_backtest import (
-    BacktestConfig, BacktestError, _indicators, _observation, main, run_virtual_backtest,
+    BacktestConfig, BacktestError, _indicator_series, _indicators, _observation, main,
+    run_virtual_backtest,
 )
 
 _MISSING = object()
@@ -324,3 +325,39 @@ def test_baseline_and_btc_gated_backtests_remain_distinct_when_entry_is_rejected
     assert integrated.entry_rejections
     assert all("BTC_REGIME_NOT_BULLISH" in reason for reason in integrated.entry_rejections)
     assert baseline.final_equity != integrated.final_equity
+
+
+
+def test_incremental_indicator_series_matches_reference_algorithms_for_every_prefix():
+    prices = tuple(str(100 + ((index * 17) % 23) - index // 7) for index in range(80))
+    observations = [_observation(_item(i, value)) for i, value in enumerate(prices)]
+    config = _config(candles=len(observations), fast_ema_period=3, slow_ema_period=7, rsi_period=5)
+    series = _indicator_series(observations, config)
+    for index, cached in enumerate(series):
+        if index + 1 < max(config.slow_ema_period, config.rsi_period + 1):
+            assert cached is None
+            continue
+        assert cached == _indicators(observations[:index + 1], config)
+
+
+def test_annual_hourly_evaluation_length_is_accepted_without_splitting_the_run():
+    config = BacktestConfig(symbol="ETHUSDT", interval="1h", candles=8760)
+    config.validate()
+    assert config.candles == 8760
+
+
+def test_terminal_liquidation_closes_remaining_position_and_charges_exit_costs():
+    items = [_item(i, str(10 + i), open_price=str(10 + i)) for i in range(13)]
+    regular = run_virtual_backtest(items, _config(rsi_sell_at=Decimal("100")))
+    liquidated = run_virtual_backtest(
+        items, _config(rsi_sell_at=Decimal("100"), liquidate_at_end=True),
+    )
+    assert regular.final_base_position > 0
+    assert liquidated.final_base_position == 0
+    assert liquidated.fills[-1].side == "SELL"
+    assert liquidated.fills[-1].reason == "TERMINAL_LIQUIDATION"
+    assert liquidated.fills[-1].fee > 0
+    assert liquidated.final_equity == liquidated.final_quote_balance
+    assert liquidated.unrealized_pnl == 0
+    assert liquidated.total_fees > regular.total_fees
+    assert liquidated.final_equity < regular.final_equity

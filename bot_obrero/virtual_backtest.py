@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import hashlib
+import json
 import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from pathlib import Path
 from typing import Callable, Sequence
 
 from .analysis_contracts import ArtifactNature, MarketObservation, Provenance
@@ -25,7 +28,7 @@ from .binance_spot import BinanceSpotRestConfig
 from .market_data import CandleFinality, CandleState, DataCompleteness, DataQuality, MarketData
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
-_MAX_CANDLES = 1200
+_MAX_CANDLES = 10000
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
 _BPS = Decimal("10000")
@@ -66,7 +69,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbol", required=True, help="Binance Spot symbol, e.g. BTCUSDT")
     parser.add_argument("--interval", required=True, help="Binance kline interval, e.g. 1m")
     parser.add_argument("--candles", type=_positive_int, default=500,
-                        help="closed candles to simulate (default: 500; maximum: 1200)")
+                        help="evaluation candles to simulate (default: 500; maximum: 10000)")
+    parser.add_argument("--liquidate-at-end", action="store_true",
+                        help="virtually liquidate any remaining position at the last evaluation close, including modeled exit costs")
+    parser.add_argument("--dataset-output", type=Path, default=None,
+                        help="optional path for a normalized JSON evidence bundle containing acquired candles and configuration hashes")
     parser.add_argument("--fast-ema-period", type=_positive_int, default=12)
     parser.add_argument("--slow-ema-period", type=_positive_int, default=26)
     parser.add_argument("--rsi-period", type=_positive_int, default=14)
@@ -102,6 +109,7 @@ class BacktestConfig:
     min_qty: Decimal | None = None
     quantity_step: Decimal | None = None
     min_notional: Decimal | None = None
+    liquidate_at_end: bool = False
 
     def validate(self) -> None:
         if not isinstance(self.symbol, str) or not _SYMBOL_RE.fullmatch(self.symbol):
@@ -139,6 +147,8 @@ class BacktestConfig:
             value = getattr(self, name)
             if value is not None and (not isinstance(value, Decimal) or not value.is_finite() or value <= _ZERO):
                 raise BacktestError(f"{name} must be a positive finite Decimal when supplied")
+        if type(self.liquidate_at_end) is not bool:
+            raise BacktestError("liquidate_at_end must be a boolean")
 
 
 @dataclass(frozen=True)
@@ -323,6 +333,145 @@ def _indicators(observations: Sequence[MarketObservation], config: BacktestConfi
     return {"sma": sma["sma"], "fast_ema": fast["ema"], "slow_ema": slow["ema"], "rsi": rsi["rsi"]}
 
 
+
+
+def _indicator_series(
+    observations: Sequence[MarketObservation], config: BacktestConfig
+) -> list[dict[str, Decimal] | None]:
+    """Compute existing SMA/EMA/Wilder-RSI definitions in one linear pass.
+
+    Recurrences and Decimal operation order match the canonical algorithms used
+    by _indicators(). None marks prefixes without enough observations for all
+    indicators. Tests compare every supported prefix against _indicators().
+    """
+    closes: list[Decimal] = []
+    for observation in observations:
+        raw = observation.values.get("close")
+        if type(raw) is not Decimal or not raw.is_finite():
+            raise BacktestError("indicator close must be a finite Decimal")
+        closes.append(raw)
+
+    count = len(closes)
+    if not count:
+        return []
+
+    def ema_values(period: int) -> list[Decimal | None]:
+        values: list[Decimal | None] = [None] * count
+        alpha = Decimal("2") / Decimal(period + 1)
+        one_minus_alpha = Decimal("1") - alpha
+        seed_total = _ZERO
+        ema: Decimal | None = None
+        for index, close in enumerate(closes):
+            if index < period:
+                seed_total += close
+                if index == period - 1:
+                    ema = seed_total / Decimal(period)
+                    values[index] = ema
+                continue
+            assert ema is not None
+            ema = alpha * close + one_minus_alpha * ema
+            values[index] = ema
+        return values
+
+    fast = ema_values(config.fast_ema_period)
+    slow = ema_values(config.slow_ema_period)
+    sma: list[Decimal | None] = [None] * count
+    for index in range(config.slow_ema_period - 1, count):
+        sma[index] = sum(
+            closes[index - config.slow_ema_period + 1:index + 1], _ZERO
+        ) / Decimal(config.slow_ema_period)
+
+    rsi: list[Decimal | None] = [None] * count
+    period = config.rsi_period
+    gain_total = loss_total = _ZERO
+    average_gain: Decimal | None = None
+    average_loss: Decimal | None = None
+    for index in range(1, count):
+        change = closes[index] - closes[index - 1]
+        gain = change if change > _ZERO else _ZERO
+        loss = -change if change < _ZERO else _ZERO
+        if index <= period:
+            gain_total += gain
+            loss_total += loss
+            if index == period:
+                average_gain = gain_total / Decimal(period)
+                average_loss = loss_total / Decimal(period)
+        else:
+            assert average_gain is not None and average_loss is not None
+            average_gain = ((average_gain * Decimal(period - 1)) + gain) / Decimal(period)
+            average_loss = ((average_loss * Decimal(period - 1)) + loss) / Decimal(period)
+        if index >= period:
+            assert average_gain is not None and average_loss is not None
+            if average_loss == _ZERO:
+                value = Decimal("100") if average_gain > _ZERO else Decimal("50")
+            else:
+                rs = average_gain / average_loss
+                value = Decimal("100") - (Decimal("100") / (Decimal("1") + rs))
+            rsi[index] = value
+
+    result: list[dict[str, Decimal] | None] = []
+    for index in range(count):
+        if sma[index] is None or fast[index] is None or slow[index] is None or rsi[index] is None:
+            result.append(None)
+        else:
+            result.append({
+                "sma": sma[index], "fast_ema": fast[index],
+                "slow_ema": slow[index], "rsi": rsi[index],
+            })
+    return result
+
+
+def _market_data_record(item: MarketData) -> dict[str, object]:
+    candle = item.payload
+    return {
+        "instrument": {
+            "instrument_id": item.instrument.instrument_id,
+            "symbol": item.instrument.symbol,
+            "market": item.instrument.market,
+            "base_asset": item.instrument.base_asset,
+            "quote_asset": item.instrument.quote_asset,
+        },
+        "source": {
+            "source_id": item.source.source_id,
+            "provider": item.source.provider,
+            "venue": item.source.venue,
+        },
+        "data_type": item.data_type,
+        "observed_at": item.observed_at.isoformat(),
+        "received_at": item.received_at.isoformat(),
+        "available_at": item.available_at.isoformat() if item.available_at is not None else None,
+        "quality": item.quality.value,
+        "completeness": item.completeness.value,
+        "candle": {
+            "start": candle.start.isoformat(), "end": candle.end.isoformat(),
+            "timeframe": candle.timeframe, "open": str(candle.open),
+            "high": str(candle.high), "low": str(candle.low), "close": str(candle.close),
+            "volume": str(candle.volume), "candle_state": candle.candle_state.value,
+            "completeness": candle.completeness.value, "finality": candle.finality.value,
+        },
+    }
+
+
+def _evidence_hashes(items: Sequence[MarketData], config: BacktestConfig) -> tuple[str, str, list[dict[str, object]]]:
+    records = [_market_data_record(item) for item in items]
+    data_bytes = json.dumps(records, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    config_record = {
+        "schema_version": 1, "symbol": config.symbol, "interval": config.interval,
+        "candles": config.candles, "fast_ema_period": config.fast_ema_period,
+        "slow_ema_period": config.slow_ema_period, "rsi_period": config.rsi_period,
+        "rsi_buy_min": str(config.rsi_buy_min), "rsi_sell_at": str(config.rsi_sell_at),
+        "initial_quote_balance": str(config.initial_quote_balance),
+        "position_fraction": str(config.position_fraction), "fee_rate": str(config.fee_rate),
+        "slippage_bps": str(config.slippage_bps), "spread_bps": str(config.spread_bps),
+        "max_entries_per_30d": config.max_entries_per_30d,
+        "min_qty": str(config.min_qty) if config.min_qty is not None else None,
+        "quantity_step": str(config.quantity_step) if config.quantity_step is not None else None,
+        "min_notional": str(config.min_notional) if config.min_notional is not None else None,
+        "liquidate_at_end": config.liquidate_at_end,
+    }
+    config_bytes = json.dumps(config_record, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(data_bytes).hexdigest(), hashlib.sha256(config_bytes).hexdigest(), records
+
 def run_virtual_backtest(
     items: Sequence[MarketData], config: BacktestConfig, *,
     evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
@@ -349,6 +498,7 @@ def run_virtual_backtest(
     if len(candles) != config.candles:
         raise BacktestError(f"evaluation window must contain exactly {config.candles} candles, got {len(candles)}")
     observations = [_observation(item) for item in history]
+    indicator_series = _indicator_series(observations, config)
     index_by_start = {item.payload.start: index for index, item in enumerate(history)}
     quote, position, entry_cost = config.initial_quote_balance, _ZERO, _ZERO
     realized = total_fees = _ZERO
@@ -407,8 +557,10 @@ def run_virtual_backtest(
                                  equity / peak - _ONE if peak > _ZERO else _ZERO))
         if eval_index >= len(candles) - 1 or history_index < first_signal_index:
             continue
-        current = _indicators(observations[:history_index + 1], config)
-        previous = _indicators(observations[:history_index], config)
+        current = indicator_series[history_index]
+        previous = indicator_series[history_index - 1]
+        if current is None or previous is None:
+            raise BacktestError("indicator history is insufficient at an evaluation decision")
         crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
         crossed_down = previous["fast_ema"] >= previous["slow_ema"] and current["fast_ema"] < current["slow_ema"]
         if position == _ZERO and crossed_up and current["rsi"] >= config.rsi_buy_min:
@@ -429,7 +581,36 @@ def run_virtual_backtest(
             pending = ("SELL", "fast EMA crossed below slow EMA" if crossed_down else "RSI reached sell threshold")
 
     last_eval_index = index_by_start[candles[-1].payload.start]
-    final_values = _indicators(observations[:last_eval_index + 1], config)
+    final_values = indicator_series[last_eval_index]
+    if final_values is None:
+        raise BacktestError("indicator history is insufficient at the final evaluation candle")
+
+    if config.liquidate_at_end and position > _ZERO:
+        last_candle = candles[-1].payload
+        terminal_slippage = (config.slippage_bps + config.spread_bps / Decimal("2")) / _BPS
+        fill_price = last_candle.close * (_ONE - terminal_slippage)
+        if fill_price <= _ZERO:
+            raise BacktestError("terminal liquidation price is non-positive")
+        notional = position * fill_price
+        fee = notional * config.fee_rate
+        proceeds = notional - fee
+        trade_pnl = proceeds - entry_cost
+        quote += proceeds
+        realized += trade_pnl
+        total_fees += fee
+        fills.append(VirtualFill(
+            last_candle.end, "SELL", position, fill_price, fee, quote,
+            "TERMINAL_LIQUIDATION", trade_pnl,
+        ))
+        position, entry_cost = _ZERO, _ZERO
+        previous_point = curve[-1]
+        peak = max(peak, previous_point.equity)
+        final_drawdown = quote / peak - _ONE if peak > _ZERO else _ZERO
+        curve[-1] = EquityPoint(
+            timestamp=previous_point.timestamp, close=previous_point.close,
+            quote_balance=quote, base_position=_ZERO, equity=quote, drawdown=final_drawdown,
+        )
+
     final_equity = curve[-1].equity
     unrealized = position * candles[-1].payload.close - entry_cost if position > _ZERO else _ZERO
     return BacktestResult(
@@ -488,6 +669,7 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Assumed full spread: {cfg.spread_bps} bps (half charged per fill; historical spread is not available)")
     print(f"Maximum entries per rolling 30 days: {cfg.max_entries_per_30d}")
     print(f"Instrument min quantity / step / min notional: {cfg.min_qty} / {cfg.quantity_step} / {cfg.min_notional}")
+    print(f"Terminal liquidation: {'ENABLED (last close less modeled spread/slippage and exit fee)' if cfg.liquidate_at_end else 'DISABLED (final equity is marked to the last close)'}")
     print("Quote balance is denominated in the pair quote asset; it is not an ARS balance or an ARS-to-USDT conversion.")
     print("Execution model: signal at candle close; fill at next candle open with configured slippage")
     print("Temporal limitation: canonical historical available_at is UNKNOWN when absent; this simulation uses an explicit bar-close model without rewriting MarketData.available_at.")
@@ -521,23 +703,70 @@ def run(args: argparse.Namespace) -> int:
         initial_quote_balance=args.initial_quote_balance, position_fraction=args.position_fraction,
         fee_rate=args.fee_rate, slippage_bps=args.slippage_bps, spread_bps=args.spread_bps,
         max_entries_per_30d=args.max_entries_per_30d,
+        liquidate_at_end=args.liquidate_at_end,
     )
     config.validate()
     now = _utc_now()
     metadata = BinanceSpotInstrumentMetadata(config=BinanceSpotRestConfig(endpoint="/api/v3/exchangeInfo"))
     instrument = metadata.resolve_active(config.symbol)
     adapter = BinanceMetadataBackedAdapter(metadata=metadata)
-    start = _historical_start(now, config.interval, config.candles)
-    request_bound = max(2, (config.candles + 2 + 999) // 1000 + 1)
+
+    # Evaluation length and indicator warm-up are separate. One continuous
+    # simulation retains indicator/accounting/drawdown state across all bars.
+    warmup_candles = max(config.slow_ema_period, config.rsi_period + 1)
+    acquisition_candles = config.candles + warmup_candles
+    start = _historical_start(now, config.interval, acquisition_candles)
+    request_bound = max(2, (acquisition_candles + 2 + 999) // 1000 + 1)
     items = adapter.fetch_historical_market_data(
         symbol=config.symbol, interval=config.interval,
         start_time=int(start.timestamp() * 1000), end_time=int(now.timestamp() * 1000),
         page_limit=1000, max_requests=request_bound,
     )
-    result = run_virtual_backtest(items, config)
+    accepted_items, _, _, _ = _validate_history(items, config.interval)
+    if len(accepted_items) < config.candles:
+        raise BacktestError(
+            f"insufficient closed evaluation candles: requested {config.candles}, got {len(accepted_items)}"
+        )
+    evaluation_items = accepted_items[-config.candles:]
+    evaluation_start = evaluation_items[0].payload.start
+    evaluation_end = _expected_next_start(evaluation_items[-1].payload.start, config.interval)
+    result = run_virtual_backtest(
+        items, config, evaluation_start=evaluation_start, evaluation_end=evaluation_end,
+    )
     if result.symbol != instrument.symbol:
         raise BacktestError("resolved instrument identity does not match acquired history")
+
+    dataset_sha256, config_sha256, records = _evidence_hashes(items, config)
+    if args.dataset_output is not None:
+        bundle = {
+            "schema_version": 1,
+            "acquired_at": now.isoformat(),
+            "evaluation_start": evaluation_start.isoformat(),
+            "evaluation_end_exclusive": evaluation_end.isoformat(),
+            "dataset_sha256": dataset_sha256,
+            "configuration_sha256": config_sha256,
+            "configuration": {
+                "symbol": config.symbol, "interval": config.interval, "candles": config.candles,
+                "fast_ema_period": config.fast_ema_period, "slow_ema_period": config.slow_ema_period,
+                "rsi_period": config.rsi_period, "rsi_buy_min": str(config.rsi_buy_min),
+                "rsi_sell_at": str(config.rsi_sell_at), "initial_quote_balance": str(config.initial_quote_balance),
+                "position_fraction": str(config.position_fraction), "fee_rate": str(config.fee_rate),
+                "slippage_bps": str(config.slippage_bps), "spread_bps": str(config.spread_bps),
+                "max_entries_per_30d": config.max_entries_per_30d, "liquidate_at_end": config.liquidate_at_end,
+            },
+            "data": records,
+        }
+        args.dataset_output.parent.mkdir(parents=True, exist_ok=True)
+        args.dataset_output.write_text(json.dumps(bundle, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
     _report(result, config.symbol)
+    print(f"Dataset SHA-256: {dataset_sha256}")
+    print(f"Effective configuration SHA-256: {config_sha256}")
+    print(f"Dataset observations acquired (including excluded partial/open bars): {len(items)}")
+    print(f"Closed evaluation candles: {result.candle_count}")
+    print(f"Evaluation range: [{evaluation_start.isoformat()}, {evaluation_end.isoformat()})")
+    print(f"Data evidence export: {args.dataset_output if args.dataset_output is not None else 'NOT_REQUESTED'}")
+    print("Evidence boundary: hashes identify the acquired bytes/configuration; they do not prove historical point-in-time availability or future profitability.")
     return 0
 
 
