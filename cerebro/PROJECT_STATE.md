@@ -2,14 +2,14 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Main verificado:** `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. El último cambio funcional de esta revisión es la PR #82 (replay económico PAPER, merge `6728f9097bb6093c980e758ee68f5222d1443f9b`); la PR #83 fijó Actions por SHA inmutable. CI exacto de main para el HEAD actual: [run 39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856), `success`, 1598 pruebas. La ejecución real de 24 h sigue pendiente.
+**Último SHA con cambios de código/workflows verificado:** `a07b8aac15970f3349f9de54f021cfbeb71e4e20` (PR #82 funcional PAPER y PR #83 pinning de Actions). La PR #84 sincronizó únicamente documentación y quedó en el commit `4a28961c0c0139e72455b626a8136d5381c155f0`; su CI post-merge exacto [39079895257](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079895257) terminó `success`, 1598 pruebas en 10.94 s. Este archivo es una instantánea de continuidad: antes de modificar código, verificar el HEAD vivo de `main`. La ejecución real de 24 h sigue pendiente.
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
 - **Evaluación ponderada actual:** **73/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
-- **CI actual de main:** [run 39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856), `success`, **1598 pruebas aprobadas en 11.22 s** en `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. El cambio PAPER anterior pasó en [run post-merge 39079511218](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218), también con 1598 pruebas. PR #83 fijó checkout/setup-python/upload-artifact a releases upstream verificadas por SHA.
+- **Último CI post-merge de main:** [run 39079895257](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079895257), `success`, **1598 pruebas aprobadas en 10.94 s** en el SHA exacto de la sincronización documental PR #84 `4a28961c0c0139e72455b626a8136d5381c155f0`. El último SHA con cambios de código/workflows sigue siendo `a07b8aac15970f3349f9de54f021cfbeb71e4e20`, probado por [run 39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856) con 1598 pruebas. PR #82 también pasó post-merge [run 39079511218](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218).
 - **Próximos gates de mayor prioridad:** ejecutar y validar una captura real continua de al menos 24 horas; extender la invariancia anti-lookahead a los artefactos del estudio anual BTC→ETH; y demostrar edge neto en un holdout independiente. La herramienta de captura ya está integrada, pero no cuenta como evidencia de haberla ejecutado. `NO_TRADE` se mantiene.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
@@ -118,8 +118,15 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 
 ## Sincronización final tras PR #82 y #83 — 17 de octubre de 2026
 
-- **HEAD de main:** [`a07b8aac15970f3349f9de54f021cfbeb71e4e20`](https://github.com/eltiootaku01-hue/bot-cripto/commit/a07b8aac15970f3349f9de54f021cfbeb71e4e20).
+- **Último SHA con cambios de código/workflows:** [`a07b8aac15970f3349f9de54f021cfbeb71e4e20`](https://github.com/eltiootaku01-hue/bot-cripto/commit/a07b8aac15970f3349f9de54f021cfbeb71e4e20). La PR #84 solo sincronizó documentación en `4a28961c0c0139e72455b626a8136d5381c155f0`; CI exacto [39079895257](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079895257) pasó 1598 pruebas en 10.94 s.
 - **PR #82:** replay económico PAPER ahora reconstruye el payload durable de la intención, recalcula el hash canónico y vuelve a validar/cotejar la evidencia completa de cotización contra los campos del fill. Se rechazan `fill_count` booleanos/tipos inválidos. [CI de main post-merge #82](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218): success, 1598 pruebas en 11.85 s.
 - **PR #83:** ocho workflows fijados a SHA completos de releases oficiales verificadas de `actions/checkout`, `actions/setup-python` y `actions/upload-artifact`. [CI completo post-merge exacto](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856): success, 1598 pruebas en 11.22 s; también se verificaron los E2E públicos en la punta de PR #83.
 - **Preparación:** permanece en 73/100. No se adjudica puntos por auditorías/código sin nuevas evidencias operativas o económicas.
 - **Bloqueos:** sin captura real de 24 h aceptada, sin holdout prospectivo independiente con ventaja neta robusta y sin prueba de invariancia sobre todos los artefactos del estudio anual. Mantener `NO_TRADE`, sin LIVE, endpoints privados, claves privadas ni dinero real.
+
+
+## Aclaración de cabeza de código y cabeza documental
+
+- PR #82 introdujo el cambio funcional PAPER (merge `6728f9097bb6093c980e758ee68f5222d1443f9b`); PR #83 añadió pinning inmutable a workflows (merge `a07b8aac15970f3349f9de54f021cfbeb71e4e20`). Ambos permanecen en main.
+- PR #84 es documental únicamente, merge `4a28961c0c0139e72455b626a8136d5381c155f0`. Su CI exacto [39079895257](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079895257) terminó success con 1598 tests en 10.94 s.
+- La referencia viva de main prevalece siempre sobre este resumen; no tomar el hash de un párrafo histórico como el HEAD actual sin consultar el repositorio.
