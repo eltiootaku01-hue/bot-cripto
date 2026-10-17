@@ -738,6 +738,7 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
         previous_received_at: datetime | None = None
         gap_hours = duplicate_finals = out_of_order_finals = unaligned_finals = 0
         inter_event_gaps = clock_regressions = 0
+        maximum_inter_event_gap_seconds = 0.0
         with data_path.open("r", encoding="utf-8") as handle:
             for line_no, line in enumerate(handle, start=1):
                 try:
@@ -780,8 +781,12 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
                         interval_seconds = (received_at - previous_received_at).total_seconds()
                         if interval_seconds < 0:
                             clock_regressions += 1
-                        elif interval_seconds > max_inter_event_gap:
-                            inter_event_gaps += 1
+                        else:
+                            maximum_inter_event_gap_seconds = max(
+                                maximum_inter_event_gap_seconds, interval_seconds
+                            )
+                            if interval_seconds > max_inter_event_gap:
+                                inter_event_gaps += 1
                     previous_received_at = received_at
 
                     state = candle.get("candle_state")
@@ -827,16 +832,7 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
             "unaligned_final_candles": unaligned_finals,
             "inter_event_gap_count": inter_event_gaps,
             "clock_regressions": clock_regressions,
-            "maximum_inter_event_gap_seconds": round(
-                max(
-                    (
-                        (b.received_at - a.received_at).total_seconds()
-                        for a, b in ()
-                    ),
-                    default=0.0,
-                ),
-                3,
-            ),
+            "maximum_inter_event_gap_seconds": round(maximum_inter_event_gap_seconds, 3),
         }
         symbol_pass = (
             symbol_summary["has_complete_utc_day"]
