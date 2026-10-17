@@ -7,13 +7,13 @@ Stored hashes detect local representation mismatches; they are not cryptographic
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 import hashlib
 import json
 import sqlite3
-from typing import Any
+from typing import Any, Mapping
 
 from .reservation import (
     PersistedReservationTradeTermsSnapshot,
@@ -316,6 +316,26 @@ class ReservationExecutionBridge:
             raise ExecutionBridgeBlocked("proposal/instrument symbol mismatch")
 
         fingerprint = self._verify_authorization(terms, authorization_binding)
+        quote = None
+        if terms.get("paper_quote_evidence") is not None:
+            from .paper_quote_evidence import PaperQuoteEvidenceError, validate_paper_quote_evidence
+            try:
+                validated_quote = validate_paper_quote_evidence(
+                    terms.get("paper_quote_evidence"),
+                    expected_symbol=instrument["symbol"],
+                    expected_decision_timestamp=datetime.fromisoformat(terms["decision_timestamp"]),
+                    expected_context_id=authorization_binding.evaluation_context_id,
+                )
+            except (KeyError, TypeError, ValueError, PaperQuoteEvidenceError) as exc:
+                raise ExecutionBridgeBlocked("SPOT_QUOTE_EVIDENCE_NOT_BOUND_TO_AUTHORIZATION") from exc
+            quote = dict(validated_quote.evidence)
+            if not any(
+                item.kind == "MARKET_OBSERVATION"
+                and item.reference_id == quote["observation_id"]
+                and _utc(item.as_of) == quote["available_at"]
+                for item in authorization_binding.risk_evidence
+            ):
+                raise ExecutionBridgeBlocked("SPOT_QUOTE_RISK_EVIDENCE_REFERENCE_MISMATCH")
         for field in ("proposal_id", "signal_id", "correlation_id"):
             if terms.get(field) != getattr(authorization_binding, field):
                 raise ExecutionBridgeBlocked(f"authorization {field} mismatch")
@@ -395,6 +415,7 @@ class ReservationExecutionBridge:
             "asset": expected_asset,
             "reserved_amount": _decimal_text(reserved),
             "terms_hash": snapshot_row.terms_hash,
+            "paper_quote_evidence": None if quote is None else dict(quote),
         }
         intent_json = _canonical_json(payload)
         return expected_client_id, payload, intent_json, _digest(intent_json)
@@ -699,6 +720,164 @@ class ReservationExecutionBridge:
         if binding is None:
             return None
         return self._verify_binding(binding, allow_non_prepared=True)
+
+
+    def reconcile_paper_fill(
+        self, reservation_id: str, *, fill: Mapping[str, Any], occurred_at: datetime
+    ) -> PersistedExecutionBinding:
+        """Settle a verified local PAPER fill and its reservation in one SQLite transaction."""
+        from .paper_quote_evidence import PaperQuoteEvidenceError, validate_paper_quote_evidence
+
+        if not isinstance(fill, Mapping):
+            raise ExecutionBridgeBlocked("PAPER_FILL_MAPPING_REQUIRED")
+        if not isinstance(occurred_at, datetime) or occurred_at.tzinfo is None or occurred_at.utcoffset() is None:
+            raise ExecutionBridgeBlocked("PAPER_RECONCILIATION_TIMESTAMP_INVALID")
+        binding = self._load_binding(reservation_id)
+        reservation = self.store.get(reservation_id)
+        if binding is None or reservation is None:
+            raise ExecutionBridgeBlocked("PAPER_FILL_BINDING_OR_RESERVATION_MISSING")
+        if binding.state not in {"SUBMITTED", "SUBMISSION_STARTED", "UNKNOWN"}:
+            raise ExecutionBridgeBlocked("PAPER_FILL_EXECUTION_STATE_NOT_RECONCILABLE")
+        self._verify_binding(binding, allow_non_prepared=True)
+        payload = binding.payload
+        if (
+            fill.get("mode") != "PAPER" or fill.get("account_id") != reservation.account_id
+            or fill.get("reservation_id") != reservation_id or fill.get("proposal_id") != reservation.proposal_id
+            or fill.get("client_order_id") != binding.client_order_id or fill.get("intent_hash") != binding.intent_hash
+            or reservation.client_order_id != binding.client_order_id
+            or payload.get("evaluation_context_id") != fill.get("evaluation_context_id")
+        ):
+            raise ExecutionBridgeBlocked("PAPER_FILL_IDENTITY_DOES_NOT_MATCH_CANONICAL_BINDING")
+        try:
+            age_raw = fill["quote_max_age_microseconds"]
+            if type(age_raw) is not str or not age_raw.isdigit() or int(age_raw) <= 0:
+                raise ValueError("invalid max age")
+            filled_at = datetime.fromisoformat(fill["filled_at"])
+            if filled_at.tzinfo is None or filled_at.utcoffset() is None:
+                raise ValueError("filled_at must be aware")
+            quote = validate_paper_quote_evidence(
+                payload.get("paper_quote_evidence"), expected_symbol=payload["symbol"],
+                expected_decision_timestamp=datetime.fromisoformat(payload["decision_timestamp"]),
+                expected_context_id=payload["evaluation_context_id"], now=filled_at,
+                max_age=timedelta(microseconds=int(age_raw)),
+            )
+            q = quote.evidence
+            obs_at, avail_at = datetime.fromisoformat(fill["quote_observed_at"]), datetime.fromisoformat(fill["quote_available_at"])
+        except (KeyError, TypeError, ValueError, PaperQuoteEvidenceError) as exc:
+            raise ExecutionBridgeBlocked("PAPER_FILL_QUOTE_EVIDENCE_INVALID") from exc
+        if (
+            fill.get("quote_observation_id") != q["observation_id"]
+            or fill.get("quote_observation_type") != q["observation_type"]
+            or fill.get("quote_evidence_hash") != q["evidence_hash"]
+            or fill.get("quote_source") != q["source"] or fill.get("quote_bid") != q["bid"]
+            or fill.get("quote_ask") != q["ask"] or fill.get("evaluation_context_id") != q["evaluation_context_id"]
+            or obs_at.tzinfo is None or obs_at.utcoffset() is None
+            or avail_at.tzinfo is None or avail_at.utcoffset() is None
+            or obs_at.astimezone(timezone.utc) != quote.observed_at
+            or avail_at.astimezone(timezone.utc) != quote.available_at
+        ):
+            raise ExecutionBridgeBlocked("PAPER_FILL_QUOTE_DIFFERS_FROM_AUTHORIZED_EVIDENCE")
+        auth = self.store.get_authorization_binding(reservation_id)
+        if auth is None or not any(
+            item.kind == "MARKET_OBSERVATION" and item.reference_id == q["observation_id"]
+            and item.as_of.astimezone(timezone.utc) == quote.available_at
+            for item in auth.risk_evidence
+        ):
+            raise ExecutionBridgeBlocked("PAPER_FILL_QUOTE_NOT_IN_RISK_AUTHORIZATION")
+        try:
+            quantity, price, fee = (
+                _decimal_field(fill.get("quantity"), "fill.quantity"),
+                _decimal_field(fill.get("price"), "fill.price"),
+                _decimal_field(fill.get("fee"), "fill.fee"),
+            )
+            if quantity is None or price is None or fee is None or quantity <= 0 or price <= 0 or fee < 0:
+                raise ExecutionBridgeBlocked("PAPER_FILL_ECONOMICS_INVALID")
+            side, base, quote_asset = payload.get("side"), payload.get("base_asset"), payload.get("quote_asset")
+            if (
+                fill.get("symbol") != payload.get("symbol") or fill.get("side") != side
+                or fill.get("quantity") != payload.get("quantity")
+                or fill.get("base_asset") != base or fill.get("quote_asset") != quote_asset
+                or fill.get("fee_asset") != quote_asset
+            ):
+                raise ExecutionBridgeBlocked("PAPER_FILL_TERMS_MISMATCH")
+            if side == "BUY":
+                kind, asset, consumed = "QUOTE", quote_asset, quantity * price + fee
+            elif side == "SELL":
+                kind, asset, consumed = "BASE", base, quantity
+            else:
+                raise ExecutionBridgeBlocked("PAPER_FILL_SIDE_UNSUPPORTED")
+            if reservation.resource_kind.value != kind or reservation.asset != asset:
+                raise ExecutionBridgeBlocked("PAPER_FILL_RESERVATION_ASSET_MISMATCH")
+            if consumed <= 0 or consumed > reservation.reserved_amount:
+                raise ExecutionBridgeBlocked("PAPER_FILL_EXCEEDS_RESERVED_AMOUNT")
+            if side == "BUY" and payload.get("order_type") == "MARKET":
+                cap = _decimal_field(payload.get("max_quote_spend"), "max_quote_spend")
+                if cap is None or consumed > cap:
+                    raise ExecutionBridgeBlocked("PAPER_FILL_EXCEEDS_MAX_QUOTE_SPEND")
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            if isinstance(exc, ExecutionBridgeBlocked):
+                raise
+            raise ExecutionBridgeBlocked("PAPER_FILL_ECONOMICS_INVALID") from exc
+
+        connection = self.store._connection
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._load_binding(reservation_id)
+            r = self.store.get(reservation_id)
+            if current is None or r is None or current.intent_hash != binding.intent_hash:
+                raise ExecutionBridgeBlocked("PAPER_BINDING_CHANGED_DURING_RECONCILIATION")
+            if current.state not in {"SUBMITTED", "SUBMISSION_STARTED", "UNKNOWN"}:
+                raise ExecutionBridgeBlocked("PAPER_BINDING_STATE_NOT_RECONCILABLE")
+            self._verify_binding(current, allow_non_prepared=True)
+            when = max(occurred_at.astimezone(timezone.utc), filled_at.astimezone(timezone.utc),
+                       r.updated_at.astimezone(timezone.utc))
+
+            def persist(updated, transition):
+                cur = connection.execute(
+                    "UPDATE reservations SET consumed_amount=?,remaining_amount=?,state=?,updated_at=? WHERE reservation_id=?",
+                    (str(updated.consumed_amount), str(updated.remaining_amount), updated.state.value,
+                     _utc(updated.updated_at), updated.reservation_id),
+                )
+                if cur.rowcount != 1:
+                    raise ExecutionBridgeBlocked("PAPER_RESERVATION_UPDATE_FAILED")
+                self.store._insert_transition(reservation=updated, transition=transition)
+
+            if r.state in {ReservationState.CONSUMED, ReservationState.RELEASED}:
+                if r.consumed_amount != consumed:
+                    raise ExecutionBridgeBlocked("PAPER_RESERVATION_ALREADY_SETTLED_DIFFERENT_AMOUNT")
+            else:
+                if r.consumed_amount not in {Decimal("0"), consumed}:
+                    raise ExecutionBridgeBlocked("PAPER_RESERVATION_PRIOR_CONSUMPTION_MISMATCH")
+                if r.consumed_amount == 0:
+                    updated, transition = r.consume(consumed, evidence=ReservationTransitionEvidence(
+                        kind="PAPER_FILL_RECONCILED", reference_id=current.client_order_id, occurred_at=when))
+                    persist(updated, transition)
+                    r = updated
+                if r.state is ReservationState.PARTIALLY_CONSUMED:
+                    updated, transition = r.release(evidence=ReservationTransitionEvidence(
+                        kind="PAPER_RESERVATION_REMAINDER_RELEASED", reference_id=current.client_order_id,
+                        occurred_at=max(when, r.updated_at)))
+                    persist(updated, transition)
+                    r = updated
+                if r.consumed_amount != consumed:
+                    raise ExecutionBridgeBlocked("PAPER_RESERVATION_CONSUMPTION_NOT_RECONCILED")
+            if current.state != "SUBMITTED":
+                cur = connection.execute(
+                    """UPDATE reservation_execution_bindings SET state='SUBMITTED',updated_at=?,last_error=NULL
+                       WHERE reservation_id=? AND state IN ('SUBMISSION_STARTED','UNKNOWN')""",
+                    (_utc(when), reservation_id),
+                )
+                if cur.rowcount != 1:
+                    raise ExecutionBridgeBlocked("PAPER_BINDING_STATE_NOT_REPAIRED")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        result = self._load_binding(reservation_id)
+        if result is None:
+            raise ExecutionBridgeBlocked("PAPER_BINDING_MISSING_AFTER_RECONCILIATION")
+        return self._verify_binding(result, allow_non_prepared=True)
+
 
 
 __all__ = [

@@ -376,6 +376,14 @@ class RiskEngine:
                 as_of=context.risk_limit_set.as_of,
             ),
         ]
+        if context.market_observation is not None:
+            evidence.append(
+                RiskEvidenceRef(
+                    kind="MARKET_OBSERVATION",
+                    reference_id=context.market_observation.observation_id,
+                    as_of=context.market_observation.available_timestamp,
+                )
+            )
         return tuple(sorted(evidence, key=lambda item: (item.kind, item.reference_id)))
 
     @classmethod

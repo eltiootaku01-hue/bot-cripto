@@ -186,6 +186,14 @@ class FinancialExecutionRuntime:
             reservation_id=existing[0].reservation_id,
         )
 
+    def _paper_adapter(self):
+        """Return the local PAPER adapter without changing the orchestrator's public contract."""
+        from .paper_adapter import PaperExecutionAdapter
+
+        boundary = getattr(self.execution_orchestrator, "boundary", None)
+        candidate = getattr(boundary, "_adapter", None)
+        return candidate if isinstance(candidate, PaperExecutionAdapter) else None
+
     def start(
         self,
         *,
@@ -230,6 +238,53 @@ class FinancialExecutionRuntime:
                 "RUNTIME_CANONICAL_CONTEXT_MISMATCH",
                 proposal_id=proposal_id,
             )
+
+        from .paper_adapter import canonical_account_state_from_paper_snapshot
+        paper_adapter = self._paper_adapter()
+        if paper_adapter is not None:
+            if (
+                context.instrument.market != "SPOT"
+                or context.market_observation is None
+                or context.market_observation.observation_type != "BINANCE_SPOT_BOOK_TICKER"
+            ):
+                return self._result(
+                    FinancialExecutionRuntimeStatus.READINESS_BLOCKED,
+                    "PAPER_MARKET_OBSERVATION_REQUIRED_BEFORE_ADMISSION",
+                    proposal_id=proposal.proposal_id,
+                )
+            try:
+                persisted_state = canonical_account_state_from_paper_snapshot(
+                    paper_adapter.snapshot()
+                )
+            except Exception as exc:
+                return self._result(
+                    FinancialExecutionRuntimeStatus.RISK_UNKNOWN,
+                    f"PAPER_ACCOUNT_SNAPSHOT_INVALID:{type(exc).__name__}",
+                    proposal_id=proposal.proposal_id,
+                )
+            if persisted_state != canonical_account_state or persisted_state != context.canonical_account_state:
+                return self._result(
+                    FinancialExecutionRuntimeStatus.RISK_UNKNOWN,
+                    "PAPER_ACCOUNT_STATE_NOT_DERIVED_FROM_PERSISTED_BALANCES",
+                    proposal_id=proposal.proposal_id,
+                )
+            from .paper_runtime_reconciliation import (
+                PaperRuntimeReconciliationStatus,
+                reconcile_paper_runtime,
+            )
+            reconciliation = reconcile_paper_runtime(
+                adapter=paper_adapter,
+                store=self.store,
+                bridge=self.reservation_bridge,
+                ledger=self.execution_orchestrator.ledger,
+                apply=False,
+            )
+            if reconciliation.status is not PaperRuntimeReconciliationStatus.RECONCILED:
+                return self._result(
+                    FinancialExecutionRuntimeStatus.UNKNOWN,
+                    "PAPER_CROSS_LEDGER_RECONCILIATION_REQUIRED:" + reconciliation.status.value,
+                    proposal_id=proposal.proposal_id,
+                )
 
         prior = self._existing_proposal_result(proposal.proposal_id)
         if prior is not None:
@@ -477,6 +532,25 @@ class FinancialExecutionRuntime:
                 proposal_id=proposal_id,
                 reservation_id=prepared.reservation_id,
             )
+        paper_adapter = self._paper_adapter()
+        if paper_adapter is not None:
+            try:
+                from .paper_quote_evidence import validate_paper_quote_evidence
+                validate_paper_quote_evidence(
+                    binding.payload.get("paper_quote_evidence"),
+                    expected_symbol=binding.payload["symbol"],
+                    expected_decision_timestamp=datetime.fromisoformat(binding.payload["decision_timestamp"]),
+                    expected_context_id=binding.payload["evaluation_context_id"],
+                    now=now,
+                    max_age=paper_adapter.max_quote_age,
+                )
+            except Exception as exc:
+                return self._result(
+                    FinancialExecutionRuntimeStatus.READINESS_BLOCKED,
+                    f"PAPER_QUOTE_NOT_FRESH_BEFORE_SUBMISSION:{type(exc).__name__}",
+                    proposal_id=proposal_id,
+                    reservation_id=prepared.reservation_id,
+                )
         try:
             if not self.execution_orchestrator.readiness.evaluate_evidence(
                 evidence, prepared.client_order_id, now
@@ -513,6 +587,28 @@ class FinancialExecutionRuntime:
                 reservation_id=prepared.reservation_id,
             )
         if execution.allowed and execution.reason == "SUBMITTED":
+            paper_adapter = self._paper_adapter()
+            if paper_adapter is not None:
+                from .paper_runtime_reconciliation import (
+                    PaperRuntimeReconciliationStatus,
+                    reconcile_paper_runtime,
+                )
+                reconciliation = reconcile_paper_runtime(
+                    adapter=paper_adapter,
+                    store=self.store,
+                    bridge=self.reservation_bridge,
+                    ledger=self.execution_orchestrator.ledger,
+                    occurred_at=self.execution_orchestrator.clock(),
+                    apply=True,
+                )
+                if reconciliation.status is not PaperRuntimeReconciliationStatus.RECONCILED:
+                    return self._result(
+                        FinancialExecutionRuntimeStatus.UNKNOWN,
+                        "PAPER_POST_FILL_RECONCILIATION_REQUIRED:" + reconciliation.status.value,
+                        proposal_id=proposal_id,
+                        reservation_id=prepared.reservation_id,
+                        execution_result=execution,
+                    )
             return self._result(
                 FinancialExecutionRuntimeStatus.SUBMITTED,
                 "SUBMITTED",
