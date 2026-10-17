@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Evaluación de preparación técnica y ruta hacia >90%
 
 **Evaluación:** 2026-10-17  
-**Composición señal→riesgo/PAPER:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; **última corrección funcional PAPER verificada (PR #82):** `6728f9097bb6093c980e758ee68f5222d1443f9b`; **HEAD de main tras PR #83:** `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. El CI posterior a ambas PRs pasa con 1598 pruebas.  
+**Composición señal→riesgo/PAPER:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; **última corrección funcional PAPER (PR #82):** `6728f9097bb6093c980e758ee68f5222d1443f9b`; **último SHA con cambios de código/workflows (PR #83):** `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. PR #84 sincronizó documentación en `4a28961c0c0139e72455b626a8136d5381c155f0`; el CI post-merge exacto [39079895257](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079895257) pasó 1598 pruebas en 10.94 s.  
 **Actualización de puntuación:** 2026-10-17, revisada tras PR #82 (integridad del replay PAPER) y PR #83 (dependencias CI inmutables), con CI post-merge de main verificado. La puntuación sigue 73/100: estas mejoras corrigen integridad/supply-chain, pero no crean evidencia operativa de 24 h ni ventaja económica independiente.  
 **Propósito del porcentaje:** preparación demostrada para un bot de investigación y PAPER; no es porcentaje de líneas de código, probabilidad de beneficio ni autorización para operar con dinero real.
 
@@ -133,3 +133,8 @@ La matriz permanece en **73/100**. La infraestructura de captura está implement
 - **Score verificado: 73/100, sin incremento por estas dos correcciones.** La matriz ya puntuaba CI e integridad/recovery; la brecha restante no se resuelve solo con pruebas del código.
 - **Tope de puntuación actual con los pesos publicados:** el área económica sigue en 5/20, lo que limita matemáticamente el máximo a 85/100 aun si todas las demás áreas alcanzaran el total. Superar 90 exige primero mejorar la evidencia económica y revisar la rúbrica sin falsear resultados. La captura de 24 horas aceptada y un edge neto prospectivo independiente siguen ausentes.
 - Se conserva `NO_TRADE`; sin LIVE, claves privadas ni dinero real.
+
+
+## Confirmación tras sincronización documental PR #84
+
+La documentación de continuidad distingue ahora el último SHA con cambios de código/workflows (`a07b8aac15970f3349f9de54f021cfbeb71e4e20`) de la sincronización documental posterior (`4a28961c0c0139e72455b626a8136d5381c155f0`). El CI de este segundo SHA [39079895257](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079895257) terminó `success`: 1598 pruebas en 10.94 s. La matriz sigue en 73/100 y el razonamiento del límite de 85/100 mientras el área económica continúe 5/20 no cambia.
