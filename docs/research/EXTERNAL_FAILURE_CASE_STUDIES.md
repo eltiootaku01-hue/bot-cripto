@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 17 de octubre de 2026  
-**Rama de destino verificada:** `main` (actualizado tras PR #74, merge commit `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`)  
+**Base de código revisada:** `main` incluye PR #74 (composición señal→PAPER) y PR #76 (regresiones anti-lookahead), esta última en `9e10c34566ed4e068c6360297d49ee6d4dc13e3f`  
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -164,4 +164,17 @@ El nuevo módulo `bot_obrero/market_signal_paper_runtime.py` exige propuesta can
 
 **CI verificado:** [run de main 39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), `success`, **1578 pruebas aprobadas en 10.30 s** en el SHA de merge. [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681) e [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684) también pasaron en el SHA de PR #74.
 
-**Dictamen revisado:** preparación técnica ponderada **71/100**, no >90. El avance (+3) solo afecta el ciclo de integración. No se ha probado una captura prospectiva continua de 24 horas ni edge robusto fuera de muestra; el proyecto continúa en `NO_TRADE`. No LIVE, dinero real ni claves privadas.
+**Dictamen revisado tras PR #74:** preparación técnica ponderada 71/100, no >90. La actualización posterior a PR #76 sube el score actual a 72/100 solo por añadir evidencia de invariancia causal. No se ha probado una captura prospectiva continua de 24 horas ni edge robusto fuera de muestra; el proyecto continúa en `NO_TRADE`. No LIVE, dinero real ni claves privadas.
+
+
+## 13. Freqtrade: defensa contra lookahead y prueba de sufijo futuro (PR #76)
+
+**Fuente primaria:** [Freqtrade — Lookahead analysis, documentación 2026.5](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/).
+
+Freqtrade advierte que un backtest puede introducir sesgo si el cálculo de indicadores o señales usa valores futuros del dataframe. Su análisis dedicado compara la corrida base con corridas que aíslan señales, pero también señala que una señal que nunca se activa en el dataset analizado no queda verificada automáticamente; ninguna herramienta anti-lookahead elimina todas las formas posibles de sesgo por sí sola.
+
+**Medida añadida en BOT-CRIPTO:** PR #76 incorpora dos regresiones sintéticas. La primera cambia drásticamente únicamente las barras posteriores al `evaluation_end` exclusivo y requiere que el resultado completo de `run_virtual_backtest` no cambie. La segunda genera historiales BTC/ETH horarios alineados con más de 90 días de warm-up, modifica solo el sufijo posterior al índice de decisión y exige que el gate histórico conserve la misma decisión/motivo.
+
+**Evidencia:** PR #76 [mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/76); CI exacto de main [39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775), `success`, 1580 pruebas en 8.21 s. E2E de SMA, indicadores y backtest público de la punta de la PR también pasó.
+
+**Límite:** estos tests verifican invariancia local al sufijo para dos rutas, no el output/artefactos completos de un backtest anual ni validación de disponibilidad/finality a nivel de datos prospectivos. La estrategia no está aprobada por rentabilidad: `NO_TRADE` se mantiene.
