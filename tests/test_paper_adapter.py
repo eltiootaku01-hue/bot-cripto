@@ -650,3 +650,181 @@ def test_paper_adapter_exposes_read_only_economic_replay(tmp_path):
         assert adapter.economic_replay().status is PaperEconomicReplayStatus.REPLAYED
     finally:
         adapter.close()
+
+
+def test_canonical_market_signal_flows_through_risk_admission_and_paper_reconciliation(tmp_path):
+    """End-to-end synthetic signal may submit only through the existing PAPER runtime."""
+    from test_market_signal_pipeline import build_market_data, config as signal_config
+    from bot_obrero.market_signal_paper_runtime import (
+        MarketSignalPaperStatus,
+        run_market_signal_to_paper_runtime,
+    )
+    from bot_obrero.market_signal_pipeline import STRATEGY_IDENTITY, STRATEGY_VERSION
+    from bot_obrero.signal_trade_proposal_bridge import PaperProposalPolicy
+    from bot_obrero.trade_proposal import PricePolicy, TradeOrderType, TradeSide
+
+    decision_timestamp = BASE + timedelta(seconds=5)
+    items = build_market_data(
+        [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
+        now=decision_timestamp,
+    )
+    adapter = make_adapter(
+        tmp_path / "signal-paper-account.sqlite3",
+        account_id=make_state(available="100").account_id,
+        clock=lambda: BASE,
+    )
+    state = canonical_account_state_from_paper_snapshot(adapter.snapshot())
+    store = SQLiteReservationStore(tmp_path / "signal-paper-reservations.sqlite3")
+    bridge = ReservationExecutionBridge(store)
+    ledger = SQLiteIdempotencyLedger(tmp_path / "signal-paper-ledger.sqlite3")
+    orchestrator = ExecutionOrchestrator(
+        adapter=adapter,
+        ledger=ledger,
+        murphy_guard=MurphyGuard(),
+        reservation_bridge=bridge,
+        clock=lambda: NOW,
+    )
+    runtime = FinancialExecutionRuntime(
+        store=store,
+        risk_engine=RiskEngine(),
+        risk_limit_resolver=RiskLimitApplicabilityResolver(),
+        admission_boundary=FinancialAdmissionBoundary(store),
+        reservation_bridge=bridge,
+        execution_orchestrator=orchestrator,
+    )
+    proposal_policy = PaperProposalPolicy(
+        direction_to_side={"UP": TradeSide.BUY},
+        requested_quantity=Decimal("0.2"),
+        order_type=TradeOrderType.MARKET,
+        price_policy=PricePolicy.MARKET_REFERENCE,
+        strategy_identity=STRATEGY_IDENTITY,
+        strategy_version=STRATEGY_VERSION,
+        max_quote_spend=Decimal("25"),
+    )
+
+    def context_factory(signal, proposal, pipeline, persisted_account_state):
+        context = make_context(proposal, persisted_account_state)
+        observation = MarketObservation(
+            symbol=proposal.symbol,
+            observation_timestamp=BASE,
+            available_timestamp=BASE + timedelta(seconds=1),
+            observation_type="BINANCE_SPOT_BOOK_TICKER",
+            values={"bid": "99.9", "ask": "100"},
+            provenance=Provenance(
+                source="binance-public:deterministic-signal-paper-fixture",
+                nature=ArtifactNature.OBSERVED,
+                reference="signal-paper-quote-evidence",
+            ),
+            venue="BINANCE",
+            observation_id="signal-paper-quote-observation",
+        )
+        availability = AvailabilityBinding(
+            subject_kind=AvailabilitySubjectKind.MARKET_OBSERVATION,
+            subject_id=observation.observation_id,
+            available_at=observation.available_timestamp,
+            source=observation.provenance.source,
+            evidence_reference=observation.observation_id,
+        )
+        return replace(
+            context,
+            instrument=replace(context.instrument, market="SPOT"),
+            market_observation=observation,
+            analysis_result=pipeline.analysis_snapshot.results[0],
+            signal=signal,
+            availability_bindings=context.availability_bindings + (availability,),
+        )
+
+    def readiness_evidence_provider(prepared):
+        binding = bridge.verify_prepared(prepared)
+        correlation = binding.payload["correlation_id"]
+        records = tuple(
+            EvidenceRecord(
+                kind=kind,
+                value=True,
+                source="deterministic-signal-paper-test",
+                observed_at=BASE,
+                decision_at=BASE,
+                intent_id=prepared.client_order_id,
+                correlation_id=correlation,
+                expires_at=BASE + timedelta(minutes=5),
+            )
+            for kind in REQUIRED
+        )
+        return EvidenceBundle(records, correlation)
+
+    try:
+        result = run_market_signal_to_paper_runtime(
+            items,
+            decision_timestamp=decision_timestamp,
+            proposal_policy=proposal_policy,
+            runtime=runtime,
+            risk_policy=make_policy(),
+            context_factory=context_factory,
+            created_at=BASE + timedelta(seconds=35),
+            evidence_provider=readiness_evidence_provider,
+            config=signal_config(),
+            expected_symbol="BTC/USDT",
+        )
+        assert result.status is MarketSignalPaperStatus.RUNTIME_RETURNED
+        assert result.pipeline_result.trade_proposal is not None
+        assert result.runtime_result is not None
+        assert result.runtime_result.status is FinancialExecutionRuntimeStatus.SUBMITTED
+        snapshot = adapter.snapshot()
+        assert snapshot["mode"] == "PAPER"
+        assert snapshot["fill_count"] == 1
+        assert snapshot["fills"][0]["proposal_id"] == result.pipeline_result.trade_proposal.proposal_id
+        assert snapshot["fills"][0]["mode"] == "PAPER"
+        assert snapshot["fills"][0]["quote_observation_id"] == "signal-paper-quote-observation"
+        reconciliation = reconcile_paper_runtime(
+            adapter=adapter, store=store, bridge=bridge, ledger=ledger, apply=True
+        )
+        assert reconciliation.status is PaperRuntimeReconciliationStatus.RECONCILED
+        assert reconciliation.reconciled_fill_count == 1
+    finally:
+        ledger.close()
+        store.close()
+        adapter.close()
+
+
+def test_no_trade_signal_never_calls_context_factory_or_financial_runtime():
+    from test_market_signal_pipeline import build_market_data, config as signal_config
+    from bot_obrero.market_signal_paper_runtime import (
+        MarketSignalPaperStatus,
+        run_market_signal_to_paper_runtime,
+    )
+    from bot_obrero.market_signal_pipeline import STRATEGY_IDENTITY, STRATEGY_VERSION
+    from bot_obrero.signal_trade_proposal_bridge import PaperProposalPolicy
+    from bot_obrero.trade_proposal import PricePolicy, TradeOrderType, TradeSide
+
+    decision_timestamp = BASE + timedelta(seconds=5)
+    items = build_market_data(
+        [30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16],
+        now=decision_timestamp,
+    )
+
+    def forbidden_context_factory(*args):
+        raise AssertionError("NO_TRADE must not construct a financial risk context")
+
+    result = run_market_signal_to_paper_runtime(
+        items,
+        decision_timestamp=decision_timestamp,
+        proposal_policy=PaperProposalPolicy(
+            direction_to_side={"UP": TradeSide.BUY},
+            requested_quantity=Decimal("0.2"),
+            order_type=TradeOrderType.MARKET,
+            price_policy=PricePolicy.MARKET_REFERENCE,
+            strategy_identity=STRATEGY_IDENTITY,
+            strategy_version=STRATEGY_VERSION,
+            max_quote_spend=Decimal("25"),
+        ),
+        runtime=object(),  # Must remain untouched because the pipeline returns NO_TRADE first.
+        risk_policy=object(),
+        context_factory=forbidden_context_factory,
+        created_at=BASE + timedelta(seconds=35),
+        evidence_provider=None,
+        config=signal_config(),
+        expected_symbol="BTC/USDT",
+    )
+    assert result.status is MarketSignalPaperStatus.NO_TRADE
+    assert result.runtime_result is None
+    assert result.pipeline_result.trade_proposal is None
