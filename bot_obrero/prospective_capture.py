@@ -312,6 +312,14 @@ class ProspectiveCaptureJournal:
         observed = _aware_utc(item.observed_at, "observed_at")
         if observed > received or received > available:
             raise ProspectiveCaptureError("CAPTURE_TEMPORAL_ORDER_INVALID")
+        candle = item.payload
+        state = getattr(candle.candle_state, "value", candle.candle_state)
+        completeness = getattr(candle.completeness, "value", candle.completeness)
+        finality = getattr(candle.finality, "value", candle.finality)
+        valid_open = state == "OPEN" and completeness == "PARTIAL" and finality == "NOT_FINAL"
+        valid_final = state == "CLOSED" and completeness == "COMPLETE" and finality == "FINAL"
+        if not (valid_open or valid_final):
+            raise ProspectiveCaptureError("CAPTURE_CANDLE_STATE_CONTRACT_INVALID")
         record = _market_data_record(item)
         record_bytes = _canonical_json(record)
         fingerprint = hashlib.sha256(record_bytes).hexdigest()
