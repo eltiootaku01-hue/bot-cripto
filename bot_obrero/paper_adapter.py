@@ -515,3 +515,47 @@ class PaperExecutionAdapter(ExchangeAdapter):
     def close(self) -> None:
         with self._lock:
             self._connection.close()
+
+
+
+def canonical_account_state_from_paper_snapshot(snapshot: Mapping[str, Any]):
+    """Project a complete persisted PAPER snapshot into canonical risk state."""
+    if not isinstance(snapshot, Mapping) or snapshot.get("mode") != "PAPER":
+        raise PaperAdapterError("PAPER_ACCOUNT_SNAPSHOT_REQUIRED")
+    if snapshot.get("completeness") != "COMPLETE":
+        raise PaperAdapterError("PAPER_ACCOUNT_SNAPSHOT_INCOMPLETE")
+    account_id, balances, assets = snapshot.get("account_id"), snapshot.get("balances"), snapshot.get("asset_universe")
+    version, fill_count, as_of_raw = snapshot.get("state_version"), snapshot.get("fill_count"), snapshot.get("as_of")
+    if (
+        type(account_id) is not str or not account_id.strip()
+        or not isinstance(balances, Mapping) or not isinstance(assets, Mapping)
+        or not assets or set(balances) != set(assets)
+        or isinstance(version, bool) or not isinstance(version, int) or version < 0
+        or fill_count != version or type(as_of_raw) is not str or not as_of_raw
+    ):
+        raise PaperAdapterError("PAPER_ACCOUNT_SNAPSHOT_FIELDS_INVALID")
+    try:
+        as_of = datetime.fromisoformat(as_of_raw)
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise ValueError("as_of must be aware")
+        parsed = {asset: Decimal(raw) for asset, raw in balances.items()}
+        if any(not value.is_finite() or value < 0 for value in parsed.values()):
+            raise ValueError("invalid persisted balance")
+        canonical = {"mode":"PAPER","account_id":account_id,"state_version":version,
+                     "as_of":as_of.astimezone(timezone.utc).isoformat(),
+                     "balances":{asset:_decimal_text(value) for asset,value in sorted(parsed.items())}}
+        digest = hashlib.sha256(_canonical_json(canonical).encode("utf-8")).hexdigest()
+        from .analysis_contracts import ArtifactNature, Provenance
+        from .risk_contracts import BalanceSnapshot, CanonicalAccountState, Completeness
+        return CanonicalAccountState(
+            account_state_id="paper-state-"+digest, account_id=account_id,
+            as_of=as_of.astimezone(timezone.utc),
+            balances=tuple(BalanceSnapshot(asset=a,total=v,available=v,locked=Decimal("0")) for a,v in sorted(parsed.items())),
+            completeness=Completeness.COMPLETE,
+            provenance=Provenance(source="paper-sqlite",nature=ArtifactNature.OBSERVED,
+                reference=f"{account_id}:state_version={version}:sha256={digest}",
+                metadata={"mode":"PAPER","state_version":version,"fill_count":fill_count}),
+        )
+    except (TypeError,ValueError,ArithmeticError) as exc:
+        raise PaperAdapterError("PAPER_ACCOUNT_SNAPSHOT_CANNOT_BECOME_CANONICAL_STATE") from exc
+
