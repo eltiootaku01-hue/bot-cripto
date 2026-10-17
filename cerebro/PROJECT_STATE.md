@@ -2,14 +2,14 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA de código y pruebas verificado:** `a196651842a84cdfc31fde2f3230cd27ff61bf55` (PR #79; CI 1595 pruebas). La PR #80 solo sincronizó documentación y se fusionó después en `562e4b8af936786b543cb0fbf186a21f12e97de1`; no cambió código ni pruebas. La ejecución real de 24 h sigue pendiente.
+**Main verificado:** `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. El último cambio funcional de esta revisión es la PR #82 (replay económico PAPER, merge `6728f9097bb6093c980e758ee68f5222d1443f9b`); la PR #83 fijó Actions por SHA inmutable. CI exacto de main para el HEAD actual: [run 39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856), `success`, 1598 pruebas. La ejecución real de 24 h sigue pendiente.
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
 - **Evaluación ponderada actual:** **73/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
-- **CI actual de main tras PR #79:** [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903) terminó `success`, **1595 pruebas aprobadas en 10.39 s** en el SHA exacto `a196651842a84cdfc31fde2f3230cd27ff61bf55`. El CI post-merge de PR #78 fue [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728), con 1593 pruebas.
+- **CI actual de main:** [run 39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856), `success`, **1598 pruebas aprobadas en 11.22 s** en `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. El cambio PAPER anterior pasó en [run post-merge 39079511218](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218), también con 1598 pruebas. PR #83 fijó checkout/setup-python/upload-artifact a releases upstream verificadas por SHA.
 - **Próximos gates de mayor prioridad:** ejecutar y validar una captura real continua de al menos 24 horas; extender la invariancia anti-lookahead a los artefactos del estudio anual BTC→ETH; y demostrar edge neto en un holdout independiente. La herramienta de captura ya está integrada, pero no cuenta como evidencia de haberla ejecutado. `NO_TRADE` se mantiene.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
@@ -114,3 +114,12 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - CI post-merge del SHA exacto: [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903), `success`, **1595 pruebas aprobadas en 10.39 s**.
 - El validador de captura comprueba que inicio/fin de la corrida, horario programado, estados de vela, hashes y timestamps de recepción sean coherentes con los registros reales. Pruebas nuevas cubren vela con finality incoherente y manipulación del intervalo del manifest.
 - Score de preparación: 73/100. No está acreditada una captura real de 24 horas ni un edge económico neto independiente. No declarar >90, no asignar T0, no abandonar `NO_TRADE` sin superar esos gates.
+
+
+## Sincronización final tras PR #82 y #83 — 17 de octubre de 2026
+
+- **HEAD de main:** [`a07b8aac15970f3349f9de54f021cfbeb71e4e20`](https://github.com/eltiootaku01-hue/bot-cripto/commit/a07b8aac15970f3349f9de54f021cfbeb71e4e20).
+- **PR #82:** replay económico PAPER ahora reconstruye el payload durable de la intención, recalcula el hash canónico y vuelve a validar/cotejar la evidencia completa de cotización contra los campos del fill. Se rechazan `fill_count` booleanos/tipos inválidos. [CI de main post-merge #82](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218): success, 1598 pruebas en 11.85 s.
+- **PR #83:** ocho workflows fijados a SHA completos de releases oficiales verificadas de `actions/checkout`, `actions/setup-python` y `actions/upload-artifact`. [CI completo post-merge exacto](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856): success, 1598 pruebas en 11.22 s; también se verificaron los E2E públicos en la punta de PR #83.
+- **Preparación:** permanece en 73/100. No se adjudica puntos por auditorías/código sin nuevas evidencias operativas o económicas.
+- **Bloqueos:** sin captura real de 24 h aceptada, sin holdout prospectivo independiente con ventaja neta robusta y sin prueba de invariancia sobre todos los artefactos del estudio anual. Mantener `NO_TRADE`, sin LIVE, endpoints privados, claves privadas ni dinero real.

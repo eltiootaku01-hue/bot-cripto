@@ -193,3 +193,12 @@ PR #79 se fusionó en [a196651842a84cdfc31fde2f3230cd27ff61bf55](https://github.
 **CI de la punta PR #79:** [run 39076878077](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076878077), success, 1595 pruebas. **CI post-merge de main:** [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903), success, **1595 pruebas aprobadas en 10.39 s**.
 
 La preparación técnica queda en **73/100**, no >90. No existe aún un dataset real de 24 horas aceptado, ni evidencia de edge neto robusto fuera de muestra. El código de captura no sustituye el trabajo de ejecución y revisión del artefacto real. NO_TRADE permanece; no LIVE, dinero real ni claves privadas.
+
+
+## Actualización posterior a PR #82 y #83 — 17 de octubre de 2026
+
+La revisión adicional encontró un defecto de integridad local en el replay económico PAPER: el replay no reconstruía el payload de intención persistido para recalcular su hash y cotejar los campos de cotización con la evidencia original. También aceptaba un `fill_count` booleano por igualdad de tipos en Python. [PR #82](https://github.com/eltiootaku01-hue/bot-cripto/pull/82) corrigió ambos puntos y añadió regresiones; su CI post-merge [39079511218](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218) pasó 1598 pruebas en 11.85 s.
+
+Se detectó además el uso de etiquetas mayores móviles en las acciones CI. [PR #83](https://github.com/eltiootaku01-hue/bot-cripto/pull/83) fija las tres acciones de GitHub usadas en los ocho workflows a commits de releases oficiales verificados. La guía oficial indica que el SHA completo es la referencia inmutable recomendada: https://docs.github.com/en/actions/reference/security/secure-use. El CI final de main en [run 39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856) pasó 1598 pruebas en 11.22 s en HEAD `a07b8aac15970f3349f9de54f021cfbeb71e4e20`.
+
+**Dictamen actualizado:** preparación 73/100. Ninguna de estas correcciones aporta por sí sola una captura real aceptada de 24 horas ni evidencia de un edge neto independiente; además, la conciliación sigue siendo entre archivos SQLite independientes y no una transacción global ACID. Mantener `NO_TRADE`; no habilitar LIVE, claves privadas ni dinero real. El 90%+ no es alcanzable de forma honesta con la rúbrica actual mientras el área de evidencia económica siga en 5/20 (el máximo aritmético restante es 85/100).
