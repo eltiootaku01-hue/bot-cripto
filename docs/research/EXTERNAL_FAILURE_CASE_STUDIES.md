@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 17 de octubre de 2026  
-**Base de código revisada:** `main` incluye PR #74 (composición señal→PAPER), PR #76 (regresiones anti-lookahead) y PR #78 (infraestructura de captura prospectiva), merge commit `92b8b50a0722eea68c435717f870ef361a2927e8`  
+**Base de código revisada:** `main` incluye PR #74 (composición señal→PAPER), PR #76 (regresiones anti-lookahead), PR #78 (infraestructura de captura prospectiva) y PR #79 (refuerzo del validador), merge commit `a196651842a84cdfc31fde2f3230cd27ff61bf55`  
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -205,3 +205,14 @@ La documentación de CCXT distingue errores de red/timeouts y límites de tasa d
 ## 16. Dictamen actualizado tras PR #78
 
 La infraestructura de captura, reconexión, fsync, hashes y validación independiente está integrada en main. El CI post-merge [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728) terminó `success`, 1593 pruebas en 11.13 s. El puntaje ponderado sube de 72 a **73/100**, solo por el componente de infraestructura probado. No existe aún captura real aceptada ni edge neto independiente; no hay base para un score >90 ni para cambiar `NO_TRADE`.
+
+
+## 17. Revisión final: no confiar solo en el manifiesto de captura
+
+El patrón aplicado sigue una recomendación de defensa en profundidad: un resultado escrito como “COMPLETED” no debe bastar para aceptar datos. También deben verificarse los registros que sostienen el resultado, su configuración y sus límites temporales. Esta es una medida de ingeniería preventiva; no presupone que BOT-CRIPTO haya sufrido un ataque de manipulación.
+
+**Correcciones en PR #79:** el colector rechaza Kline con estado/completitud/finality incoherentes; el validador vuelve a calcular integridad desde JSONL y comprueba que el timestamp de recepción de cada evento quede entre el inicio y el fin de la corrida, que se cumpla la hora programada, que la duración de reloj monotónico coincida con la duración de pared y que configuración/manifiesto coincidan. Se agregan tests negativos que modifican el intervalo declarado mientras conservan hashes externos coherentes.
+
+**CI de main exacto:** [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903), success, 1595 pruebas aprobadas en 10.39 s, SHA a196651842a84cdfc31fde2f3230cd27ff61bf55.
+
+**Estado operativo:** preparación ponderada 73/100. El código para captura prospectiva está en main; no existe todavía una captura real de 24 horas aceptada ni un edge neto independiente. No elevar el score por código que aún no produjo evidencia real. Mantener NO_TRADE, sin LIVE, claves privadas o dinero real.
