@@ -1,258 +1,409 @@
 # STRICT_POINT_IN_TIME_CAPTURE_V1 — Contrato normativo de cierre, disponibilidad, finality y revisiones
 
-- Fecha: 2026-10-16
+- Fecha de revisión: 2026-10-16
 - Autoridad: CEREBRO / IA-CHAN
-- Estado: **APPROVED_FOR_DOCUMENTATION_ONLY — IMPLEMENTATION_NOT_AUTHORIZED**
+- Estado: **R1_DOCUMENT_PUBLISHED — IMPLEMENTATION_NOT_AUTHORIZED**
 - Decisión operativa: **NO_TRADE**
 - Rama de investigación: `research/strict-point-in-time-capture-v1`
-- Base remota observada al crear la rama: `main` @ `ff05bb6d70845ba51784da2bceee0ecf99b3e11a`
-- Naturaleza: contrato normativo diseñado a partir del contrato canónico y la documentación existente. No constituye evidencia de captura ejecutada.
-- Alcance de publicación: este documento únicamente. Sin cambios de código, tests, workflows, backtests, adquisición de datos, captura WebSocket ni ejecución financiera.
+- Base de rama verificada: `main` @ `ff05bb6d70845ba51784da2bceee0ecf99b3e11a`
+- Alcance autorizado: edición y publicación de este documento exclusivamente.
+- Fuera de alcance: código, tests, workflows, backtests, adquisición o captura de mercado, cambios de contrato ejecutable y ejecución financiera.
 
 ## 1. Decisión normativa
 
-STRICT_POINT_IN_TIME_CAPTURE_V1 separa obligatoriamente tres preguntas que no son equivalentes:
+`STRICT_POINT_IN_TIME_CAPTURE_V1` separa las siguientes propiedades:
 
-1. **Cierre de la vela según la fuente:** ¿Binance indicó que la kline terminó?
-2. **Disponibilidad temporal para nuestro consumidor:** ¿en qué instante demostrable pudo el sistema usar esta versión concreta?
-3. **Finality y revisiones:** ¿qué evidencia demuestra que la versión no es provisional, y qué sabemos de versiones posteriores o conflictos?
+1. **Cierre de fuente:** la fuente declara que terminó la vela.
+2. **Disponibilidad temporal:** una versión concreta está disponible para el consumidor en un instante demostrable.
+3. **Finality:** una política de fuente versionada permite calificar el estado de esa versión dentro de un alcance declarado.
+4. **Revisión:** existe evidencia de otra versión o de una discrepancia de contenido.
+5. **Completitud de vela:** el payload individual representa una vela completa según la fuente y el contrato aplicable.
+6. **Integridad de observación:** identidad, contenido, procedencia y evidencia son coherentes y recuperables.
+7. **Cobertura de captura:** la secuencia de evidencia cubre el intervalo requerido sin huecos o pérdidas no resueltos.
 
-Un cierre confirmado **no** demuestra disponibilidad anterior, inmutabilidad permanente ni ausencia de futuras correcciones. Por ello, un evento Binance con `k.x = true` permite afirmar que Binance marca la kline como cerrada en ese evento; por sí solo no permite asignar `CandleFinality.FINAL`.
+La regla central es:
 
-El contrato de disponibilidad ya establecido permanece inalterado: `available_at` debe expresar el primer instante demostrable de disponibilidad para el consumidor pertinente y toda decisión cumple `available_at <= decision_timestamp`. Si ese instante no puede demostrarse, permanece `UNKNOWN/None` y no se admite la evidencia para una decisión que requiera point-in-time estricto.
+**Cierre confirmado ≠ disponibilidad demostrada ≠ finality ≠ ausencia de revisiones.**
 
-La aprobación aquí es documental. No modifica el Canonical Market Data Contract ni autoriza su implementación.
+Una kline marcada como cerrada no demuestra que el dato estuviera disponible para nuestro sistema antes de recibirlo, que su contenido nunca vaya a cambiar ni que se haya capturado íntegramente el período.
 
-## 2. Definiciones normativas
+Este documento fija una propuesta normativa para la captura y el replay estrictos. **No certifica que el sistema existente cumpla el contrato ni habilita por sí solo el backtest point-in-time.** La implementación requiere una autorización posterior.
 
-### 2.1 Identidad lógica de una vela
+## 2. Identidades y procedencia
 
-La identidad lógica mínima de una kline es:
+### 2.1 Identidad canónica de la vela
 
-`(provider, venue, symbol, interval, open_time_ms)`
+La identidad lógica de la vela, independiente de quién la haya observado, es:
 
-Para este contrato, `provider=BINANCE` y `venue=SPOT` deben quedar identificados explícitamente. La identidad lógica **no** identifica una versión única: dos payloads con la misma identidad lógica y diferente contenido son observaciones/versiones distintas hasta resolver su relación.
+`(instrument_id, timeframe, candle_start_utc)`
 
-La clave de versión debe incluir, como mínimo, la identidad lógica y un digest del payload de origen. No fabricar secuencias de Binance ni atribuir al origen un identificador que no haya suministrado.
+- `instrument_id` procede de la identidad canónica del instrumento y de los metadatos explícitos.
+- `timeframe` identifica el intervalo de la vela.
+- `candle_start_utc` es el comienzo de la vela convertido a UTC con zona horaria explícita.
 
-### 2.2 Cierre de fuente: `source_closure_status`
+Esta identidad es coherente con `MarketData.candle_identity`. No identifica una versión de contenido ni sustituye la procedencia de origen.
 
-Valores normativos del sidecar de captura:
+### 2.2 Identidad de la serie de origen
 
-- `OPEN`: la fuente indicó explícitamente que la vela sigue abierta. En el stream kline, `k.x = false` es esa señal.
-- `CLOSED_CONFIRMED`: existe evidencia atribuible a Binance que confirma el cierre de esa vela. En el stream kline, `k.x = true` cumple esta función.
-- `UNKNOWN`: la respuesta o artefacto disponible no demuestra suficientemente el estado de cierre.
+Cada observación debe conservar por separado la procedencia y la identidad nativa de la serie. Como mínimo, la evidencia lateral de captura debe identificar:
 
-La semántica exacta del indicador `x` está limitada a “Is this kline closed?” en el contrato oficial del stream. No debe reinterpretarse como “esta versión jamás cambiará”.
+- `source_id`, `provider` y `venue` según los contratos/mapeos existentes;
+- mercado y símbolo nativo del proveedor, cuando estén disponibles;
+- intervalo y timestamp nativo de apertura;
+- referencia al instrumento canónico al que se mapeó el símbolo nativo.
 
-En REST histórico, un tiempo de cierre pasado, el reloj local, la hora de solicitud o la ausencia de una vela abierta no sustituyen por sí solos evidencia de cierre. La admisión REST requiere que la semántica documentada del endpoint y la validación del payload respalden el cierre; en caso contrario, el estado es `UNKNOWN`.
+En el adaptador WebSocket existente, los valores son `provider="binance"`, `market="SPOT"`, `venue="BINANCE"` y `source_id="binance-spot-websocket"`. Estos valores no se deben intercambiar por conveniencia documental. REST y WebSocket pueden tener distinto `source_id` aunque representen el mismo instrumento y la misma vela lógica.
 
-### 2.3 Disponibilidad del sistema: `available_at`
+No se debe inferir `base_asset` o `quote_asset` dividiendo el símbolo nativo. Se deben reutilizar los metadatos de instrumento existentes.
 
-`available_at` es el primer instante local demostrable en que **esta versión exacta y validada** estuvo disponible para el consumidor de evidencia dentro del sistema. No equivale automáticamente a:
+### 2.3 Identidad de evento y de versión
 
-- `open_time`, `close_time` ni otro timestamp de mercado;
-- el tiempo de evento del proveedor `E`;
-- `received_at` de la trama o respuesta;
-- la hora de solicitud REST;
-- la hora de una captura, reejecución o consulta histórica posterior.
+El diseño distingue tres entidades:
 
-La captura debe registrar como mínimo el instante de recepción local y el evento observable que establece la frontera real de disponibilidad para el consumidor. Si existe validación, persistencia o handoff obligatorio posterior a la recepción, la recepción inicial no prueba por sí sola la disponibilidad en esa etapa posterior.
+1. **Evento de recepción:** una ocurrencia local concreta de recepción.
+2. **Contenido de vela:** los campos económicos canónicos de la vela bajo una representación versionada.
+3. **Versión de contenido:** un contenido de vela asociado a la identidad lógica, su procedencia relevante y un digest reproducible.
 
-Un dato histórico obtenido hoy tiene disponibilidad demostrable a partir de la consulta y handoff reales actuales; la consulta no reconstruye cuándo esa misma versión pudo conocerse en el pasado. No retrofechar `available_at`.
+Un mismo contenido puede recibirse varias veces. La deduplicación del contenido no puede borrar el hecho de recepciones distintas ni sus tiempos.
 
-La comparación temporal es inclusiva y obligatoria:
+La evidencia distinguirá:
+
+- `raw_event_digest`: digest de los bytes originales, solo cuando esos bytes se hayan conservado; si no, se declarará la representación exacta que se hasheó.
+- `candle_content_digest`: digest de un esquema canónico y versionado de campos de vela comparables.
+- `version_id`: identificador estable vinculado a la identidad lógica, versión del esquema del digest, procedencia relevante y digest de contenido.
+
+El hash del JSON reserializado no se debe etiquetar como hash de los bytes originales. Si la representación original no se conserva, se registrarán su formato, la canonicalización aplicada y la versión del algoritmo. No se inventará un `source_sequence` que la fuente no haya proporcionado.
+
+## 3. Cierre de fuente: regla específica por fuente
+
+### 3.1 WebSocket de Binance
+
+El indicador de cierre de la kline tiene esta semántica:
+
+- `k.x = false` → `source_closure_status = OPEN`.
+- `k.x = true` → `source_closure_status = CLOSED_CONFIRMED` para ese evento concreto.
+- Falta de evidencia, payload inválido o estado no interpretable → `source_closure_status = UNKNOWN`.
+
+La evidencia de cierre debe apuntar al evento de origen y a la versión de contenido que sustenta la afirmación.
+
+`k.x=true` acredita que Binance indica que esa kline está cerrada en ese evento. No demuestra inmutabilidad permanente, disponibilidad anterior a la recepción ni ausencia de correcciones futuras.
+
+### 3.2 REST histórico y REST bajo demanda
+
+Una fila REST no presenta el campo WebSocket `k.x`. Por tanto, bajo este contrato estricto, ninguna de las siguientes condiciones prueba por sí sola `CLOSED_CONFIRMED`:
+
+- el `close_time` programado quedó en el pasado;
+- el reloj local es posterior al cierre programado;
+- el endpoint devolvió una fila de OHLCV;
+- una solicitud repetida devuelve el mismo valor;
+- otra descarga o archivo contiene los mismos valores.
+
+Para `STRICT_POINT_IN_TIME_CAPTURE_V1`, el estado de cierre de REST permanece `UNKNOWN` salvo que una regla de procedencia específica, documentada y auditable establezca cómo se prueba el cierre para esa fuente y versión. Hasta entonces, la vela REST no se admite para una decisión estricta que requiera cierre confirmado.
+
+Esta es una regla del contrato propuesto, no una afirmación de que el adaptador REST actual ya se comporte así. No se modifica su comportamiento en esta fase.
+
+### 3.3 Regla de admisión del cierre
+
+Para una decisión que requiere velas cerradas:
+
+- `CLOSED_CONFIRMED` satisface la condición de cierre, sujeta a todos los demás controles.
+- `OPEN` se rechaza para ese propósito.
+- `UNKNOWN` bloquea la admisión estricta.
+
+El cierre no asigna ni determina por sí solo `finality`.
+
+## 4. Disponibilidad temporal y persistencia
+
+### 4.1 Semántica de `available_at`
+
+Se conserva la regla canónica:
 
 `available_at <= decision_timestamp`
 
-Si `available_at` es desconocido, inválido, incoherente o posterior a la decisión, la evidencia no se admite para esa decisión.
+`available_at` representa el primer instante demostrable en que la versión exacta estaba disponible para el consumidor relevante. No equivale automáticamente a:
 
-### 2.4 Finality: `finality`
+- tiempo de apertura o cierre de la vela;
+- tiempo de evento de Binance `E`;
+- instante de solicitud REST;
+- `received_at` del transporte;
+- instante de persistencia;
+- hora en que un consumidor descubre el archivo mucho después.
 
-El modelo canónico actual define `CandleFinality = NOT_FINAL | FINAL | UNKNOWN`. Este contrato conserva esos valores y restringe su interpretación:
+El evento de recepción y la frontera real del consumidor son hechos distintos. `received_at` puede coincidir con `available_at` únicamente cuando la frontera de recepción es también la frontera demostrable de disponibilidad del consumidor, sin una etapa obligatoria posterior. La igualdad nunca se presume.
 
-- `NOT_FINAL`: hay evidencia de que la observación todavía no ha cerrado o sigue siendo provisional según el estado documentado aplicable.
-- `UNKNOWN`: no existe evidencia suficiente para decidir si la versión tiene una garantía fuerte de finality.
-- `FINAL`: solo puede asignarse con evidencia independiente y explícita que respalde una garantía de finality para esa fuente, tipo de dato y versión, con una política de correcciones/versiones aplicable y referencia auditable.
+### 4.2 Persistir antes de publicar evidencia estricta
 
-**No son prueba de `FINAL`:** `k.x=true`, que el reloj haya pasado el cierre programado, la recepción exitosa, que una consulta REST devuelva un valor, que una descarga se haya repetido sin diferencias o que aún no se haya observado una corrección.
+Para que las decisiones puedan reproducirse a partir de evidencia durable, la futura implementación estricta deberá garantizar el orden lógico:
 
-Con la evidencia disponible para este diseño, el valor conservador de una kline Binance cerrada es `finality=UNKNOWN`, a menos que una evidencia normativa posterior cumpla expresamente el criterio anterior. No se presume una garantía de inmutabilidad eterna.
+1. recibir y validar la observación;
+2. conservar el payload y la procedencia;
+3. persistir de forma durable el evento y la versión de contenido;
+4. poner esa versión a disposición del consumidor;
+5. registrar cualquier decisión que la consuma.
 
-### 2.5 Estado de revisiones: `revision_status`
+El registro debe distinguir `received_at`, `persisted_at` y `available_at`. Sus valores pueden coincidir solamente si las fronteras reales se han demostrado equivalentes; no se copian entre sí por defecto.
 
-El registro de captura debe separar las revisiones de finality. Se proponen estos valores del sidecar:
+En el camino estricto, la disponibilidad para decisiones reproducibles no puede preceder a la persistencia durable necesaria para recuperar la versión exacta. Si el orden no puede probarse o existe un fallo de persistencia, no se certificará esa observación para replay estricto.
 
-- `NO_REVISION_OBSERVED_AS_OF_TIME`: hasta el límite temporal de la evidencia registrada no se ha observado una versión diferente para la misma identidad lógica. Es una afirmación acotada al historial de captura disponible, **no** una garantía global de que la fuente jamás corrija.
-- `REVISION_CANDIDATE`: se observó un payload diferente para la misma identidad lógica después de una versión cerrada, pero todavía no está probado si constituye una corrección de la misma serie/fuente o un conflicto de procedencia.
-- `REVISION_CONFIRMED`: evidencia verificable establece que el proveedor publicó una versión corregida de la misma vela lógica.
-- `SUPERSEDED`: una versión anterior fue desplazada por una revisión confirmada en la línea de conocimiento más reciente. La versión anterior no se borra y sigue siendo válida para replays cuyo corte temporal sea anterior a la disponibilidad de la revisión.
-- `CONFLICT_UNRESOLVED`: fuentes, endpoints, archivos o versiones discrepan y no existe evidencia suficiente para decidir qué relación mantienen.
+La marca de persistencia no sustituye la disponibilidad temporal canónica. `available_at` sigue midiendo el conocimiento del consumidor.
 
-La ausencia de una revisión observada nunca permite promover automáticamente `finality` a `FINAL`.
+### 4.3 Datos históricos consultados hoy
 
-### 2.6 Estado de admisión: `admission_status`
+Una consulta histórica actual establece conocimiento actual sobre un hecho pasado. No reconstruye cuándo el sistema habría conocido esa versión en una fecha anterior.
 
-Valores del sidecar:
+Si el sistema no conserva evidencia verificable de la versión disponible en la decisión histórica, no puede reclamar un replay estrictamente point-in-time de aquella decisión. El dataset histórico de versión actual se debe etiquetar como tal, no como captura contemporánea.
 
-- `ACCEPTED`: admisible para decisiones/replay solo dentro del intervalo temporal demostrado y bajo los restantes requisitos de este contrato.
-- `REJECTED`: el registro incumple una condición dura de validez o de identidad.
-- `UNKNOWN`: faltan pruebas necesarias para decidir la admisión.
-- `BLOCKED`: hay una condición conocida que impide su uso, incluida una disponibilidad desconocida o una discrepancia no resuelta.
+### 4.4 Orden temporal y relojes
 
-Estos estados son una propuesta documental de captura; no se afirma que existan hoy como enum en código.
+Todos los timestamps contractuales deben ser timezone-aware y normalizarse a UTC. Los campos que representan hechos diferentes no se igualan por conveniencia.
 
-## 3. Regla de admisión point-in-time
+Si el reloj de pared, la persistencia o el orden de eventos produce timestamps incoherentes —por ejemplo, una disponibilidad anterior a la recepción sin una explicación verificable—, la evidencia queda bloqueada hasta resolver la incoherencia. Si no se puede demostrar el orden requerido, el resultado debe ser fail-closed y no inferido.
 
-Una vela solo puede admitirse para una decisión si se cumplen todas las condiciones siguientes:
+## 5. Completitud, integridad y cobertura de captura
 
-1. La identidad de instrumento/intervalo y los límites temporales están explícitos y son válidos.
-2. `source_closure_status=CLOSED_CONFIRMED` para una decisión que requiera velas cerradas.
-3. La calidad canónica es `VALID`, la vela está completa, y los controles de OHLCV, unicidad, orden y continuidad no detectan una infracción.
-4. La versión exacta tiene un digest verificable y su evidencia de origen está preservada de manera inmutable o referenciada de forma durable.
-5. `available_at` está demostrado y `available_at <= decision_timestamp`.
-6. El corte de replay incluye únicamente versiones cuya disponibilidad demostrada sea menor o igual al instante de decisión/replay.
-7. No existe un conflicto sin resolver que afecte al payload consumido.
-8. La decisión conserva la identidad de versión/digest realmente utilizada.
+Estas dimensiones no se deben colapsar en un único campo.
 
-`finality=UNKNOWN` **no** impide por sí solo la admisión prospectiva de una versión cerrada que fue capturada, persistida, fechada y versionada correctamente. Sí impide afirmar que la vela es inmutable o que la fuente ofrece finality fuerte. La admisión, por tanto, es “esta versión era la conocida y admisible en este instante”, no “esta versión será siempre la última”.
+### 5.1 Completitud de la vela
 
-`REVISION_CANDIDATE` y `CONFLICT_UNRESOLVED` bloquean la vela afectada hasta resolver la relación. Una corrección confirmada puede utilizarse solo desde su propio `available_at`; nunca se puede retrotraer a decisiones previas. Una versión `SUPERSEDED` se conserva para reproducir el conocimiento histórico anterior a la revisión, pero no sustituye a la versión corregida para decisiones posteriores a la disponibilidad de esta última.
+Describe si el payload individual contiene los campos requeridos y si la fuente permite considerarlo una vela completa. Para el WebSocket de Binance, `k.x=true` respalda que la kline se declara cerrada; los controles OHLCV y de calidad canónica siguen siendo obligatorios.
 
-## 4. Captura, deduplicación y control de revisiones
+### 5.2 Integridad de la observación
 
-### 4.1 Recepción y persistencia append-only
+Describe si el evento y la versión son recuperables, su procedencia es trazable, el digest se puede reproducir y la representación satisface las validaciones canónicas.
 
-La captura debe preservar los mensajes de origen sin reescribirlos. El contenido original, o una referencia durable e inmutable a él, se vincula a un digest criptográfico del payload recibido. El hash del JSON reserializado no se debe presentar como hash de bytes originales: si los bytes originales no se conservan, declarar qué representación se hasheó y cómo se canonicalizó.
+Un registro puede contener una kline individual completa y, aun así, no tener evidencia de persistencia íntegra, identidad de versión o disponibilidad.
 
-Cada recepción es un evento temporal con su propio registro de recepción. El mismo digest puede deduplicar el contenido almacenado, pero no debe eliminar el hecho de que hubo otra recepción con otro `received_at`. El contrato no requiere inventar `source_sequence`; si Binance no entrega secuencia utilizable, se conserva como ausente.
+### 5.3 Cobertura temporal de la captura
 
-La disponibilidad solo se asigna a partir de una frontera local realmente observable para la versión que el consumidor puede recuperar. Si no puede medirse ni reconstruirse de forma verificable, `available_at=None` y la admisión queda bloqueada.
+Describe si el sistema dispone de evidencia suficiente para todo el período requerido. La evaluación debe considerar:
 
-### 4.2 Tabla de tratamiento
+- inicio y fin de la cobertura declarada;
+- conexión/sesión y límites de ciclo de vida de la fuente;
+- interrupciones, reinicios, pérdidas y errores de transporte;
+- persistencia fallida o demorada;
+- huecos, duplicados y desalineación temporal;
+- disponibilidad del consumidor y versiones efectivamente recuperables;
+- limitaciones de detección de pérdida cuando la fuente no proporciona una secuencia utilizable.
 
-| Caso observado | Clasificación normativa | Tratamiento |
+Una vela completa no prueba que se hayan capturado todas las velas. La ausencia de mensajes durante un tramo no se interpreta como evidencia de ausencia de eventos si la cobertura del canal no puede demostrarse.
+
+Para una ventana de decisión, la cobertura requerida es la de todas las observaciones de entrada necesarias. Si existe un hueco o una pérdida no resuelta que afecta esa ventana, la admisión de la decisión queda bloqueada. Los tramos no afectados solo pueden evaluarse si la frontera de aislamiento está documentada y no depende del tramo comprometido.
+
+## 6. Finality independiente del cierre
+
+El enum canónico no se modifica:
+
+`CandleFinality = NOT_FINAL | FINAL | UNKNOWN`
+
+Para esta revisión:
+
+- `NOT_FINAL`: existe evidencia específica de la fuente de que la versión todavía está en estado provisional bajo su ciclo de vida documentado.
+- `UNKNOWN`: la evidencia no permite determinar el estado de finality.
+- `FINAL`: una política explícita, versionada y auditable permite calificar la versión como terminal dentro de un alcance declarado.
+
+`FINAL` no significa que sea imposible descubrir un error en el futuro ni garantiza inmutabilidad física eterna. Significa que se ha satisfecho el criterio de finality declarado para la fuente, versión y política consideradas. Cualquier corrección posterior debe registrarse como un nuevo hecho de conocimiento, sin borrar el estado observado anteriormente ni reescribir decisiones pasadas.
+
+No constituyen prueba de `FINAL`:
+
+- `k.x=true`;
+- que el reloj haya superado el cierre programado;
+- recepción satisfactoria;
+- la misma respuesta recibida en consultas repetidas;
+- ausencia de revisiones observadas dentro de una cobertura incompleta.
+
+Para las klines de Binance en el estado actual de evidencia, `finality=UNKNOWN` por defecto. No se asignará `FINAL` hasta contar con una regla explícita y evidencia suficiente que satisfaga este contrato.
+
+## 7. Revisiones append-only y relaciones entre versiones
+
+### 7.1 Evento de revisión
+
+Toda diferencia material observada genera un evento de revisión inmutable que vincula, según corresponda:
+
+- identidad lógica de la vela;
+- versión de contenido previamente conocida;
+- nueva versión observada;
+- evento o fuente donde se descubrió;
+- instante real de descubrimiento;
+- disponibilidad demostrable de la nueva versión;
+- digests y evidencias comparativas;
+- clasificación y motivo;
+- decisión posterior de resolución, si existe.
+
+Una diferencia de payload no demuestra por sí sola una corrección oficial. Puede originarse en diferencias de endpoint, esquema, agregación, caché o representación del archivo. Si la relación no puede demostrarse, permanece como candidato o conflicto sin resolver.
+
+### 7.2 Clasificaciones del evento de revisión
+
+Los siguientes valores son estados propuestos para los eventos de revisión; no se afirma que hoy existan como enums en código:
+
+- `REVISION_CANDIDATE`: existe una diferencia material para la misma identidad lógica, pero su causa o relación todavía no se ha demostrado.
+- `REVISION_CONFIRMED`: evidencia verificable establece que la nueva versión es una revisión de la misma vela lógica bajo la política de fuente indicada.
+- `CONFLICT_UNRESOLVED`: existen representaciones discrepantes y no se puede justificar qué relación mantienen.
+- `REJECTED_AS_REVISION`: la evidencia descarta que la discrepancia sea una revisión de la misma vela y documenta otra causa o una diferencia de alcance.
+
+### 7.3 Relación entre versiones
+
+La relación entre versiones es independiente de la clasificación del evento:
+
+- una versión puede ser la conocida en un instante determinado;
+- una versión anterior puede quedar sustituida en una vista de conocimiento posterior;
+- una versión puede quedar afectada por una revisión candidata;
+- dos versiones pueden permanecer en conflicto.
+
+`SUPERSEDED` se puede usar como estado derivado de una versión en una vista temporal cuando se ha confirmado que fue sustituida. No elimina ni altera la versión original.
+
+No se debe mantener un único campo mutable que, al cambiar, borre la historia de los eventos de revisión.
+
+### 7.4 Afirmación de ausencia de revisiones
+
+`NO_REVISION_OBSERVED_AS_OF_TIME` solo puede declararse para un límite temporal explícito, una fuente y un alcance de cobertura concretos, cuando la integridad de esa cobertura está documentada.
+
+La afirmación significa únicamente que no se observó otra versión dentro del historial de evidencia declarado. No prueba que nunca existan revisiones en la fuente.
+
+Si el historial de captura tiene interrupciones, retención incompleta u otra limitación que impide comprobar una revisión, el estado de ausencia de revisiones es `UNKNOWN`. No se debe inferir ausencia a partir de ausencia de datos.
+
+## 8. Política de correcciones y preservación de decisiones
+
+Se distinguen tres vistas.
+
+### 8.1 Replay original point-in-time
+
+Reconstruye las versiones que estaban disponibles y eran admisibles en el instante original de decisión. Una revisión descubierta más tarde no puede incluirse retroactivamente.
+
+### 8.2 Vista corregida actual
+
+Utiliza revisiones confirmadas conocidas y admisibles al corte temporal actual. Debe etiquetarse como una vista corregida del dataset, no como el replay original.
+
+### 8.3 Auditoría posterior de decisiones afectadas
+
+Puede añadir evidencia de que una decisión histórica quedó afectada por una revisión descubierta después. Esa anotación es un evento nuevo de auditoría. No modifica el payload, los timestamps, los digests ni el manifiesto original de la decisión.
+
+Una discrepancia detectada hoy bloquea nuevas decisiones que dependan de esa evidencia mientras siga sin resolverse. No cambia por sí sola qué versión era conocida antes de su detección.
+
+## 9. Manifiesto mínimo de decisión
+
+El evento de recepción, la versión de contenido, el evento de revisión y la decisión son entidades distintas. El vínculo entre ellas debe ser auditable, no una reconstrucción inferida posteriormente.
+
+El manifiesto de cada decisión debe conservar, como mínimo:
+
+- `decision_id` y `decision_timestamp`;
+- los `version_id` y digests exactos de las observaciones consumidas;
+- referencias a la evidencia de cierre, disponibilidad, calidad y admisión;
+- identidad/versionado de configuración, reglas y modelo que generaron la decisión;
+- rango temporal de datos e inputs requeridos, con referencia durable al manifiesto de entrada completo;
+- estado de cobertura y cualquier revisión o conflicto relevante para la ventana;
+- referencia al evento de decisión original y, si se produce una corrección de auditoría posterior, referencia separada a esa anotación.
+
+Si una estrategia consume indicadores derivados de muchas velas, el manifiesto debe identificar de forma recuperable todos los inputs históricos necesarios para reproducir esos indicadores, no solo la última vela usada como disparador.
+
+La evidencia debe permitir responder: qué se conocía, cuándo se conocía, de qué versión procedía, qué inputs se consumieron y qué regla estaba activa. Si esa reconstrucción no es posible, no se declara el replay reproducible.
+
+## 10. Regla de ejecución temporal
+
+La admisión de una señal no demuestra por sí sola que un fill simulado sea alcanzable a un precio concreto.
+
+Una ejecución simulada debe cumplir:
+
+1. la decisión no ocurre antes de la disponibilidad de todos los inputs necesarios;
+2. la referencia de precio de ejecución es temporalmente válida con respecto a la decisión;
+3. la disponibilidad de la referencia de ejecución está demostrada;
+4. la regla de ejecución y su granularidad están declaradas y versionadas;
+5. el fill conserva la procedencia y el timestamp de la referencia utilizada.
+
+La apertura de la vela siguiente no es un fill válido por defecto. Si el timestamp de esa apertura es anterior a la decisión o si su precio no estaba disponible cuando la decisión podía actuar, no debe usarse como si fuese un fill alcanzable.
+
+La condición temporal de precio y decisión se evalúa junto con la evidencia de orden causal. La mera igualdad de timestamps no demuestra el orden de eventos; si no hay evidencia de orden para un caso de igualdad, se bloquea el fill.
+
+Una referencia de precio posterior solo es admisible si su fuente, disponibilidad y correspondencia con la regla de ejecución están documentadas. Si no existe una referencia temporalmente válida, se bloquea el fill. Ninguna convención hipotética puede etiquetarse como ejecución point-in-time observada.
+
+## 11. Precedencia de resultados y fail-closed
+
+La revisión separa los estados de evidencia, el resultado canónico del consumo temporal y la decisión de admisión estricta.
+
+### 11.1 Estado de evidencia
+
+Ejemplos: cierre `OPEN`/`CLOSED_CONFIRMED`/`UNKNOWN`, clasificación de revisión, validez del digest y estado de cobertura.
+
+### 11.2 Resultado de consumo canónico
+
+Se conserva el contrato de consumo existente:
+
+- `ACCEPTED`: hay disponibilidad demostrada y no es posterior a `decision_timestamp`.
+- `REJECTED`: la evidencia temporal demuestra que el dato no estaba disponible a tiempo.
+- `UNKNOWN`: falta evidencia suficiente para determinar la disponibilidad.
+
+`available_at=None` no se transforma en aceptación. No se crea un segundo guard temporal.
+
+### 11.3 Resultado de admisión estricta propuesto
+
+- `ACCEPTED`: todos los requisitos obligatorios para el uso concreto están satisfechos.
+- `BLOCKED`: falta evidencia obligatoria, el estado relevante es desconocido, la cobertura es insuficiente o existe un conflicto no resuelto.
+- `REJECTED`: una condición de validez o identidad se incumple de forma concluyente.
+
+El resultado debe contener uno o varios motivos explícitos. Por ejemplo, `BLOCKED / AVAILABLE_AT_UNKNOWN` no cambia el resultado del consumidor canónico de `UNKNOWN` a `ACCEPTED`.
+
+El estado de admisión es una propuesta documental; no se afirma que el enum exista actualmente. El contrato canónico y sus consumidores no se alteran mediante esta revisión.
+
+## 12. Matriz normativa resumida
+
+| Caso | Estado de evidencia | Resultado de admisión estricta |
 |---|---|---|
-| `k.x=false` | `OPEN` | Registrar el evento; no usarlo como vela cerrada. |
-| Primer `k.x=true` validado para esa identidad | `CLOSED_CONFIRMED` | Registrar versión cerrada; mantener `finality=UNKNOWN` por defecto. Evaluar disponibilidad y los demás requisitos por separado. |
-| Misma identidad y mismo digest | Duplicado exacto de contenido | No crear una segunda versión de contenido; mantener el evento de recepción y su timestamp si la recepción fue distinta. |
-| Misma identidad y digest diferente después del cierre | `REVISION_CANDIDATE` | Conservar ambas versiones; bloquear la vela afectada hasta resolver corrección frente a conflicto. |
-| Se prueba que Binance corrigió la misma vela | `REVISION_CONFIRMED` para la nueva revisión; versión previa `SUPERSEDED` | Registrar enlace auditable entre versiones y el instante real en que la revisión pasó a estar disponible. |
-| REST, WebSocket, archivo diario/mensual u otra representación difieren sin prueba de relación | `CONFLICT_UNRESOLVED` | No escoger silenciosamente “el último”, el más frecuente ni el valor que favorezca la estrategia. |
-| Payload actual descargado difiere de una captura previa, pero no hay prueba de cuándo cambió en la fuente | Revisión candidata o conflicto según evidencia | El instante de descubrimiento local es observable; el instante histórico de publicación de la corrección es desconocido. No retrofecharlo. |
-| Se detecta pérdida de mensajes, intervalo sin cobertura o falta de evidencia de persistencia | Integridad/availability bloqueada | No declarar completo ni point-in-time estricto el tramo afectado. |
+| WebSocket con `k.x=false` y decisión que exige vela cerrada | `OPEN` | `BLOCKED` |
+| WebSocket con `k.x=true`, disponibilidad demostrada y observación íntegra | Cierre confirmado; finality puede seguir `UNKNOWN` | `ACCEPTED` solo si los demás requisitos se cumplen |
+| REST sin regla verificable de cierre estricto | Cierre `UNKNOWN` | `BLOCKED` |
+| `available_at=None` | Disponibilidad `UNKNOWN` | `BLOCKED` |
+| `available_at > decision_timestamp` | Evidencia posterior a la decisión | `REJECTED` |
+| Payload individual inválido o identidad incoherente | Integridad/calidad no válida | `REJECTED` |
+| Vela completa, pero la ventana requerida tiene hueco sin resolver | Vela válida; cobertura insuficiente | `BLOCKED` para decisiones dependientes de esa ventana |
+| Digest diferente sin relación demostrada | `REVISION_CANDIDATE` o `CONFLICT_UNRESOLVED` | `BLOCKED` para nuevas decisiones afectadas |
+| Revisión confirmada disponible después de una decisión pasada | Nueva versión de conocimiento posterior | El replay original conserva la versión conocida entonces |
+| Fill basado en precio anterior a la decisión o sin disponibilidad temporal demostrada | Referencia de ejecución inadmisible | Fill `BLOCKED` |
+| Captura con cobertura insuficiente para certificar ausencia de revisiones | Ausencia no demostrada | `UNKNOWN`; no se afirma ausencia global de revisiones |
 
-Una diferencia de payload no prueba automáticamente una corrección oficial: puede provenir de una diferencia de endpoint, definición, caché, agregación o archivo. Confirmar revisión requiere evidencia que identifique la misma vela lógica y fundamente la relación de corrección. De no ser posible, mantener `CONFLICT_UNRESOLVED`.
+La matriz es normativa propuesta. No es resultado de tests ni certifica la conformidad del código actual.
 
-### 4.3 Nunca sobrescribir el pasado
+## 13. Compatibilidad y límites de esta revisión
 
-Cada revisión es un nuevo hecho de conocimiento. Ninguna actualización borra el payload anterior, su hash, recepción, disponibilidad ni las decisiones que lo consumieron. No modificar retrospectivamente una decisión para que parezca que usó una versión descubierta después. La vista “última versión conocida ahora” debe mantenerse conceptualmente separada del replay point-in-time.
+La presente revisión es documental. No modifica:
 
-## 5. Registro mínimo de captura
+- `bot_obrero/market_data.py`;
+- enums o campos del contrato canónico;
+- adaptadores REST o WebSocket;
+- el contrato o el evaluador canónico de consumo;
+- persistencia, captura, workers o procesos residentes;
+- motor de backtest, estrategias o parámetros;
+- tests ni workflows.
 
-El sidecar normativo debe poder reconstruir, como mínimo, la identidad, la versión, los tiempos y la decisión de admisión. Los nombres siguientes son **propuesta de esquema**, no campos añadidos al contrato canónico ni una migración ya implementada.
+Los nombres de campos auxiliares, eventos de revisión y manifiestos son elementos propuestos de diseño. La futura implementación deberá reutilizar la política temporal y el guard de look-ahead existentes. Toda ampliación de esquema, enum o contrato ejecutable necesita un diseño técnico aparte y autorización explícita de CEREBRO.
 
-| Campo | Obligatorio | Significado |
-|---|---|---|
-| `schema_version` | Sí | `STRICT_POINT_IN_TIME_CAPTURE_V1`. |
-| `capture_event_id` | Sí | Identidad única del evento local de recepción. |
-| `provider`, `venue` | Sí | Fuente y mercado explícitos; por ejemplo, Binance / Spot. |
-| `symbol`, `interval`, `open_time_ms` | Sí | Identidad lógica de la vela. |
-| `source_event_time_ms` | Si existe en origen | Tiempo de evento proporcionado por la fuente, preservado como provenance, nunca como `available_at` automático. |
-| `received_at` | Sí para captura en vivo | Tiempo UTC local de recepción, observado. |
-| `available_at` | Condicional; UNKNOWN si no se prueba | Primer instante demostrado de disponibilidad al consumidor para esta versión. |
-| `payload_digest_algorithm`, `payload_digest` | Sí | Algoritmo y digest de la representación claramente identificada. |
-| `raw_payload_ref` | Sí para evidencia recuperable | Referencia durable al payload original o a una representación canonicalizada declarada. |
-| `version_id` | Sí | Identificador estable de la versión, vinculable a identidad lógica y digest. |
-| `source_closure_status` | Sí | `OPEN`, `CLOSED_CONFIRMED` o `UNKNOWN`. |
-| `finality` | Sí | `NOT_FINAL`, `UNKNOWN` o `FINAL` respaldado por evidencia suficiente. |
-| `revision_status` | Sí | Estado normativo definido en §2.5, limitado al historial realmente disponible. |
-| `supersedes_revision_id` | Condicional | Referencia a la versión precedente solo cuando la relación se ha establecido; null/ausente si no está demostrada. |
-| `admission_status` | Sí | Resultado de admisión y, en el registro completo, motivo/evidencia de ese resultado. |
-| `evidence_refs` | Sí | Referencias a mensajes, validaciones o documentos que fundamentan cierre, disponibilidad y revisiones. |
+## 14. Estado resultante
 
-Para ser explícitos, un registro ilustrativo podría tener esta forma; los valores marcados como ejemplo **no** representan captura real:
+- Separación entre cierre, disponibilidad, finality, revisiones, completitud, integridad y cobertura: **definida documentalmente en R1**.
+- Identidad lógica independiente de procedencia y versión: **definida documentalmente; implementación no verificada**.
+- Cierre estricto REST sin evidencia de procedencia suficiente: **bloqueado**.
+- Disponibilidad histórica real de versiones obtenidas hoy: **no demostrada retroactivamente**.
+- Persistencia durable, captura continua y cobertura íntegra: **no certificadas por este documento**.
+- Historial de revisiones completo de Binance: **no demostrado**.
+- Reproducción exacta de decisiones: **requiere manifiesto de inputs y evidencia persistida**.
+- Implementación, tests, backtests, adquisición y captura: **NO EJECUTADOS / NO AUTORIZADOS**.
+- Operaciones: **NO_TRADE**.
 
-```json
-{
-  "schema_version": "STRICT_POINT_IN_TIME_CAPTURE_V1",
-  "capture_event_id": "EXAMPLE_ONLY_NOT_CAPTURED",
-  "provider": "BINANCE",
-  "venue": "SPOT",
-  "symbol": "BTCUSDT",
-  "interval": "1h",
-  "open_time_ms": 0,
-  "source_event_time_ms": null,
-  "received_at": null,
-  "available_at": null,
-  "payload_digest_algorithm": "SHA-256",
-  "payload_digest": "EXAMPLE_ONLY_NOT_A_REAL_DIGEST",
-  "raw_payload_ref": null,
-  "version_id": "EXAMPLE_ONLY_NOT_A_REAL_VERSION",
-  "source_closure_status": "CLOSED_CONFIRMED",
-  "finality": "UNKNOWN",
-  "revision_status": "NO_REVISION_OBSERVED_AS_OF_TIME",
-  "supersedes_revision_id": null,
-  "admission_status": "BLOCKED",
-  "evidence_refs": []
-}
-```
+## 15. Referencias
 
-El ejemplo queda `BLOCKED`: le faltan tiempos observados, payload recuperable, digest real y referencias de evidencia. No es un registro listo para consumo.
+1. [Binance Spot WebSocket Streams — klines y campo x](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md).
+2. [Binance Public Data — README y publicación de archivos históricos](https://github.com/binance/binance-public-data/blob/master/README.md).
+3. [Política canónica de disponibilidad, FASE 1.12](../PHASE1_12_AVAILABILITY_POLICY.md).
+4. [Contrato de consumo temporal, FASE 1.23](../PHASE1_23_MARKET_DATA_CONSUMPTION_CONTRACT.md).
+5. [Contrato del adaptador WebSocket, FASE 1.24](../PHASE1_24_BINANCE_SPOT_WEBSOCKET_KLINES.md).
+6. [Auditoría de adquisición BTC/ETH](https://github.com/eltiootaku01-hue/bot-cripto/blob/research/btc-eth-follow-v1/docs/research/BTC_ETH_FOLLOW_RESEARCH_V1_DATA_ACQUISITION_AUDIT.md).
 
-## 6. Invariantes de tiempo, decisión y ejecución
+Las fuentes de Binance describen los contratos y archivos de origen; no demuestran por sí solas un historial completo de qué versión estuvo disponible para cada sistema consumidor en cada instante pasado.
 
-- La hora de apertura/cierre de la vela describe tiempo de mercado, no conocimiento local.
-- `E` de Binance, si está presente, se conserva como tiempo de evento; no sustituye al reloj local de recepción/handoff.
-- La versión usada por una decisión debe poder identificarse sin ambigüedad.
-- Un replay a tiempo `T` no puede leer una versión cuyo `available_at > T`, aunque esa versión sea hoy la más reciente.
-- `available_at=None`, una disponibilidad inferida o timestamps incoherentes cierran la admisión.
-- El tiempo de decisión se registra en la frontera real de consumo, no se iguala automáticamente a `close_time`.
-- La ejecución simulada no puede ocurrir antes de la decisión ni antes de que la evidencia necesaria esté disponible. Si el siguiente open de una vela sucede antes de `available_at`, ese precio de apertura no puede presentarse como fill alcanzable por esta decisión; se requiere una referencia de precio posterior válida o la operación debe quedar bloqueada.
-- Un histórico REST consultado hoy, sin un registro histórico verificable de las versiones disponibles entonces, no demuestra por sí solo una reconstrucción STRICT_POINT_IN_TIME de ese pasado.
-- Pérdida de mensajes, falta de cobertura, persistencia fallida o conflicto irresuelto impiden declarar que el periodo afectado es íntegro y point-in-time.
-- Un dataset de “vintage actual” y un replay de capturas con cortes de conocimiento son productos distintos; no etiquetarlos como equivalentes.
+## 16. Cierre y autorización
 
-## 7. Relación con el contrato existente
+**R1 documental publicada; implementación no autorizada.**
 
-**OBSERVED** en el HEAD de `main` indicado al inicio:
+Las reglas de este documento son una definición normativa propuesta para la siguiente etapa. No constituyen un dictamen de que el sistema actual las cumpla y no habilitan una captura, un replay, un backtest ni la promoción de datos históricos a estrictamente point-in-time.
 
-- `bot_obrero/market_data.py` define `CandleState`, `DataCompleteness` y `CandleFinality`, con finality `NOT_FINAL | FINAL | UNKNOWN`.
-- `MarketData.available_at` es opcional. `MarketData.evidence_at()` y `to_market_observation()` bloquean la disponibilidad desconocida.
-- `docs/PHASE1_12_AVAILABILITY_POLICY.md` exige disponibilidad demostrada para el consumidor, prohíbe deducirla solo de tiempos de mercado o de consulta y preserva UNKNOWN en replay.
-- La adquisición REST actual no convierte por defecto una kline histórica en evidencia de la disponibilidad que habría tenido el sistema en el pasado.
-- El contrato canónico no incluye actualmente el conjunto de campos de revisión/versionado aquí propuesto.
+La regla rectora permanece: **una decisión solo puede usar una versión cuya identidad, integridad y disponibilidad estén demostradas en su instante de decisión; ninguna corrección posterior reescribe silenciosamente el conocimiento histórico.**
 
-**Norma de compatibilidad para esta fase:** no se cambian `MarketData`, `Candle`, enums, adapters, consumers ni backtest. El sidecar y sus estados quedan definidos documentalmente para futura revisión de diseño. La implementación futura deberá reutilizar el contrato temporal existente y evitar un segundo guard de look-ahead; cualquier cambio contractual de campos o enums requiere revisión explícita de CEREBRO.
-
-## 8. Criterios de cierre documental y límites que permanecen
-
-Este documento define el contrato, pero no certifica que haya una captura continua ni que todos los consumidores actuales apliquen estas reglas. En consecuencia:
-
-- Semántica de cierre frente a finality/revisión: **DEFINIDA DOCUMENTALMENTE**.
-- Evidencia de cierre de Binance en un evento WebSocket `k.x=true`: **acredita cierre del evento, no inmutabilidad permanente**.
-- `available_at` histórico real para velas obtenidas hoy: **NO DEMOSTRADO RETROACTIVAMENTE**.
-- Finality fuerte y ausencia de futuras correcciones: **UNKNOWN salvo garantía independiente verificable**.
-- Existencia de captura persistente continua, journal de eventos y seguimiento de revisiones: **NO DEMOSTRADO por este documento**.
-- Implementación, tests, backtests y captura: **NO EJECUTADOS / NO AUTORIZADOS**.
-- Estrategia y operaciones: **NO_TRADE**.
-
-No aprobar automáticamente datos históricos de 365 días para STRICT_POINT_IN_TIME solo porque existan OHLCV actuales. Antes de cualquier estudio prospectivo u OOS con este estándar se necesita evidencia de captura/replay temporal íntegra o una decisión distinta, explícita y etiquetada, que no se denomine STRICT_POINT_IN_TIME.
-
-## 9. Fuentes y documentos de referencia
-
-1. Binance Spot WebSocket Streams, sección de klines, campos `E` y `k.x`: https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md
-2. Binance Public Data — README y semántica de publicación de archivos: https://github.com/binance/binance-public-data/blob/master/README.md
-3. Política canónica existente: [`docs/PHASE1_12_AVAILABILITY_POLICY.md`](../PHASE1_12_AVAILABILITY_POLICY.md).
-4. Contrato temporal de consumo existente: [`docs/PHASE1_23_MARKET_DATA_CONSUMPTION_CONTRACT.md`](../PHASE1_23_MARKET_DATA_CONSUMPTION_CONTRACT.md).
-5. Auditoría de adquisición BTC/ETH: [`BTC_ETH_FOLLOW_RESEARCH_V1_DATA_ACQUISITION_AUDIT.md`](https://github.com/eltiootaku01-hue/bot-cripto/blob/research/btc-eth-follow-v1/docs/research/BTC_ETH_FOLLOW_RESEARCH_V1_DATA_ACQUISITION_AUDIT.md), publicado en `research/btc-eth-follow-v1`.
-
-Las fuentes describen comportamientos y artefactos disponibles; no aportan por sí solas un historial completo de las versiones que Binance entregó en cada instante pasado ni una garantía de inmutabilidad perpetua.
-
-## 10. Cierre
-
-**Contrato documental aprobado; implementación no autorizada.**
-
-La regla rectora es: **cierre confirmado ≠ disponibilidad demostrada ≠ finality ≠ ausencia de revisiones**. Aceptar una versión en una decisión exige conocer qué versión era, cuándo estuvo realmente disponible al consumidor y que ese tiempo no sea posterior a la decisión. Las correcciones se conservan como nuevos hechos de conocimiento, nunca se retrotraen y nunca reescriben decisiones anteriores.
-
-No se creó ni actualizó ningún otro archivo como parte de esta publicación.
+`NO_TRADE` permanece vigente.
