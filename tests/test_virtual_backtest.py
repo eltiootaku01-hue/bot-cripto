@@ -12,7 +12,8 @@ from bot_obrero.market_data import (
     InstrumentIdentity, InstrumentType, MarketData, SourceIdentity,
 )
 from bot_obrero.virtual_backtest import (
-    BacktestConfig, BacktestError, _indicators, _observation, main, run_virtual_backtest,
+    BacktestConfig, BacktestError, _configuration_record, _evidence_hashes, _indicator_series,
+    _indicators, _market_data_record, _observation, _read_dataset_bundle, main, run_virtual_backtest,
 )
 
 _MISSING = object()
@@ -324,3 +325,84 @@ def test_baseline_and_btc_gated_backtests_remain_distinct_when_entry_is_rejected
     assert integrated.entry_rejections
     assert all("BTC_REGIME_NOT_BULLISH" in reason for reason in integrated.entry_rejections)
     assert baseline.final_equity != integrated.final_equity
+
+
+
+def test_incremental_indicator_series_matches_reference_algorithms_for_every_prefix():
+    prices = tuple(str(100 + ((index * 17) % 23) - index // 7) for index in range(80))
+    observations = [_observation(_item(i, value)) for i, value in enumerate(prices)]
+    config = _config(candles=len(observations), fast_ema_period=3, slow_ema_period=7, rsi_period=5)
+    series = _indicator_series(observations, config)
+    for index, cached in enumerate(series):
+        if index + 1 < max(config.slow_ema_period, config.rsi_period + 1):
+            assert cached is None
+            continue
+        assert cached == _indicators(observations[:index + 1], config)
+
+
+def test_annual_hourly_evaluation_length_is_accepted_without_splitting_the_run():
+    config = BacktestConfig(symbol="ETHUSDT", interval="1h", candles=8760)
+    config.validate()
+    assert config.candles == 8760
+
+
+def test_terminal_liquidation_closes_remaining_position_and_charges_exit_costs():
+    prices = ("20", "19", "18", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31")
+    items = [_item(i, value, open_price=value) for i, value in enumerate(prices)]
+    regular = run_virtual_backtest(items, _config(rsi_sell_at=Decimal("100")))
+    liquidated = run_virtual_backtest(
+        items, _config(rsi_sell_at=Decimal("100"), liquidate_at_end=True),
+    )
+    assert regular.final_base_position > 0
+    assert liquidated.final_base_position == 0
+    assert liquidated.fills[-1].side == "SELL"
+    assert liquidated.fills[-1].reason == "TERMINAL_LIQUIDATION"
+    assert liquidated.fills[-1].fee > 0
+    assert liquidated.final_equity == liquidated.final_quote_balance
+    assert liquidated.unrealized_pnl == 0
+    assert liquidated.total_fees > regular.total_fees
+    assert liquidated.final_equity < regular.final_equity
+
+
+
+def test_normalized_dataset_bundle_reloads_identical_candles_and_validates_hashes(tmp_path):
+    import hashlib
+    import json
+
+    items = _series()
+    config = _config(candles=6)
+    evaluation_start = items[6].payload.start
+    evaluation_end = items[12].payload.start
+    dataset_hash, config_hash, records = _evidence_hashes(items, config)
+    bundle = {
+        "schema_version": 1,
+        "acquired_at": _START.isoformat(),
+        "evaluation_start": evaluation_start.isoformat(),
+        "evaluation_end_exclusive": evaluation_end.isoformat(),
+        "dataset_sha256": dataset_hash,
+        "configuration_sha256": config_hash,
+        "configuration": _configuration_record(config),
+        "data": records,
+    }
+    path = tmp_path / "dataset.json"
+    path.write_text(json.dumps(bundle, sort_keys=True, indent=2), encoding="utf-8")
+
+    restored, restored_start, restored_end = _read_dataset_bundle(path, config)
+    restored_hash, _, restored_records = _evidence_hashes(restored, config)
+    assert restored_hash == dataset_hash
+    assert restored_records == records
+    assert restored_start == evaluation_start
+    assert restored_end == evaluation_end
+    assert len(restored) == len(items)
+
+    bundle["data"][0]["candle"]["close"] = "999"
+    path.write_text(json.dumps(bundle, sort_keys=True, indent=2), encoding="utf-8")
+    with pytest.raises(BacktestError, match="data hash mismatch"):
+        _read_dataset_bundle(path, config)
+
+
+
+def test_virtual_backtest_rejects_quantity_over_market_max_quantity():
+    result = run_virtual_backtest(_series(), _config(max_qty=Decimal("0.01")))
+    assert not result.fills
+    assert any("ORDER_REJECTED:MAX_QTY" in reason for reason in result.entry_rejections)

@@ -1129,6 +1129,58 @@ class SQLiteReservationStore:
                 "risk_evidence": json.loads(_canonical_evidence_json(binding.risk_evidence)),
             },
         }
+        observation = request.context.market_observation
+        paper_quote_evidence = None
+        if observation is not None and observation.observation_type == "BINANCE_SPOT_BOOK_TICKER":
+            from .analysis_contracts import ArtifactNature
+            from .paper_quote_evidence import PaperQuoteEvidenceError, evidence_hash
+
+            if observation.provenance.nature is not ArtifactNature.OBSERVED:
+                raise ReservationContractError("PAPER quote must have OBSERVED provenance")
+            if (
+                observation.symbol != proposal.symbol
+                or observation.symbol != instrument.symbol
+                or instrument.market != "SPOT"
+                or not observation.provenance.source.startswith("binance-public:")
+            ):
+                raise ReservationContractError("PAPER quote identity/provenance mismatch")
+            bid_raw, ask_raw = observation.values.get("bid"), observation.values.get("ask")
+            try:
+                if type(bid_raw) is not str or type(ask_raw) is not str:
+                    raise ValueError("bid/ask must be canonical decimal strings")
+                bid, ask = Decimal(bid_raw), Decimal(ask_raw)
+                if (
+                    not bid.is_finite() or not ask.is_finite() or bid <= 0 or ask < bid
+                    or _canonical_decimal_text(bid, "paper_quote_bid") != bid_raw
+                    or _canonical_decimal_text(ask, "paper_quote_ask") != ask_raw
+                ):
+                    raise ValueError("bid/ask are invalid or not canonical")
+                event_at = _canonical_utc_datetime(observation.observation_timestamp)
+                available_at = _canonical_utc_datetime(observation.available_timestamp)
+                decision_at = _canonical_utc_datetime(proposal.decision_timestamp)
+                if observation.observation_timestamp > observation.available_timestamp or observation.available_timestamp > proposal.decision_timestamp:
+                    raise ValueError("quote was not available at the proposal decision")
+                paper_quote_evidence = {
+                    "schema": "paper-quote-evidence-v1",
+                    "observation_id": observation.observation_id,
+                    "observation_type": observation.observation_type,
+                    "symbol": observation.symbol,
+                    "bid": bid_raw,
+                    "ask": ask_raw,
+                    "observed_at": event_at,
+                    "available_at": available_at,
+                    "decision_timestamp": decision_at,
+                    "evaluation_context_id": request.context.evaluation_context_id,
+                    "source": observation.provenance.source,
+                    "source_reference": observation.provenance.reference or "",
+                    "venue": observation.venue or "",
+                }
+                paper_quote_evidence["evidence_hash"] = evidence_hash(paper_quote_evidence)
+            except (TypeError, ValueError, PaperQuoteEvidenceError) as exc:
+                raise ReservationContractError("PAPER quote evidence is invalid") from exc
+
+        # Hash the exact persisted terms, including the quote envelope when present.
+        payload["paper_quote_evidence"] = paper_quote_evidence
         canonical = _canonical_json(payload)
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         created_at = _canonical_utc_datetime(reservation.created_at)

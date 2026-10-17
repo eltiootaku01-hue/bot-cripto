@@ -1,0 +1,73 @@
+name: BTC-ETH follow annual virtual research
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/paper-operational-runtime-v1]
+    paths:
+      - "bot_obrero/btc_eth_follow_research.py"
+      - "bot_obrero/product_v2.py"
+      - "bot_obrero/virtual_backtest.py"
+      - "tests/test_btc_eth_follow_research.py"
+      - "tests/test_product_v2.py"
+      - "tests/test_virtual_backtest.py"
+      - ".github/workflows/btc-eth-follow-research.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  btc-eth-annual-follow:
+    name: 365-day BTC-to-ETH paired virtual evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install project
+        run: python -m pip install -e ".[test]"
+      - name: Run deterministic unit and regression tests
+        run: pytest -q tests/test_btc_eth_follow_research.py tests/test_product_v2.py tests/test_virtual_backtest.py
+      - name: Acquire aligned history and run annual BTC-to-ETH research
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python -m bot_obrero.btc_eth_follow_research \
+            --days 365 --initial-usdt 31 \
+            --dataset-output evidence/btc-eth-follow-365d-dataset.json \
+            > evidence/btc-eth-follow-365d-report.txt 2>&1
+          grep -F "exact evaluation candles=8760" evidence/btc-eth-follow-365d-report.txt
+          grep -F "ROLLING_CORRELATION lookback_days=30" evidence/btc-eth-follow-365d-report.txt
+          grep -F "ROLLING_CORRELATION lookback_days=90" evidence/btc-eth-follow-365d-report.txt
+          grep -F "RESEARCH CLASSIFICATION:" evidence/btc-eth-follow-365d-report.txt
+          grep -F "FINAL DECISION: NO_TRADE" evidence/btc-eth-follow-365d-report.txt
+          grep -F "Dataset SHA-256:" evidence/btc-eth-follow-365d-report.txt
+          grep -F "Configuration SHA-256:" evidence/btc-eth-follow-365d-report.txt
+          grep -F "RESULT scope=EVALUATION strategy=BTC_GATED cost=BASE" evidence/btc-eth-follow-365d-report.txt
+          grep -F "RESULT scope=VALIDATION_3 strategy=BTC_GATED cost=STRESS_2" evidence/btc-eth-follow-365d-report.txt
+      - name: Verify offline replay against the same dataset and strategy configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m bot_obrero.btc_eth_follow_research \
+            --days 365 --initial-usdt 31 \
+            --dataset-input evidence/btc-eth-follow-365d-dataset.json \
+            > evidence/btc-eth-follow-365d-offline-replay.txt 2>&1
+          original=$(awk -F': ' '/^Dataset SHA-256:/ {print $2}' evidence/btc-eth-follow-365d-report.txt)
+          replay=$(awk -F': ' '/^Dataset SHA-256:/ {print $2}' evidence/btc-eth-follow-365d-offline-replay.txt)
+          test "$original" = "$replay"
+          original_config=$(awk -F': ' '/^Configuration SHA-256:/ {print $2}' evidence/btc-eth-follow-365d-report.txt)
+          replay_config=$(awk -F': ' '/^Configuration SHA-256:/ {print $2}' evidence/btc-eth-follow-365d-offline-replay.txt)
+          test "$original_config" = "$replay_config"
+          grep -F "FINAL DECISION: NO_TRADE" evidence/btc-eth-follow-365d-offline-replay.txt
+      - name: Upload durable-in-run evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: btc-eth-follow-365d-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 90

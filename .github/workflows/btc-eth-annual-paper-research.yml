@@ -1,0 +1,73 @@
+name: BTC-ETH annual virtual research
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/paper-operational-runtime-v1]
+    paths:
+      - "bot_obrero/virtual_backtest.py"
+      - "tests/test_virtual_backtest.py"
+      - ".github/workflows/btc-eth-annual-paper-research.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  annual-virtual-research:
+    name: Annual public Spot virtual baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install project
+        run: python -m pip install -e ".[test]"
+      - name: Run deterministic unit tests first
+        run: pytest -q tests/test_virtual_backtest.py
+      - name: Acquire and simulate continuous 365-day hourly BTC/ETH baselines
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          for symbol in BTCUSDT ETHUSDT; do
+            python -m bot_obrero.virtual_backtest \
+              --symbol "$symbol" --interval 1h --candles 8760 \
+              --initial-quote-balance 31 --liquidate-at-end \
+              --fee-rate 0.001 --spread-bps 10 --slippage-bps 5 \
+              --dataset-output "evidence/${symbol,,}-365d-base-dataset.json" \
+              > "evidence/${symbol,,}-365d-base-report.txt" 2>&1
+            grep -F "Candles simulated: 8760" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Terminal liquidation: ENABLED" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Dataset SHA-256:" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Effective configuration SHA-256:" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Return:" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Maximum drawdown:" "evidence/${symbol,,}-365d-base-report.txt"
+          done
+      - name: Run higher-cost stress scenario on the same evaluation length
+        shell: bash
+        run: |
+          set -euo pipefail
+          for symbol in BTCUSDT ETHUSDT; do
+            python -m bot_obrero.virtual_backtest \
+              --symbol "$symbol" --interval 1h --candles 8760 \
+              --initial-quote-balance 31 --liquidate-at-end \
+              --fee-rate 0.0015 --spread-bps 20 --slippage-bps 15 \
+              --dataset-input "evidence/${symbol,,}-365d-base-dataset.json" \
+              > "evidence/${symbol,,}-365d-stress-report.txt" 2>&1
+            grep -F "Candles simulated: 8760" "evidence/${symbol,,}-365d-stress-report.txt"
+            grep -F "Return:" "evidence/${symbol,,}-365d-stress-report.txt"
+            grep -F "Maximum drawdown:" "evidence/${symbol,,}-365d-stress-report.txt"
+            base_hash=$(awk -F': ' '/^Dataset SHA-256:/ {print $2}' "evidence/${symbol,,}-365d-base-report.txt")
+            stress_hash=$(awk -F': ' '/^Dataset SHA-256:/ {print $2}' "evidence/${symbol,,}-365d-stress-report.txt")
+            test "$base_hash" = "$stress_hash"
+          done
+      - name: Upload reproducibility evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: btc-eth-365d-virtual-research-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 90

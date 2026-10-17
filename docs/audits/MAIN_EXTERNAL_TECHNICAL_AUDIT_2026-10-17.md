@@ -106,3 +106,18 @@ PR #69 informa que la mejor regla evaluada es inestable entre escenarios de cost
 - Este informe, con el hallazgo A-09, se mantiene en `docs/audits/MAIN_EXTERNAL_TECHNICAL_AUDIT_2026-10-17.md`.
 
 No se fusionó PR #64 ni se cambió el comportamiento de ejecución financiera. No se ejecutaron órdenes, no se usaron claves privadas y no se cambió `NO_TRADE`.
+
+
+## Addendum — 2026-10-17, revisión del HEAD actual de PR #64
+
+**Fuente revisada:** `feat/paper-operational-runtime-v1 @ 81976909c1c4f841c6232bc6db017b7191783b0b`. Este addendum acota los hallazgos anteriores al SHA que realmente inspeccionaron; no cambia el historial de la auditoría original.
+
+- **SQLite:** el adaptador PAPER del HEAD actual establece y verifica `PRAGMA journal_mode=DELETE` (`bot_obrero/paper_adapter.py`) y la suite agregada incluye una aserción para que tanto la base PAPER como el ledger de idempotencia estén en `DELETE`. La mención anterior a `WAL` describe un HEAD anterior de la rama (no el HEAD actual). Esto todavía debe validarse en el código integrado y su CI exacto antes del merge.
+- **Identidad de cotización:** la rama contiene `PaperQuoteEvidence` con hash canónico, símbolo, contexto y timestamps; el adaptador reconstruye el precio desde la evidencia persistida del intent. La prueba sintética compara el hash de quote del fill con el binding. La ejecución de CI para el HEAD más reciente no quedó demostrada por los checks consultados en esta revisión.
+- **Replay y reconciliación:** existen `paper_economic_replay.py` y `paper_runtime_reconciliation.py`. El segundo inspecciona la cuenta PAPER, reserva, binding de ejecución y ledger, pero corrige proyecciones en almacenes separados; no existe atomicidad global entre archivos SQLite. Cualquier reparación parcial debe seguir informando `UNKNOWN/BLOCKED` y ser reintentable sin nuevo envío.
+- **Brecha de prueba B1-R:** la prueba integrada visible ejercita un fill PAPER sintético y llama a reconciliación en el flujo normal. En la suite no se encontró una prueba explícita que inyecte la caída después del commit del fill y antes de finalizar la reserva/binding, cierre todas las conexiones, reconstruya PAPER/reserva/bridge/ledger desde disco y compruebe dos recuperaciones consecutivas como no-op económico. Esa secuencia crítica sigue sin estar demostrada.
+- **Brecha mercado→PAPER:** `signal_trade_proposal_bridge.py` construye una propuesta solo a partir de una `Signal` canónica y una política PAPER explícita. Sin embargo, `product_v2.run()` sigue terminando en `FINAL DECISION: NO_TRADE`; el puente no produce por sí mismo una señal operativa basada en datos públicos actuales y velas cerradas. Por ello, todavía no debe declararse un ciclo mercado→señal→propuesta→riesgo→PAPER completo.
+
+### Estado de esta integración
+
+Se está preparando un candidato basado en el `main` actual, aplicando los archivos funcionales de la rama PAPER y preservando los cambios de main posteriores a su base común. Las referencias a commits/checks históricos siguen siendo solo evidencia histórica; el CI del commit integrado exacto es condición de aceptación. No cambia `NO_TRADE`, no habilita LIVE y no autoriza dinero real.

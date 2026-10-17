@@ -31,7 +31,10 @@ class SQLiteIdempotencyLedger:
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(self.path)
-        self._connection.execute("PRAGMA journal_mode=WAL")
+        journal = self._connection.execute("PRAGMA journal_mode=DELETE").fetchone()
+        if journal is None or str(journal[0]).lower() != "delete":
+            self._connection.close()
+            raise sqlite3.OperationalError("IDEMPOTENCY_SQLITE_DELETE_JOURNAL_REQUIRED")
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.execute(
             """CREATE TABLE IF NOT EXISTS idempotency_ledger (
@@ -154,6 +157,13 @@ class SQLiteIdempotencyLedger:
                 "DELETE FROM applied_fills WHERE fill_id=?",
                 (fill_id,),
             )
+
+    def all_records(self) -> tuple[LedgerRecord, ...]:
+        """Read the complete idempotency projection in deterministic order."""
+        rows = self._connection.execute(
+            "SELECT client_order_id,intent_hash,result FROM idempotency_ledger ORDER BY client_order_id"
+        ).fetchall()
+        return tuple(LedgerRecord(*row) for row in rows)
 
     def close(self) -> None:
         self._connection.close()

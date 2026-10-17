@@ -66,6 +66,11 @@ class InstrumentFilters:
     min_qty: Decimal | None
     step_size: Decimal | None
     min_notional: Decimal | None
+    max_qty: Decimal | None = None
+    market_min_qty: Decimal | None = None
+    market_step_size: Decimal | None = None
+    market_max_qty: Decimal | None = None
+    market_lot_size_present: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -93,20 +98,84 @@ class Ticker:
 def parse_filters(raw: Any) -> InstrumentFilters:
     if not isinstance(raw, list):
         return InstrumentFilters(None, None, None)
-    minimum = step = notional = None
+    minimum = step = notional = maximum = None
+    market_minimum = market_step = market_notional_maximum = None
+    market_filter_present = False
     for entry in raw:
         if not isinstance(entry, Mapping):
             continue
         try:
             if entry.get("filterType") == "LOT_SIZE":
-                minimum = exact_decimal(entry.get("minQty"), "minQty")
-                step = exact_decimal(entry.get("stepSize"), "stepSize")
+                minimum = exact_decimal(entry.get("minQty"), "LOT_SIZE.minQty")
+                step = exact_decimal(entry.get("stepSize"), "LOT_SIZE.stepSize")
+                maximum = None if entry.get("maxQty") is None else exact_decimal(entry.get("maxQty"), "LOT_SIZE.maxQty")
+            elif entry.get("filterType") == "MARKET_LOT_SIZE":
+                market_filter_present = True
+                market_minimum = exact_decimal(entry.get("minQty"), "MARKET_LOT_SIZE.minQty")
+                market_step = exact_decimal(entry.get("stepSize"), "MARKET_LOT_SIZE.stepSize")
+                market_notional_maximum = None if entry.get("maxQty") is None else exact_decimal(entry.get("maxQty"), "MARKET_LOT_SIZE.maxQty")
             elif entry.get("filterType") in ("MIN_NOTIONAL", "NOTIONAL"):
                 if entry.get("minNotional") is not None:
                     notional = exact_decimal(entry["minNotional"], "minNotional")
         except ProductV2Error:
-            return InstrumentFilters(None, None, None)
-    return InstrumentFilters(minimum, step, notional)
+            return InstrumentFilters(
+                None, None, None, market_lot_size_present=market_filter_present
+            )
+    return InstrumentFilters(
+        minimum, step, notional, maximum, market_minimum, market_step,
+        market_notional_maximum, market_filter_present,
+    )
+
+
+def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal | None, Decimal, Decimal | None]:
+    """Resolve effective market-order quantity bounds without accepting zero steps.
+
+    A zero MARKET_LOT_SIZE field falls back to the corresponding ordinary LOT_SIZE
+    field only when that fallback is positive and finite. If no valid constraint
+    exists, the caller must block instead of assuming unlimited quantity.
+    """
+    if not isinstance(filters, InstrumentFilters):
+        raise ProductV2Error("MARKET_LOT_SIZE_UNKNOWN")
+    if filters.market_lot_size_present is False:
+        raise ProductV2Error("MARKET_LOT_SIZE_UNKNOWN")
+
+    def positive(value: Decimal | None, name: str) -> Decimal | None:
+        if value is None:
+            return None
+        if type(value) is not Decimal or not value.is_finite() or value < ZERO:
+            raise ProductV2Error(f"MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE:{name}")
+        return value if value > ZERO else None
+
+    if filters.market_lot_size_present is True:
+        raw_market_min = filters.market_min_qty
+        market_min = positive(raw_market_min, "market_min_qty")
+        market_step = positive(filters.market_step_size, "market_step_size")
+        market_max = positive(filters.market_max_qty, "market_max_qty")
+        lot_min = positive(filters.min_qty, "min_qty")
+        lot_step = positive(filters.step_size, "step_size")
+        lot_max = positive(filters.max_qty, "max_qty")
+        # Binance defines MARKET_LOT_SIZE.minQty=0 as "no market lower bound".
+        # Do not accidentally re-introduce the normal LOT_SIZE lower bound.
+        minimum = None if raw_market_min == ZERO else market_min if market_min is not None else lot_min
+        step = market_step if market_step is not None else lot_step
+        maximum = market_max if market_max is not None else lot_max
+    else:
+        # Compatibility for callers without explicit filter provenance (None).
+        # An exchange response that explicitly lacks MARKET_LOT_SIZE (False)
+        # is rejected above.
+        minimum = positive(filters.min_qty, "min_qty")
+        step = positive(filters.step_size, "step_size")
+        maximum = positive(filters.max_qty, "max_qty")
+
+    if step is None:
+        raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
+    # Live ExchangeInfo explicitly says whether MARKET_LOT_SIZE exists (True/False).
+    # None is retained for legacy research callers whose fixtures only provide LOT_SIZE.
+    if filters.market_lot_size_present is True and maximum is None:
+        raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise ProductV2Error("MARKET_LOT_SIZE_MIN_EXCEEDS_MAX")
+    return minimum, step, maximum
 
 
 def active_usdt_universe(payload: Any) -> dict[str, UniverseInstrument]:
@@ -545,17 +614,26 @@ def backtest(
     fast_ema_period: int = 12, slow_ema_period: int = 26, rsi_period: int = 14,
     rsi_buy_min: Decimal = D("50"), rsi_sell_at: Decimal = D("70"),
     position_fraction: Decimal = D("0.95"),
+    liquidate_at_end: bool = False,
+    interval: str = "4h",
     evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
     entry_admission: Callable[[int, Sequence[Any]], tuple[bool, str]] | None = None,
 ) -> BacktestResult:
+    effective_min_qty = effective_step = effective_max_qty = None
+    if filters is not None:
+        if (filters.min_notional is None or type(filters.min_notional) is not Decimal
+                or not filters.min_notional.is_finite() or filters.min_notional <= ZERO):
+            raise ProductV2Error("MIN_NOTIONAL_UNKNOWN_OR_INVALID")
+        effective_min_qty, effective_step, effective_max_qty = effective_market_lot_rules(filters)
+
     config = BacktestConfig(
-        symbol=symbol, interval="4h", candles=bars, fast_ema_period=fast_ema_period,
+        symbol=symbol, interval=interval, candles=bars, fast_ema_period=fast_ema_period,
         slow_ema_period=slow_ema_period, rsi_period=rsi_period, rsi_buy_min=rsi_buy_min, rsi_sell_at=rsi_sell_at,
         initial_quote_balance=initial_quote_balance, position_fraction=position_fraction,
         fee_rate=fee_rate, slippage_bps=slippage_bps, spread_bps=spread_bps, max_entries_per_30d=5,
-        min_qty=filters.min_qty if filters else None,
-        quantity_step=filters.step_size if filters else None,
+        min_qty=effective_min_qty, quantity_step=effective_step, max_qty=effective_max_qty,
         min_notional=filters.min_notional if filters else None,
+        liquidate_at_end=liquidate_at_end,
     )
     return run_virtual_backtest(items, config, evaluation_start=evaluation_start,
                                 evaluation_end=evaluation_end, entry_admission=entry_admission)
@@ -565,13 +643,18 @@ def historical_btc_entry_admission(
     candidate_items: Sequence[Any], btc_items: Sequence[Any], *, fast_ema_period: int,
     slow_ema_period: int, rsi_period: int, rsi_buy_min: Decimal,
     minimum_corr30d: Decimal, minimum_corr90d: Decimal,
+    periods_per_day: int = 6,
 ) -> Callable[[int, Sequence[Any]], tuple[bool, str]]:
-    """Fail-closed entry gate using only aligned 4h bars up to each signal close."""
+    """Fail-closed BTC relationship/regime gate for aligned 4h or 1h candles."""
+    if (isinstance(periods_per_day, bool) or not isinstance(periods_per_day, int)
+            or periods_per_day <= 0):
+        raise ProductV2Error("periods_per_day must be a positive integer")
     if not candidate_items or len(candidate_items) != len(btc_items) or not histories_temporally_aligned(candidate_items, btc_items):
         raise ProductV2Error("candidate and BTC histories are not fully aligned")
+    interval = getattr(candidate_items[0].payload, "timeframe", "4h")
     btc_observations = [_observation(item) for item in btc_items]
     indicator_config = BacktestConfig(
-        symbol="BTCUSDT", interval="4h", candles=1080,
+        symbol="BTCUSDT", interval=interval, candles=max(90 * periods_per_day + 1, slow_ema_period + 2),
         fast_ema_period=fast_ema_period, slow_ema_period=slow_ema_period,
         rsi_period=rsi_period, rsi_buy_min=rsi_buy_min,
     )
@@ -580,7 +663,7 @@ def historical_btc_entry_admission(
     def admit(index: int, _candidate_observations: Sequence[Any]) -> tuple[bool, str]:
         if index in cache:
             return cache[index]
-        if index < 90 * 6:
+        if index < 90 * periods_per_day:
             result = (False, "BTC_METRICS_INSUFFICIENT: 90-day warm-up incomplete")
             cache[index] = result
             return result
@@ -614,9 +697,9 @@ def historical_btc_entry_admission(
             cache[index] = result
             return result
         asset_returns, btc_returns = return_series(candidate_prefix), return_series(btc_prefix)
-        corr30, _ = correlation_beta(asset_returns, btc_returns, 30 * 6)
-        corr90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6)
-        asset_return30, btc_return30 = return_pct(candidate_prefix, 30 * 6), return_pct(btc_prefix, 30 * 6)
+        corr30, _ = correlation_beta(asset_returns, btc_returns, 30 * periods_per_day)
+        corr90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * periods_per_day)
+        asset_return30, btc_return30 = return_pct(candidate_prefix, 30 * periods_per_day), return_pct(btc_prefix, 30 * periods_per_day)
         strength = asset_return30 - btc_return30 if asset_return30 is not None and btc_return30 is not None else None
         reasons = btc_relationship_reasons(corr30, corr90, beta90, strength, minimum_corr30d, minimum_corr90d)
         btc_values = _indicators(btc_observations[:index + 1], indicator_config)
@@ -640,15 +723,35 @@ def normalized_affordability(
     fee_rate: Decimal, spread_bps: Decimal, slippage_bps: Decimal,
     position_fraction: Decimal,
 ) -> tuple[bool | None, str]:
-    """Estimate affordability at current public ticker, only for normalized research."""
-    if price <= ZERO or filters.min_qty is None or filters.step_size is None or filters.min_notional is None:
-        return None, "FILTERS_OR_PRICE_UNKNOWN"
+    """Estimate MARKET-order affordability without dividing by unknown/zero filters."""
+    if filters.market_lot_size_present is False:
+        return None, "MARKET_LOT_SIZE_UNKNOWN"
+    if (type(price) is not Decimal or not price.is_finite() or price <= ZERO
+            or type(budget_usdt) is not Decimal or not budget_usdt.is_finite() or budget_usdt <= ZERO
+            or type(position_fraction) is not Decimal or not position_fraction.is_finite()
+            or not ZERO < position_fraction <= ONE):
+        return None, "FILTERS_OR_PRICE_UNKNOWN_OR_INVALID"
+    if (filters.min_notional is None or type(filters.min_notional) is not Decimal
+            or not filters.min_notional.is_finite() or filters.min_notional <= ZERO):
+        return None, "MIN_NOTIONAL_UNKNOWN_OR_INVALID"
+    try:
+        minimum, step, maximum = effective_market_lot_rules(filters)
+    except ProductV2Error:
+        return None, "MARKET_LOT_SIZE_UNKNOWN_OR_INVALID"
     entry_cost_rate = (spread_bps / D("2") + slippage_bps) / D("10000")
     unit_cost = price * (ONE + entry_cost_rate) * (ONE + fee_rate)
+    if not unit_cost.is_finite() or unit_cost <= ZERO:
+        return None, "UNIT_COST_UNKNOWN_OR_INVALID"
     raw_qty = budget_usdt * position_fraction / unit_cost
-    qty = (raw_qty / filters.step_size).to_integral_value(rounding=ROUND_DOWN) * filters.step_size
-    if qty < filters.min_qty:
+    if not raw_qty.is_finite() or raw_qty < ZERO:
+        return None, "RAW_QUANTITY_UNKNOWN_OR_INVALID"
+    qty = (raw_qty / step).to_integral_value(rounding=ROUND_DOWN) * step
+    if qty <= ZERO:
+        return False, "NON_POSITIVE_QUANTITY"
+    if minimum is not None and qty < minimum:
         return False, "MIN_QTY"
+    if maximum is not None and qty > maximum:
+        return False, "MAX_QTY"
     if qty * price < filters.min_notional:
         return False, "MIN_NOTIONAL"
     if qty * unit_cost > budget_usdt:
@@ -851,8 +954,15 @@ def run(args: argparse.Namespace) -> int:
             reasons.append("SPREAD_UNKNOWN_OR_WIDE")
         if not args.min_price <= tick.price <= args.max_price:
             reasons.append("NOMINAL_PRICE_OUT_OF_RANGE")
-        if filt.min_qty is None or filt.step_size is None or filt.min_notional is None:
-            reasons.append("INSTRUMENT_FILTERS_UNKNOWN")
+        if (filt.min_qty is None or filt.step_size is None or filt.min_notional is None
+                or filt.step_size <= ZERO or filt.min_qty < ZERO or filt.min_notional <= ZERO):
+            reasons.append("INSTRUMENT_FILTERS_UNKNOWN_OR_INVALID")
+        try:
+            effective_market_lot_rules(filt)
+            if filt.min_notional is None or filt.min_notional <= ZERO:
+                raise ProductV2Error("MIN_NOTIONAL_UNKNOWN_OR_INVALID")
+        except ProductV2Error:
+            reasons.append("MARKET_LOT_SIZE_UNKNOWN_OR_INVALID")
         if reasons:
             excluded.append((symbol, ",".join(reasons)))
         else:
