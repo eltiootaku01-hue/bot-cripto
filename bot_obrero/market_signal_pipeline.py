@@ -131,8 +131,18 @@ def _require_aware(value: Any, field_name: str) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _finality_basis(item: MarketData) -> str:
+    """Explain whether FINAL comes from Binance's explicit flag or local time."""
+    if item.source.source_id == "binance-spot-websocket":
+        return "BINANCE_WEBSOCKET_KLINE_X_FLAG"
+    if item.source.source_id == "binance-spot-rest":
+        return "REST_RECEIVE_TIME_AFTER_CANDLE_CLOSE"
+    return "UNKNOWN"
+
+
 def _closed_observation(item: MarketData) -> MarketObservation:
     candle = item.payload
+    finality_basis = _finality_basis(item)
     return MarketObservation(
         symbol=item.instrument.symbol,
         observation_timestamp=candle.end,
@@ -150,6 +160,7 @@ def _closed_observation(item: MarketData) -> MarketObservation:
             "candle_state": candle.candle_state.value,
             "candle_completeness": candle.completeness.value,
             "finality": candle.finality.value,
+            "candle_finality_basis": finality_basis,
             "market_data_completeness": item.completeness.value,
             "market_data_id": item.market_data_id,
             "source_id": item.source.source_id,
@@ -167,6 +178,7 @@ def _closed_observation(item: MarketData) -> MarketObservation:
                 "venue": item.source.venue or "UNKNOWN",
                 "available_at": item.available_at.isoformat(),
                 "candle_finality": candle.finality.value,
+                "candle_finality_basis": finality_basis,
                 "candle_state": candle.candle_state.value,
             },
         ),
@@ -243,6 +255,11 @@ class EmaRsiCrossoverAlgorithm:
             "previous_slow_ema": ema.compute(previous, slow_config)["ema"],
             "current_slow_ema": ema.compute(observations, slow_config)["ema"],
             "current_rsi": rsi.compute(observations, rsi_config)["rsi"],
+            "latest_candle_finality_basis": observations[-1].values.get("candle_finality_basis", "UNKNOWN"),
+            "candle_finality_bases": tuple(
+                item.values.get("candle_finality_basis", "UNKNOWN")
+                for item in observations
+            ),
             "fast_ema_period": fast_period,
             "slow_ema_period": slow_period,
             "rsi_period": rsi_period,
@@ -312,6 +329,8 @@ class EmaRsiCrossoverStrategy:
                     "current_slow_ema": current_slow,
                     "current_rsi": current_rsi,
                     "rsi_buy_min": minimum_rsi,
+                    "latest_candle_finality_basis": values.get("latest_candle_finality_basis", "UNKNOWN"),
+                    "candle_finality_bases": values.get("candle_finality_bases", ()),
                 },
             },
         )
@@ -374,6 +393,14 @@ def _validate_market_data(
             raise MarketSignalPipelineError(f"MARKET_DATA_TYPE_INVALID:{index}")
         if item.instrument.symbol != symbol or item.instrument.market != "SPOT":
             raise MarketSignalPipelineError(f"INSTRUMENT_IDENTITY_MISMATCH:{index}")
+        if (
+            item.source.provider != "binance"
+            or item.source.venue != "BINANCE"
+            or item.source.source_id not in {"binance-spot-rest", "binance-spot-websocket"}
+        ):
+            raise MarketSignalPipelineError(
+                f"MARKET_DATA_SOURCE_UNSUPPORTED:{index}:{item.source.source_id}"
+            )
         if item.quality is not DataQuality.VALID:
             raise MarketSignalPipelineError(f"MARKET_DATA_QUALITY_NOT_VALID:{index}")
         if candle.timeframe != TIMEFRAME:
