@@ -2,14 +2,14 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**HEAD de main verificado:** `92b8b50a0722eea68c435717f870ef361a2927e8` (PR #78 integra la captura prospectiva durable; la ejecución real de 24 h sigue pendiente).
+**HEAD de main verificado:** `a196651842a84cdfc31fde2f3230cd27ff61bf55` (PR #78 integra captura prospectiva; PR #79 endurece la validación temporal/manifest). La ejecución real de 24 h sigue pendiente.
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
 - **Evaluación ponderada actual:** **73/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
-- **CI post-merge de main tras PR #78:** [run 39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728) terminó `success`, **1593 pruebas aprobadas en 11.13 s** en el SHA exacto `92b8b50a0722eea68c435717f870ef361a2927e8`. En el head de PR #78 también pasaron [SMA E2E 39076551987](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551987), [indicadores E2E 39076551978](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551978) y [backtest público E2E 39076552023](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076552023), todos `success`.
+- **CI actual de main tras PR #79:** [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903) terminó `success`, **1595 pruebas aprobadas en 10.39 s** en el SHA exacto `a196651842a84cdfc31fde2f3230cd27ff61bf55`. El CI post-merge de PR #78 fue [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728), con 1593 pruebas.
 - **Próximos gates de mayor prioridad:** ejecutar y validar una captura real continua de al menos 24 horas; extender la invariancia anti-lookahead a los artefactos del estudio anual BTC→ETH; y demostrar edge neto en un holdout independiente. La herramienta de captura ya está integrada, pero no cuenta como evidencia de haberla ejecutado. `NO_TRADE` se mantiene.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
@@ -106,3 +106,11 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - El colector persiste de forma incremental la pareja pública BTCUSDT/ETHUSDT 1h, mantiene hashes/manifiesto y rechaza duración insuficiente, velas faltantes/duplicadas/desordenadas, gaps por encima del umbral, regresiones de reloj y errores de persistencia.
 - Preparación revisada: 73/100 (+1 por infraestructura implementada y probada). No se conceden puntos por captura prospectiva real, porque aún no existe artefacto real de 24 h aceptado; edge neto independiente sigue sin demostrarse.
 - Próximo gate: ejecutar en una máquina persistente el comando descrito en `docs/PROSPECTIVE_BTC_ETH_CAPTURE_V1.md`, conservar sus ficheros inmutables y validar el manifest. `NO_TRADE` permanece; sin LIVE, dinero real ni claves privadas.
+
+
+## Sincronización final tras PR #79 (2026-10-17)
+
+- Main: `a196651842a84cdfc31fde2f3230cd27ff61bf55`; [PR #79 fusionada](https://github.com/eltiootaku01-hue/bot-cripto/pull/79).
+- CI post-merge del SHA exacto: [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903), `success`, **1595 pruebas aprobadas en 10.39 s**.
+- El validador de captura comprueba que inicio/fin de la corrida, horario programado, estados de vela, hashes y timestamps de recepción sean coherentes con los registros reales. Pruebas nuevas cubren vela con finality incoherente y manipulación del intervalo del manifest.
+- Score de preparación: 73/100. No está acreditada una captura real de 24 horas ni un edge económico neto independiente. No declarar >90, no asignar T0, no abandonar `NO_TRADE` sin superar esos gates.
