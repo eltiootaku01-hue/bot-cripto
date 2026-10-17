@@ -347,7 +347,8 @@ def test_annual_hourly_evaluation_length_is_accepted_without_splitting_the_run()
 
 
 def test_terminal_liquidation_closes_remaining_position_and_charges_exit_costs():
-    items = [_item(i, str(10 + i), open_price=str(10 + i)) for i in range(13)]
+    prices = ("20", "19", "18", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31")
+    items = [_item(i, value, open_price=value) for i, value in enumerate(prices)]
     regular = run_virtual_backtest(items, _config(rsi_sell_at=Decimal("100")))
     liquidated = run_virtual_backtest(
         items, _config(rsi_sell_at=Decimal("100"), liquidate_at_end=True),

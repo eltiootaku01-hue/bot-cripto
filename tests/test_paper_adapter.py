@@ -320,3 +320,54 @@ def test_legacy_fill_history_without_asset_universe_is_not_promoted_to_complete(
         connection.close()
     with pytest.raises(PaperAdapterError, match="UNIVERSE_UNKNOWN"):
         make_adapter(path)
+
+
+
+def test_paper_economic_replay_checks_quote_fee_and_balance_arithmetic(tmp_path):
+    from copy import deepcopy
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
+
+    adapter = make_adapter(tmp_path / "economic-replay.sqlite3")
+    try:
+        adapter._submit(make_order())
+        snapshot = adapter.snapshot()
+        result = replay_paper_economics(snapshot)
+        assert result.status is PaperEconomicReplayStatus.REPLAYED
+        assert result.fill_count == 1
+        assert result.final_balances == snapshot["balances"]
+
+        corrupted = deepcopy(snapshot)
+        corrupted["fills"][0]["price"] = "101"
+        mismatch = replay_paper_economics(corrupted)
+        assert mismatch.status is PaperEconomicReplayStatus.MISMATCH
+        assert any("FILL_PRICE" in reason for reason in mismatch.discrepancies)
+    finally:
+        adapter.close()
+
+
+def test_paper_economic_replay_marks_legacy_fills_without_quote_evidence_incomplete(tmp_path):
+    from copy import deepcopy
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
+
+    adapter = make_adapter(tmp_path / "legacy-replay.sqlite3")
+    try:
+        adapter._submit(make_order())
+        snapshot = deepcopy(adapter.snapshot())
+        for field in ("quote_bid", "quote_ask", "quote_observed_at", "quote_available_at"):
+            snapshot["fills"][0][field] = ""
+        result = replay_paper_economics(snapshot)
+        assert result.status is PaperEconomicReplayStatus.INCOMPLETE
+        assert result.discrepancies == ("fill[1]:QUOTE_OR_COST_EVIDENCE_MISSING",)
+    finally:
+        adapter.close()
+
+
+def test_paper_adapter_exposes_read_only_economic_replay(tmp_path):
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus
+
+    adapter = make_adapter(tmp_path / "adapter-replay.sqlite3")
+    try:
+        adapter._submit(make_order())
+        assert adapter.economic_replay().status is PaperEconomicReplayStatus.REPLAYED
+    finally:
+        adapter.close()

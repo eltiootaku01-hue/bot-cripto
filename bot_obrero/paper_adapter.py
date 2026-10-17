@@ -198,6 +198,14 @@ class PaperExecutionAdapter(ExchangeAdapter):
                 filled_at TEXT NOT NULL,
                 quote_balance_after TEXT NOT NULL,
                 base_balance_after TEXT NOT NULL,
+                fee_asset TEXT NOT NULL DEFAULT '',
+                fee_rate TEXT NOT NULL DEFAULT '',
+                slippage_bps TEXT NOT NULL DEFAULT '',
+                quote_bid TEXT NOT NULL DEFAULT '',
+                quote_ask TEXT NOT NULL DEFAULT '',
+                quote_observed_at TEXT NOT NULL DEFAULT '',
+                quote_available_at TEXT NOT NULL DEFAULT '',
+                quote_max_age_microseconds TEXT NOT NULL DEFAULT '',
                 quote_source TEXT NOT NULL
             );
             """
@@ -207,7 +215,23 @@ class PaperExecutionAdapter(ExchangeAdapter):
         if "state_version" not in account_columns:
             self._connection.execute("ALTER TABLE paper_account ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0")
         if "updated_at" not in account_columns:
-            self._connection.execute("ALTER TABLE paper_account ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+            self._connection.execute("ALTER TABLE paper_account ADD COLUMN updated_at TEXT NOT NULL DEFAULT '')
+        fill_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(paper_fills)")}
+        fill_migrations = {
+            "fee_asset": "TEXT NOT NULL DEFAULT ''",
+            "fee_rate": "TEXT NOT NULL DEFAULT ''",
+            "slippage_bps": "TEXT NOT NULL DEFAULT ''",
+            "quote_bid": "TEXT NOT NULL DEFAULT ''",
+            "quote_ask": "TEXT NOT NULL DEFAULT ''",
+            "quote_observed_at": "TEXT NOT NULL DEFAULT ''",
+            "quote_available_at": "TEXT NOT NULL DEFAULT ''",
+            "quote_max_age_microseconds": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column, declaration in fill_migrations.items():
+            if column not in fill_columns:
+                self._connection.execute(
+                    f"ALTER TABLE paper_fills ADD COLUMN {column} {declaration}"
+                )
         self._connection.commit()
         now = _aware(self.clock(), "clock")
         with self._connection:
@@ -398,12 +422,18 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     """INSERT INTO paper_fills(
                         client_order_id,intent_hash,intent_json,mode,account_id,reservation_id,
                         proposal_id,symbol,base_asset,quote_asset,side,quantity,price,fee,
-                        filled_at,quote_balance_after,base_balance_after,quote_source
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        filled_at,quote_balance_after,base_balance_after,fee_asset,fee_rate,
+                        slippage_bps,quote_bid,quote_ask,quote_observed_at,quote_available_at,
+                        quote_max_age_microseconds,quote_source
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (order.client_order_id, intent_hash, intent_json, "PAPER", self.account_id,
                      reservation_id, proposal_id, payload["symbol"], base_asset, quote_asset,
                      side, _decimal_text(quantity), _decimal_text(fill_price), _decimal_text(fee),
-                     now.isoformat(), _decimal_text(quote_after), _decimal_text(base_after), quote.source),
+                     now.isoformat(), _decimal_text(quote_after), _decimal_text(base_after),
+                     quote_asset, _decimal_text(self.fee_rate), _decimal_text(self.slippage_bps),
+                     _decimal_text(quote.bid), _decimal_text(quote.ask), quote.observed_at.isoformat(),
+                     quote.available_at.isoformat(),
+                     str(self.max_quote_age // timedelta(microseconds=1)), quote.source),
                 )
                 self._connection.execute(
                     "UPDATE paper_account SET state_version=state_version+1, updated_at=? WHERE singleton=1",
@@ -450,6 +480,11 @@ class PaperExecutionAdapter(ExchangeAdapter):
             except Exception:
                 self._connection.rollback()
                 raise
+
+    def economic_replay(self):
+        """Replay persisted PAPER fills against their stored quote/cost evidence."""
+        from .paper_economic_replay import replay_paper_economics
+        return replay_paper_economics(self.snapshot())
 
     def close(self) -> None:
         with self._lock:

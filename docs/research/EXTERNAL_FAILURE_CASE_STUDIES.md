@@ -1,0 +1,28 @@
+# BOT-CRIPTO — Registro de casos públicos de fallos y mitigaciones
+
+Fecha de verificación: 17 de octubre de 2026. Este documento recoge precedentes técnicos publicados por sus mantenedores; **no afirma que cada incidente histórico sea un bug presente en BOT-CRIPTO**. La relación con el repositorio se limita a riesgos que encajan con sus componentes.
+
+## Casos y aplicación
+
+| Caso público | Qué documentó la fuente | Relevancia para BOT-CRIPTO | Defensa aplicada o requerida |
+|---|---|---|---|
+| SQLite WAL-reset bug, detectado el 3 de marzo de 2026 y corregido en SQLite 3.51.3 | SQLite documenta posible corrupción en modo WAL bajo un escenario raro con múltiples conexiones y escrituras/checkpoints simultáneos; indica SQLite 3.51.3 como versión corregida. | PAPER abría el ledger con WAL y prueba varias conexiones SQLite. La ocurrencia no está demostrada en el proyecto, pero el patrón se solapa. | El adaptador PAPER usa el journal rollback (DELETE) para no depender de que el runtime Python incluya la corrección WAL. Se serializan escrituras; SQLITE_BUSY nunca se considera un fill exitoso. Reconsiderar WAL solo después de actualizar SQLite y añadir pruebas de recuperación. Fuente: https://www.sqlite.org/wal.html |
+| Persistencia de SQLite WAL y concurrencia | La documentación oficial explica que WAL es parte del estado persistido mientras hay conexiones/transacciones activas y que separar el archivo de su WAL puede perder commits; también documenta casos de SQLITE_BUSY. | Copiar solo el archivo .sqlite3 con conexiones abiertas no garantiza un respaldo completo. El modo WAL anterior tenía una política de concurrencia más permisiva. | Para respaldos, cerrar limpiamente conexiones o usar y probar la API de backup de SQLite. En esta rama se elige simplicidad del journal rollback para el ledger PAPER local; conflictos de escritura deben fallar de forma visible. Fuente: https://www.sqlite.org/wal.html |
+| Binance: Filter failure LOT_SIZE y MARKET_LOT_SIZE | Issues públicos de CCXT documentan rechazos por cantidad fuera del paso de lote y diferencias posibles entre LOT_SIZE y MARKET_LOT_SIZE. Son precedentes históricos, no prueba de bug actual en el repo. | La simulación debe distinguir límites de mercado y los términos de una propuesta deben validarse con los filtros actuales del instrumento. El adaptador PAPER no sustituye esta validación. | Consultar ExchangeInfo, usar Decimal, comprobar step, min/max y notional aplicables a la clase de orden, y bloquear si los filtros necesarios son desconocidos. No asumir que MARKET_LOT_SIZE equivale a LOT_SIZE. Fuentes: https://github.com/ccxt/ccxt/issues/663 y https://github.com/ccxt/ccxt/issues/6460 |
+| Riesgo de checkout de código no confiable en CI privilegiado | GitHub documentó la clase de vulnerabilidad “pwn request” al combinar pull_request_target con checkout/ejecución de código de una PR no confiable bajo permisos o secretos privilegiados. | El workflow actual principal usa pull_request, no pull_request_target; por eso este precedente no demuestra una vulnerabilidad actual en ese workflow. Es relevante al diseñar nuevos flujos privilegiados. | No ejecutar código de una PR externa bajo pull_request_target con secretos/permisos de escritura; mantener permissions mínimos y revisar cada cambio de evento/checkout. Fuente: https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/ |
+
+## Hallazgos locales verificados y medidas
+
+1. El backtester estaba limitado a 1.200 velas y la ruta CLI no separaba evaluación y calentamiento. Se amplía el límite explícito a 10.000 velas de evaluación, con calentamiento solicitado por separado y una sola simulación continua.
+2. El cálculo reiterado de indicadores sobre todos los prefijos históricos daba coste aproximadamente cuadrático. Se incorpora una serie incremental de Decimal y tests que la comparan con los algoritmos canónicos en cada prefijo antes de usarla para el horizonte anual.
+3. Antes podía quedar una posición abierta al final y reportarse equity marcada a mercado. Se agrega una opción explícita de liquidación terminal con spread/slippage modelados y comisión de salida; el comportamiento previo se conserva por defecto.
+4. La tabla PAPER persistía el precio/fee, pero no todos los términos que permiten recalcularlos desde la cotización. El nuevo esquema guarda fee asset/rate, slippage, bid/ask, timestamps de observación/disponibilidad y máximo de antigüedad; filas heredadas sin estos datos se clasifican como evidencia incompleta por el replay.
+5. PAPER pasa de WAL a journal rollback (DELETE) para evitar la dependencia de una versión SQLite específica afectada por el incidente WAL-reset. El trade-off es menor concurrencia de lectura/escritura, aceptable para este ledger local de un solo escritor; hay que tratar SQLITE_BUSY como error bloqueante.
+6. El replay económico verifica solamente el ledger PAPER local. **No** reconcilia por sí mismo reserva, binding de ejecución o SQLiteIdempotencyLedger; B1-R multi-store continúa bloqueado hasta una prueba integrada de recuperación después de un fill confirmado.
+
+## Límites
+
+- Un issue externo demuestra que una clase de fallo ha existido; no demuestra que BOT-CRIPTO haya sufrido ese mismo incidente.
+- Los hashes identifican el dataset y la configuración adquiridos, pero no transforman available_at o finality UNKNOWN en evidencia histórica punto-en-tiempo.
+- Un backtest positivo no demuestra rentabilidad futura ni sustituye validación prospectiva PAPER.
+- Esta fase sigue siendo investigación/PAPER. No incluye claves, endpoints privados ni órdenes LIVE.
