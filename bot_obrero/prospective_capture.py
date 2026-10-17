@@ -36,6 +36,7 @@ DEFAULT_GRACE_SECONDS = 5 * 60
 DEFAULT_MAX_MESSAGES_PER_CONNECTION = 1000
 DEFAULT_RECONNECT_BASE_SECONDS = 1.0
 DEFAULT_RECONNECT_MAX_SECONDS = 60.0
+DEFAULT_MAX_INTER_EVENT_GAP_SECONDS = 10.0
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
 
 
@@ -114,6 +115,11 @@ class ProspectiveCaptureJournal:
         duration_seconds: int = DEFAULT_DURATION_SECONDS,
         grace_seconds: int = DEFAULT_GRACE_SECONDS,
         fsync_every_records: int = 1,
+        max_messages_per_connection: int = DEFAULT_MAX_MESSAGES_PER_CONNECTION,
+        reconnect_base_seconds: float = DEFAULT_RECONNECT_BASE_SECONDS,
+        reconnect_max_seconds: float = DEFAULT_RECONNECT_MAX_SECONDS,
+        max_inter_event_gap_seconds: float = DEFAULT_MAX_INTER_EVENT_GAP_SECONDS,
+        align_next_utc_midnight: bool = True,
         run_id: str | None = None,
         now: Callable[[], datetime] = _utc_now,
     ) -> None:
@@ -132,7 +138,18 @@ class ProspectiveCaptureJournal:
         self.interval = interval
         self.duration_seconds = duration_seconds
         self.grace_seconds = grace_seconds
+        if isinstance(max_messages_per_connection, bool) or not isinstance(max_messages_per_connection, int) or max_messages_per_connection < 1:
+            raise ProspectiveCaptureError("MAX_MESSAGES_PER_CONNECTION_INVALID")
+        if reconnect_base_seconds <= 0 or reconnect_max_seconds < reconnect_base_seconds:
+            raise ProspectiveCaptureError("RECONNECT_BACKOFF_INVALID")
+        if max_inter_event_gap_seconds <= 0:
+            raise ProspectiveCaptureError("MAX_INTER_EVENT_GAP_INVALID")
         self.fsync_every_records = fsync_every_records
+        self.max_messages_per_connection = max_messages_per_connection
+        self.reconnect_base_seconds = reconnect_base_seconds
+        self.reconnect_max_seconds = reconnect_max_seconds
+        self.max_inter_event_gap_seconds = max_inter_event_gap_seconds
+        self.align_next_utc_midnight = align_next_utc_midnight
         self._now = now
         self._lock = threading.RLock()
         self.created_at = _aware_utc(now(), "created_at")
@@ -161,6 +178,9 @@ class ProspectiveCaptureJournal:
                 "last_error": None,
                 "latest_received_at": None,
                 "first_received_at": None,
+                "last_received_datetime": None,
+                "inter_event_gap_count": 0,
+                "maximum_inter_event_gap_seconds": 0.0,
                 "latest_final_candle_start": None,
                 "final_candle_starts": [],
                 "seen_record_hashes": set(),
@@ -177,12 +197,14 @@ class ProspectiveCaptureJournal:
             "interval": self.interval,
             "target_duration_seconds": self.duration_seconds,
             "completion_grace_seconds": self.grace_seconds,
-            "maximum_messages_per_connection": DEFAULT_MAX_MESSAGES_PER_CONNECTION,
+            "maximum_messages_per_connection": self.max_messages_per_connection,
             "reconnect_backoff_seconds": {
-                "base": DEFAULT_RECONNECT_BASE_SECONDS,
-                "maximum": DEFAULT_RECONNECT_MAX_SECONDS,
+                "base": self.reconnect_base_seconds,
+                "maximum": self.reconnect_max_seconds,
                 "strategy": "exponential_capped_no_jitter",
             },
+            "maximum_inter_event_gap_seconds": self.max_inter_event_gap_seconds,
+            "align_next_utc_midnight": self.align_next_utc_midnight,
             "availability_policy": "EXPLICIT_CONSUMER_HANDOFF_CLOCK",
             "finality_policy": "BINANCE_KLINE_X_FLAG",
             "acceptance_policy": "24h elapsed plus at least one complete UTC day of 24 unique FINAL 1h candles per symbol, without hourly gaps",
@@ -315,6 +337,15 @@ class ProspectiveCaptureJournal:
                 state["line_count_since_fsync"] = 0
 
             state["records"] = seq
+            previous_received_raw = state["last_received_datetime"]
+            if previous_received_raw is not None:
+                gap_seconds = max(0.0, (received - previous_received_raw).total_seconds())
+                state["maximum_inter_event_gap_seconds"] = max(
+                    state["maximum_inter_event_gap_seconds"], gap_seconds
+                )
+                if gap_seconds > self.max_inter_event_gap_seconds:
+                    state["inter_event_gap_count"] += 1
+            state["last_received_datetime"] = received
             state["seen_record_hashes"].add(fingerprint)
             if duplicate_exact:
                 state["duplicate_exact_records"] += 1
@@ -372,6 +403,8 @@ class ProspectiveCaptureJournal:
                     "duplicate_exact_records": state["duplicate_exact_records"],
                     "transport_errors": state["transport_errors"],
                     "reconnects": state["reconnects"],
+                    "inter_event_gap_count": state["inter_event_gap_count"],
+                    "maximum_inter_event_gap_seconds": round(state["maximum_inter_event_gap_seconds"], 3),
                     "connection_attempts": state["connection_attempts"],
                     "first_received_at": state["first_received_at"],
                     "latest_received_at": state["latest_received_at"],
@@ -384,6 +417,7 @@ class ProspectiveCaptureJournal:
                 and summary[symbol]["gap_hours"] == 0
                 and summary[symbol]["out_of_order_final_candles"] == 0
                 and summary[symbol]["unaligned_final_candles"] == 0
+                and summary[symbol]["inter_event_gap_count"] == 0
                 for symbol in self.symbols
             )
             return {
@@ -476,6 +510,7 @@ def run_capture(
     reconnect_max_seconds: float = DEFAULT_RECONNECT_MAX_SECONDS,
     align_next_utc_midnight: bool = True,
     fsync_every_records: int = 1,
+    max_inter_event_gap_seconds: float = DEFAULT_MAX_INTER_EVENT_GAP_SECONDS,
     adapter_factory: Callable[[str, Callable[[], datetime]], BinanceSpotWebSocketAdapter] = default_adapter_factory,
     now: Callable[[], datetime] = _utc_now,
     monotonic: Callable[[], float] = time.monotonic,
@@ -497,6 +532,11 @@ def run_capture(
         duration_seconds=duration_seconds,
         grace_seconds=grace_seconds,
         fsync_every_records=fsync_every_records,
+        max_messages_per_connection=max_messages_per_connection,
+        reconnect_base_seconds=reconnect_base_seconds,
+        reconnect_max_seconds=reconnect_max_seconds,
+        max_inter_event_gap_seconds=max_inter_event_gap_seconds,
+        align_next_utc_midnight=align_next_utc_midnight,
         now=now,
     )
     created = _aware_utc(now(), "schedule_time")
@@ -689,6 +729,7 @@ def _parser() -> argparse.ArgumentParser:
     capture.add_argument("--reconnect-base-seconds", type=_positive_float, default=DEFAULT_RECONNECT_BASE_SECONDS)
     capture.add_argument("--reconnect-max-seconds", type=_positive_float, default=DEFAULT_RECONNECT_MAX_SECONDS)
     capture.add_argument("--fsync-every-records", type=_positive_integer, default=1)
+    capture.add_argument("--max-inter-event-gap-seconds", type=_positive_float, default=DEFAULT_MAX_INTER_EVENT_GAP_SECONDS)
     capture.add_argument("--no-align-next-utc-midnight", action="store_true",
                          help="start immediately; the run may fail the full-UTC-day acceptance gate")
     validate = subparsers.add_parser("validate", help="validate completed manifest and file hashes")
@@ -717,6 +758,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             reconnect_max_seconds=args.reconnect_max_seconds,
             align_next_utc_midnight=not args.no_align_next_utc_midnight,
             fsync_every_records=args.fsync_every_records,
+            max_inter_event_gap_seconds=args.max_inter_event_gap_seconds,
         )
         print(json.dumps({
             "exit_code": code,
