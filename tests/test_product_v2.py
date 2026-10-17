@@ -903,7 +903,7 @@ def test_normalized_affordability_fails_closed_on_zero_market_and_regular_steps(
         fee_rate=Decimal("0.001"), spread_bps=Decimal("10"),
         slippage_bps=Decimal("5"), position_fraction=Decimal("0.95"),
     )
-    assert result == (None, "MARKET_LOT_SIZE_UNKNOWN")
+    assert result == (None, "MARKET_LOT_SIZE_UNKNOWN_OR_INVALID")
 
 
 def test_normalized_affordability_uses_valid_market_step_when_regular_step_is_zero():
