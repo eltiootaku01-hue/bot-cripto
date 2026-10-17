@@ -120,5 +120,6 @@ Hashes del cálculo de este estudio:
 3. La evaluación V1 se solapa con parte del estudio previo para algunas estrategias, y se compararon siete alternativas. El resultado es exploratorio, no un test globalmente intacto.
 4. Spread/slippage y filtros históricos por vela no son observados; son supuestos modelados usando el snapshot de filtros disponible.
 5. No se autoriza usar ningún retorno del research como señal de operación ni como aprobación del ciclo de ejecución. La integración B1-R/PAPER y su recuperación económica siguen siendo una validación separada.
+6. El simulador de esta ronda usa aritmética binaria de Python/NumPy para exploración, no Decimal de extremo a extremo como el contrato económico canónico. Aunque se calibró el resultado EMA/RSI contra el backtest de referencia, esto no lo convierte en motor financiero apto para promoción; toda futura aceptación necesitará contabilidad Decimal y reconciliación de fills/balances.
 
 **Dictamen final: `NO_ROBUST_EDGE_FOUND`. Decisión operativa: `NO_TRADE`.** Mantener PR #64 abierta y sin merge. No habilitar LIVE, no crear órdenes reales, no prometer ganancias futuras. Una siguiente iteración requiere fuente punto-en-tiempo verificable o un holdout nuevo no consultado previamente, controles adicionales de robustez y, tras eso, PAPER prospectivo reconciliado.
