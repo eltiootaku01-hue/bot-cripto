@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Evaluación de preparación técnica y ruta hacia >90%
 
 **Evaluación:** 2026-10-17  
-**Composición señal→riesgo/PAPER:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; **HEAD actual de main tras PR #79:** `a196651842a84cdfc31fde2f3230cd27ff61bf55`  
+**Composición señal→riesgo/PAPER:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; **último SHA con cambios de código funcional probado (PR #79):** `a196651842a84cdfc31fde2f3230cd27ff61bf55`. PR #80 es una sincronización documental y no modifica código ni pruebas.  
 **Actualización de puntuación:** 2026-10-17, después de PR #74 (integración), PR #76 (anti-lookahead) y PR #78 (infraestructura de captura); revisión basada en CI post-merge y E2E.  
 **Propósito del porcentaje:** preparación demostrada para un bot de investigación y PAPER; no es porcentaje de líneas de código, probabilidad de beneficio ni autorización para operar con dinero real.
 
