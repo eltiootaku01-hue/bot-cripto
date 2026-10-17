@@ -40,9 +40,13 @@ NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
 def build_market_data(closes, *, now=NOW, finality_override=None, availability=True, timeframe="4h"):
     closes = tuple(Decimal(str(value)) for value in closes)
-    # Last 4h candle ends 30 minutes before the decision; keep all its
-    # receipt/availability timestamps on the past side of the decision boundary.
-    first_start = now - BAR * len(closes) - timedelta(minutes=30)
+    # Align the synthetic series with the current UTC 4h boundary. The last
+    # completed candle closes exactly 1 ms before that boundary.
+    current_bar_start = (
+        now.replace(minute=0, second=0, microsecond=0)
+        - timedelta(hours=now.hour % 4)
+    )
+    first_start = current_bar_start - BAR * len(closes)
     items = []
     previous_close = closes[0]
     for index, close in enumerate(closes):
@@ -288,8 +292,10 @@ class FakeRestAdapter:
 
 
 def open_trailing_candle(now):
-    start = now.replace(minute=0, second=0, microsecond=0)
-    start = start - timedelta(hours=start.hour % 4) + BAR
+    start = (
+        now.replace(minute=0, second=0, microsecond=0)
+        - timedelta(hours=now.hour % 4)
+    )
     end = start + BAR - EPSILON
     candle = Candle(
         start=start,
