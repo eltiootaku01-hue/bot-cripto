@@ -66,6 +66,11 @@ class InstrumentFilters:
     min_qty: Decimal | None
     step_size: Decimal | None
     min_notional: Decimal | None
+    max_qty: Decimal | None = None
+    market_min_qty: Decimal | None = None
+    market_step_size: Decimal | None = None
+    market_max_qty: Decimal | None = None
+    market_lot_size_present: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -93,20 +98,33 @@ class Ticker:
 def parse_filters(raw: Any) -> InstrumentFilters:
     if not isinstance(raw, list):
         return InstrumentFilters(None, None, None)
-    minimum = step = notional = None
+    minimum = step = notional = maximum = None
+    market_minimum = market_step = market_notional_maximum = None
+    market_filter_present = False
     for entry in raw:
         if not isinstance(entry, Mapping):
             continue
         try:
             if entry.get("filterType") == "LOT_SIZE":
-                minimum = exact_decimal(entry.get("minQty"), "minQty")
-                step = exact_decimal(entry.get("stepSize"), "stepSize")
+                minimum = exact_decimal(entry.get("minQty"), "LOT_SIZE.minQty")
+                step = exact_decimal(entry.get("stepSize"), "LOT_SIZE.stepSize")
+                maximum = exact_decimal(entry.get("maxQty"), "LOT_SIZE.maxQty")
+            elif entry.get("filterType") == "MARKET_LOT_SIZE":
+                market_filter_present = True
+                market_minimum = exact_decimal(entry.get("minQty"), "MARKET_LOT_SIZE.minQty")
+                market_step = exact_decimal(entry.get("stepSize"), "MARKET_LOT_SIZE.stepSize")
+                market_notional_maximum = exact_decimal(entry.get("maxQty"), "MARKET_LOT_SIZE.maxQty")
             elif entry.get("filterType") in ("MIN_NOTIONAL", "NOTIONAL"):
                 if entry.get("minNotional") is not None:
                     notional = exact_decimal(entry["minNotional"], "minNotional")
         except ProductV2Error:
-            return InstrumentFilters(None, None, None)
-    return InstrumentFilters(minimum, step, notional)
+            return InstrumentFilters(
+                None, None, None, market_lot_size_present=market_filter_present
+            )
+    return InstrumentFilters(
+        minimum, step, notional, maximum, market_minimum, market_step,
+        market_notional_maximum, market_filter_present,
+    )
 
 
 def active_usdt_universe(payload: Any) -> dict[str, UniverseInstrument]:
@@ -553,10 +571,29 @@ def backtest(
         slow_ema_period=slow_ema_period, rsi_period=rsi_period, rsi_buy_min=rsi_buy_min, rsi_sell_at=rsi_sell_at,
         initial_quote_balance=initial_quote_balance, position_fraction=position_fraction,
         fee_rate=fee_rate, slippage_bps=slippage_bps, spread_bps=spread_bps, max_entries_per_30d=5,
-        min_qty=filters.min_qty if filters else None,
-        quantity_step=filters.step_size if filters else None,
+        min_qty=(
+            filters.market_min_qty if filters and filters.market_lot_size_present is True
+            else filters.min_qty if filters and filters.market_lot_size_present is None
+            else None
+        ),
+        quantity_step=(
+            filters.market_step_size if filters and filters.market_lot_size_present is True
+            else filters.step_size if filters and filters.market_lot_size_present is None
+            else None
+        ),
+        max_qty=(
+            filters.market_max_qty if filters and filters.market_lot_size_present is True
+            else filters.max_qty if filters and filters.market_lot_size_present is None
+            else None
+        ),
         min_notional=filters.min_notional if filters else None,
     )
+    if filters is not None and filters.market_lot_size_present is False:
+        raise ProductV2Error("MARKET_LOT_SIZE_UNKNOWN")
+    if filters is not None and filters.market_lot_size_present is True and (
+        filters.market_min_qty is None or filters.market_step_size is None or filters.market_max_qty is None
+    ):
+        raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
     return run_virtual_backtest(items, config, evaluation_start=evaluation_start,
                                 evaluation_end=evaluation_end, entry_admission=entry_admission)
 
@@ -641,14 +678,22 @@ def normalized_affordability(
     position_fraction: Decimal,
 ) -> tuple[bool | None, str]:
     """Estimate affordability at current public ticker, only for normalized research."""
-    if price <= ZERO or filters.min_qty is None or filters.step_size is None or filters.min_notional is None:
+    if filters.market_lot_size_present is False:
+        return None, "MARKET_LOT_SIZE_UNKNOWN"
+    if filters.market_lot_size_present is True:
+        minimum, step, maximum = filters.market_min_qty, filters.market_step_size, filters.market_max_qty
+    else:
+        minimum, step, maximum = filters.min_qty, filters.step_size, filters.max_qty
+    if price <= ZERO or minimum is None or step is None or maximum is None or filters.min_notional is None:
         return None, "FILTERS_OR_PRICE_UNKNOWN"
     entry_cost_rate = (spread_bps / D("2") + slippage_bps) / D("10000")
     unit_cost = price * (ONE + entry_cost_rate) * (ONE + fee_rate)
     raw_qty = budget_usdt * position_fraction / unit_cost
-    qty = (raw_qty / filters.step_size).to_integral_value(rounding=ROUND_DOWN) * filters.step_size
-    if qty < filters.min_qty:
+    qty = (raw_qty / step).to_integral_value(rounding=ROUND_DOWN) * step
+    if qty < minimum:
         return False, "MIN_QTY"
+    if qty > maximum:
+        return False, "MAX_QTY"
     if qty * price < filters.min_notional:
         return False, "MIN_NOTIONAL"
     if qty * unit_cost > budget_usdt:
@@ -853,6 +898,9 @@ def run(args: argparse.Namespace) -> int:
             reasons.append("NOMINAL_PRICE_OUT_OF_RANGE")
         if filt.min_qty is None or filt.step_size is None or filt.min_notional is None:
             reasons.append("INSTRUMENT_FILTERS_UNKNOWN")
+        if (filt.market_lot_size_present is not True or filt.market_min_qty is None
+                or filt.market_step_size is None or filt.market_max_qty is None):
+            reasons.append("MARKET_LOT_SIZE_UNKNOWN")
         if reasons:
             excluded.append((symbol, ",".join(reasons)))
         else:

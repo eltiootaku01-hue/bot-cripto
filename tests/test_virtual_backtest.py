@@ -399,3 +399,10 @@ def test_normalized_dataset_bundle_reloads_identical_candles_and_validates_hashe
     path.write_text(json.dumps(bundle, sort_keys=True, indent=2), encoding="utf-8")
     with pytest.raises(BacktestError, match="data hash mismatch"):
         _read_dataset_bundle(path, config)
+
+
+
+def test_virtual_backtest_rejects_quantity_over_market_max_quantity():
+    result = run_virtual_backtest(_series(), _config(max_qty=Decimal("0.01")))
+    assert not result.fills
+    assert any("ORDER_REJECTED:MAX_QTY" in reason for reason in result.entry_rejections)

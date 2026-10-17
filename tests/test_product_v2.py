@@ -50,6 +50,8 @@ def test_instrument_filters_preserve_exact_decimal_values():
     assert filters.min_qty == Decimal("0.0100")
     assert filters.step_size == Decimal("0.0010")
     assert filters.min_notional == Decimal("5.00")
+    assert filters.market_lot_size_present is False
+    assert filters.market_min_qty is None
 
 
 def test_unknown_or_invalid_instrument_filters_fail_closed():
@@ -779,3 +781,38 @@ def test_daily_metrics_aggregated_close_drawdown_stays_zero_without_a_decline():
     assert all(row["daily_drawdown"] == Decimal("0") for row in rows)
     assert summary["max_daily_close_drawdown_pct"] == Decimal("0")
 
+
+
+
+def test_market_orders_use_market_lot_size_not_the_regular_lot_size():
+    filters = parse_filters([
+        {"filterType": "LOT_SIZE", "minQty": "0.0100", "maxQty": "1000.0000", "stepSize": "0.0100"},
+        {"filterType": "MARKET_LOT_SIZE", "minQty": "0.1000", "maxQty": "10.0000", "stepSize": "0.1000"},
+        {"filterType": "MIN_NOTIONAL", "minNotional": "5.00"},
+    ])
+    assert filters.min_qty == Decimal("0.0100")
+    assert filters.step_size == Decimal("0.0100")
+    assert filters.market_lot_size_present is True
+    assert filters.market_min_qty == Decimal("0.1000")
+    assert filters.market_step_size == Decimal("0.1000")
+    assert filters.market_max_qty == Decimal("10.0000")
+
+
+def test_missing_market_lot_size_blocks_market_order_backtest():
+    from bot_obrero.product_v2 import InstrumentFilters, backtest
+
+    filters = InstrumentFilters(Decimal("0.01"), Decimal("0.01"), Decimal("5"), market_lot_size_present=False)
+    with pytest.raises(ProductV2Error, match="MARKET_LOT_SIZE_UNKNOWN"):
+        backtest("ETHUSDT", [], 10, filters)
+
+
+def test_normalized_affordability_blocks_unknown_market_lot_size():
+    from bot_obrero.product_v2 import InstrumentFilters, normalized_affordability
+
+    filters = InstrumentFilters(Decimal("0.01"), Decimal("0.01"), Decimal("5"), market_lot_size_present=False)
+    result = normalized_affordability(
+        Decimal("100"), filters, Decimal("100"),
+        fee_rate=Decimal("0.001"), spread_bps=Decimal("10"),
+        slippage_bps=Decimal("5"), position_fraction=Decimal("0.95"),
+    )
+    assert result == (None, "MARKET_LOT_SIZE_UNKNOWN")

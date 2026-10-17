@@ -115,6 +115,7 @@ class BacktestConfig:
     quantity_step: Decimal | None = None
     min_notional: Decimal | None = None
     liquidate_at_end: bool = False
+    max_qty: Decimal | None = None
 
     def validate(self) -> None:
         if not isinstance(self.symbol, str) or not _SYMBOL_RE.fullmatch(self.symbol):
@@ -148,10 +149,12 @@ class BacktestConfig:
             raise BacktestError("RSI buy threshold must be between 0 and 100")
         if not (_ZERO <= self.rsi_sell_at <= Decimal("100")):
             raise BacktestError("RSI sell threshold must be between 0 and 100")
-        for name in ("min_qty", "quantity_step", "min_notional"):
+        for name in ("min_qty", "quantity_step", "min_notional", "max_qty"):
             value = getattr(self, name)
             if value is not None and (not isinstance(value, Decimal) or not value.is_finite() or value <= _ZERO):
                 raise BacktestError(f"{name} must be a positive finite Decimal when supplied")
+        if self.min_qty is not None and self.max_qty is not None and self.min_qty > self.max_qty:
+            raise BacktestError("min_qty must not exceed max_qty")
         if type(self.liquidate_at_end) is not bool:
             raise BacktestError("liquidate_at_end must be a boolean")
 
@@ -471,6 +474,7 @@ def _configuration_record(config: BacktestConfig) -> dict[str, object]:
         "min_qty": str(config.min_qty) if config.min_qty is not None else None,
         "quantity_step": str(config.quantity_step) if config.quantity_step is not None else None,
         "min_notional": str(config.min_notional) if config.min_notional is not None else None,
+        "max_qty": str(config.max_qty) if config.max_qty is not None else None,
         "liquidate_at_end": config.liquidate_at_end,
     }
 
@@ -623,6 +627,8 @@ def run_virtual_backtest(
                     rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:NON_POSITIVE_QUANTITY")
                 elif config.min_qty is not None and quantity < config.min_qty:
                     rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MIN_QTY quantity={quantity} minimum={config.min_qty}")
+                elif config.max_qty is not None and quantity > config.max_qty:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MAX_QTY quantity={quantity} maximum={config.max_qty}")
                 elif config.min_notional is not None and notional < config.min_notional:
                     rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MIN_NOTIONAL notional={notional} minimum={config.min_notional}")
                 else:
