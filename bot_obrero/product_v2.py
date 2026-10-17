@@ -127,6 +127,50 @@ def parse_filters(raw: Any) -> InstrumentFilters:
     )
 
 
+def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal, Decimal, Decimal]:
+    """Resolve effective market-order quantity bounds without accepting zero steps.
+
+    A zero MARKET_LOT_SIZE field falls back to the corresponding ordinary LOT_SIZE
+    field only when that fallback is positive and finite. If no valid constraint
+    exists, the caller must block instead of assuming unlimited quantity.
+    """
+    if not isinstance(filters, InstrumentFilters):
+        raise ProductV2Error("MARKET_LOT_SIZE_UNKNOWN")
+    if filters.market_lot_size_present is False:
+        raise ProductV2Error("MARKET_LOT_SIZE_UNKNOWN")
+
+    def positive(value: Decimal | None, name: str) -> Decimal | None:
+        if value is None:
+            return None
+        if type(value) is not Decimal or not value.is_finite() or value < ZERO:
+            raise ProductV2Error(f"MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE:{name}")
+        return value if value > ZERO else None
+
+    if filters.market_lot_size_present is True:
+        market_min = positive(filters.market_min_qty, "market_min_qty")
+        market_step = positive(filters.market_step_size, "market_step_size")
+        market_max = positive(filters.market_max_qty, "market_max_qty")
+        lot_min = positive(filters.min_qty, "min_qty")
+        lot_step = positive(filters.step_size, "step_size")
+        lot_max = positive(filters.max_qty, "max_qty")
+        minimum = market_min if market_min is not None else lot_min
+        step = market_step if market_step is not None else lot_step
+        maximum = market_max if market_max is not None else lot_max
+    else:
+        # Compatibility for callers without explicit filter provenance (None).
+        # An exchange response that explicitly lacks MARKET_LOT_SIZE (False)
+        # is rejected above.
+        minimum = positive(filters.min_qty, "min_qty")
+        step = positive(filters.step_size, "step_size")
+        maximum = positive(filters.max_qty, "max_qty")
+
+    if minimum is None or step is None or maximum is None:
+        raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
+    if minimum > maximum:
+        raise ProductV2Error("MARKET_LOT_SIZE_MIN_EXCEEDS_MAX")
+    return minimum, step, maximum
+
+
 def active_usdt_universe(payload: Any) -> dict[str, UniverseInstrument]:
     if not isinstance(payload, Mapping) or not isinstance(payload.get("symbols"), list):
         raise ProductV2Error("ExchangeInfo missing symbols array")
@@ -568,36 +612,22 @@ def backtest(
     evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
     entry_admission: Callable[[int, Sequence[Any]], tuple[bool, str]] | None = None,
 ) -> BacktestResult:
+    effective_min_qty = effective_step = effective_max_qty = None
+    if filters is not None:
+        if (filters.min_notional is None or type(filters.min_notional) is not Decimal
+                or not filters.min_notional.is_finite() or filters.min_notional <= ZERO):
+            raise ProductV2Error("MIN_NOTIONAL_UNKNOWN_OR_INVALID")
+        effective_min_qty, effective_step, effective_max_qty = effective_market_lot_rules(filters)
+
     config = BacktestConfig(
         symbol=symbol, interval=interval, candles=bars, fast_ema_period=fast_ema_period,
         slow_ema_period=slow_ema_period, rsi_period=rsi_period, rsi_buy_min=rsi_buy_min, rsi_sell_at=rsi_sell_at,
         initial_quote_balance=initial_quote_balance, position_fraction=position_fraction,
         fee_rate=fee_rate, slippage_bps=slippage_bps, spread_bps=spread_bps, max_entries_per_30d=5,
-        min_qty=(
-            filters.market_min_qty if filters and filters.market_lot_size_present is True
-            and filters.market_min_qty is not None and filters.market_min_qty > ZERO
-            else filters.min_qty if filters and filters.market_lot_size_present is None
-            else None
-        ),
-        quantity_step=(
-            filters.market_step_size if filters and filters.market_lot_size_present is True
-            else filters.step_size if filters and filters.market_lot_size_present is None
-            else None
-        ),
-        max_qty=(
-            filters.market_max_qty if filters and filters.market_lot_size_present is True
-            else filters.max_qty if filters and filters.market_lot_size_present is None
-            else None
-        ),
+        min_qty=effective_min_qty, quantity_step=effective_step, max_qty=effective_max_qty,
         min_notional=filters.min_notional if filters else None,
         liquidate_at_end=liquidate_at_end,
     )
-    if filters is not None and filters.market_lot_size_present is False:
-        raise ProductV2Error("MARKET_LOT_SIZE_UNKNOWN")
-    if filters is not None and filters.market_lot_size_present is True and (
-        filters.market_min_qty is None or filters.market_step_size is None or filters.market_max_qty is None
-    ):
-        raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
     return run_virtual_backtest(items, config, evaluation_start=evaluation_start,
                                 evaluation_end=evaluation_end, entry_admission=entry_admission)
 

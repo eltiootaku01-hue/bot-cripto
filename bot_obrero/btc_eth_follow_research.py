@@ -16,8 +16,8 @@ from .binance_instruments import BinanceMetadataBackedAdapter, BinanceSpotInstru
 from .binance_spot import BinanceSpotRestConfig
 from .product_v2 import (
     InstrumentFilters, ProductV2Error, active_usdt_universe, backtest, buy_hold_metrics,
-    historical_btc_entry_admission, histories_temporally_aligned, public_json,
-    validation_window_bounds,
+    effective_market_lot_rules, historical_btc_entry_admission,
+    histories_temporally_aligned, public_json, validation_window_bounds,
 )
 from .virtual_backtest import _market_data_from_record, _market_data_record, _validate_history
 
@@ -93,14 +93,12 @@ def _filter_from_record(raw: Mapping[str, Any]) -> InstrumentFilters:
 def _require_market_filters(symbol: str, filters: InstrumentFilters) -> None:
     if filters.market_lot_size_present is not True:
         raise BTCETHResearchError(f"{symbol}: MARKET_LOT_SIZE_UNKNOWN")
-    if filters.market_min_qty is None or filters.market_min_qty < ZERO:
-        raise BTCETHResearchError(f"{symbol}: MARKET_FILTER_INVALID_OR_INCOMPLETE:market_min_qty")
-    for name in ("market_step_size", "market_max_qty", "min_notional"):
-        value = getattr(filters, name)
-        if value is None or value <= ZERO:
-            raise BTCETHResearchError(f"{symbol}: MARKET_FILTER_INVALID_OR_INCOMPLETE:{name}")
-    if filters.market_min_qty > filters.market_max_qty:
-        raise BTCETHResearchError(f"{symbol}: MARKET_FILTER_MIN_EXCEEDS_MAX")
+    try:
+        effective_market_lot_rules(filters)
+    except ProductV2Error as exc:
+        raise BTCETHResearchError(f"{symbol}: {exc}") from exc
+    if filters.min_notional is None or filters.min_notional <= ZERO:
+        raise BTCETHResearchError(f"{symbol}: MIN_NOTIONAL_UNKNOWN_OR_INVALID")
 
 
 def _data_payload(btc_items: Sequence[Any], eth_items: Sequence[Any],

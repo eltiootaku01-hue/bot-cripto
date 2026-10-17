@@ -85,3 +85,24 @@ def test_zero_market_minimum_is_accepted_when_other_market_constraints_are_valid
         market_lot_size_present=True,
     )
     _require_market_filters("ETHUSDT", filters)
+
+
+
+def test_zero_market_fields_fall_back_to_valid_lot_size_constraints():
+    filters = InstrumentFilters(
+        min_qty=Decimal("0.001"), step_size=Decimal("0.001"),
+        min_notional=Decimal("5"), max_qty=Decimal("1000"),
+        market_min_qty=Decimal("0"), market_step_size=Decimal("0"),
+        market_max_qty=Decimal("0"), market_lot_size_present=True,
+    )
+    _require_market_filters("ETHUSDT", filters)
+
+
+def test_zero_market_fields_without_fallback_are_blocked():
+    filters = InstrumentFilters(
+        min_qty=None, step_size=None, min_notional=Decimal("5"), max_qty=None,
+        market_min_qty=Decimal("0"), market_step_size=Decimal("0"),
+        market_max_qty=Decimal("0"), market_lot_size_present=True,
+    )
+    with pytest.raises(BTCETHResearchError, match="MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE"):
+        _require_market_filters("ETHUSDT", filters)

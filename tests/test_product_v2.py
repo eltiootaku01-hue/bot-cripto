@@ -19,6 +19,7 @@ from bot_obrero.product_v2 import (
     daily_equity_metrics,
     modeled_spread_slippage_cost,
     parse_filters,
+    effective_market_lot_rules,
     return_pct,
     return_series,
     ticker_snapshots,
@@ -840,3 +841,48 @@ def test_market_min_qty_zero_is_valid_and_disables_only_lower_bound(monkeypatch)
     assert captured[0][0].min_qty is None
     assert captured[0][0].quantity_step == Decimal("0.001")
     assert captured[0][0].max_qty == Decimal("100")
+
+
+
+def test_zero_market_lot_fields_fall_back_only_to_valid_lot_size_constraints():
+    filters = __import__("bot_obrero.product_v2", fromlist=["InstrumentFilters"]).InstrumentFilters(
+        min_qty=Decimal("0.001"), step_size=Decimal("0.001"),
+        min_notional=Decimal("5"), max_qty=Decimal("1000"),
+        market_min_qty=Decimal("0"), market_step_size=Decimal("0"),
+        market_max_qty=Decimal("0"), market_lot_size_present=True,
+    )
+    assert effective_market_lot_rules(filters) == (
+        Decimal("0.001"), Decimal("0.001"), Decimal("1000")
+    )
+
+
+def test_zero_market_lot_fields_without_positive_fallback_fail_closed():
+    filters = __import__("bot_obrero.product_v2", fromlist=["InstrumentFilters"]).InstrumentFilters(
+        min_qty=None, step_size=None, min_notional=Decimal("5"), max_qty=None,
+        market_min_qty=Decimal("0"), market_step_size=Decimal("0"),
+        market_max_qty=Decimal("0"), market_lot_size_present=True,
+    )
+    with pytest.raises(ProductV2Error, match="MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE"):
+        effective_market_lot_rules(filters)
+
+
+def test_product_backtest_uses_effective_market_lot_rules(monkeypatch):
+    from bot_obrero import product_v2
+
+    captured = []
+
+    def fake_run(items, config, **kwargs):
+        captured.append(config)
+        return SimpleNamespace(config=config)
+
+    monkeypatch.setattr(product_v2, "run_virtual_backtest", fake_run)
+    filters = product_v2.InstrumentFilters(
+        min_qty=Decimal("0.001"), step_size=Decimal("0.001"),
+        min_notional=Decimal("5"), max_qty=Decimal("1000"),
+        market_min_qty=Decimal("0.01"), market_step_size=Decimal("0.01"),
+        market_max_qty=Decimal("100"), market_lot_size_present=True,
+    )
+    result = product_v2.backtest("ALTUSDT", [], 1080, filters=filters)
+    assert result.config.min_qty == Decimal("0.01")
+    assert result.config.quantity_step == Decimal("0.01")
+    assert result.config.max_qty == Decimal("100")

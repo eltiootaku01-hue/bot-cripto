@@ -1,28 +1,77 @@
-# BOT-CRIPTO — Registro de casos públicos de fallos y mitigaciones
+# BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
-Fecha de verificación: 17 de octubre de 2026. Este documento recoge precedentes técnicos publicados por sus mantenedores; **no afirma que cada incidente histórico sea un bug presente en BOT-CRIPTO**. La relación con el repositorio se limita a riesgos que encajan con sus componentes.
+**Fecha de revisión:** 17 de octubre de 2026  
+**Rama inspeccionada:** `feat/paper-operational-runtime-v1`  
+**Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
-## Casos y aplicación
+## 1. SQLite: corrupción poco frecuente en modo WAL
 
-| Caso público | Qué documentó la fuente | Relevancia para BOT-CRIPTO | Defensa aplicada o requerida |
-|---|---|---|---|
-| SQLite WAL-reset bug, detectado el 3 de marzo de 2026 y corregido en SQLite 3.51.3 | SQLite documenta posible corrupción en modo WAL bajo un escenario raro con múltiples conexiones y escrituras/checkpoints simultáneos; indica SQLite 3.51.3 como versión corregida. | PAPER abría el ledger con WAL y prueba varias conexiones SQLite. La ocurrencia no está demostrada en el proyecto, pero el patrón se solapa. | El adaptador PAPER usa el journal rollback (DELETE) para no depender de que el runtime Python incluya la corrección WAL. Se serializan escrituras; SQLITE_BUSY nunca se considera un fill exitoso. Reconsiderar WAL solo después de actualizar SQLite y añadir pruebas de recuperación. Fuente: https://www.sqlite.org/wal.html |
-| Persistencia de SQLite WAL y concurrencia | La documentación oficial explica que WAL es parte del estado persistido mientras hay conexiones/transacciones activas y que separar el archivo de su WAL puede perder commits; también documenta casos de SQLITE_BUSY. | Copiar solo el archivo .sqlite3 con conexiones abiertas no garantiza un respaldo completo. El modo WAL anterior tenía una política de concurrencia más permisiva. | Para respaldos, cerrar limpiamente conexiones o usar y probar la API de backup de SQLite. En esta rama se elige simplicidad del journal rollback para el ledger PAPER local; conflictos de escritura deben fallar de forma visible. Fuente: https://www.sqlite.org/wal.html |
-| Binance: Filter failure LOT_SIZE y MARKET_LOT_SIZE | Issues públicos de CCXT documentan rechazos por cantidad fuera del paso de lote y diferencias posibles entre LOT_SIZE y MARKET_LOT_SIZE. Son precedentes históricos, no prueba de bug actual en el repo. | La simulación debe distinguir límites de mercado y los términos de una propuesta deben validarse con los filtros actuales del instrumento. El adaptador PAPER no sustituye esta validación. | Consultar ExchangeInfo, usar Decimal, comprobar step, min/max y notional aplicables a la clase de orden, y bloquear si los filtros necesarios son desconocidos. No asumir que MARKET_LOT_SIZE equivale a LOT_SIZE. Fuentes: https://github.com/ccxt/ccxt/issues/663 y https://github.com/ccxt/ccxt/issues/6460 |
-| Riesgo de checkout de código no confiable en CI privilegiado | GitHub documentó la clase de vulnerabilidad “pwn request” al combinar pull_request_target con checkout/ejecución de código de una PR no confiable bajo permisos o secretos privilegiados. | El workflow actual principal usa pull_request, no pull_request_target; por eso este precedente no demuestra una vulnerabilidad actual en ese workflow. Es relevante al diseñar nuevos flujos privilegiados. | No ejecutar código de una PR externa bajo pull_request_target con secretos/permisos de escritura; mantener permissions mínimos y revisar cada cambio de evento/checkout. Fuente: https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/ |
+**Fuente primaria:** [SQLite — Write-Ahead Logging / WAL-reset bug](https://www.sqlite.org/wal.html) y [SQLite 3.51.3 release notes](https://www.sqlite.org/releaselog/3_51_3.html).
 
-## Hallazgos locales verificados y medidas
+SQLite publicó que el 3 de marzo de 2026 se encontró un bug que podía corromper una base en modo WAL cuando dos o más conexiones al mismo archivo intentaban escribir o hacer checkpoint casi simultáneamente. La corrección está en SQLite 3.51.3 (13 de marzo de 2026) y posteriores. El propio mantenedor lo describe como un escenario raro con requisitos de concurrencia específicos.
 
-1. El backtester estaba limitado a 1.200 velas y la ruta CLI no separaba evaluación y calentamiento. Se amplía el límite explícito a 10.000 velas de evaluación, con calentamiento solicitado por separado y una sola simulación continua.
-2. El cálculo reiterado de indicadores sobre todos los prefijos históricos daba coste aproximadamente cuadrático. Se incorpora una serie incremental de Decimal y tests que la comparan con los algoritmos canónicos en cada prefijo antes de usarla para el horizonte anual.
-3. Antes podía quedar una posición abierta al final y reportarse equity marcada a mercado. Se agrega una opción explícita de liquidación terminal con spread/slippage modelados y comisión de salida; el comportamiento previo se conserva por defecto.
-4. La tabla PAPER persistía el precio/fee, pero no todos los términos que permiten recalcularlos desde la cotización. El nuevo esquema guarda fee asset/rate, slippage, bid/ask, timestamps de observación/disponibilidad y máximo de antigüedad; filas heredadas sin estos datos se clasifican como evidencia incompleta por el replay.
-5. PAPER pasa de WAL a journal rollback (DELETE) para evitar la dependencia de una versión SQLite específica afectada por el incidente WAL-reset. El trade-off es menor concurrencia de lectura/escritura, aceptable para este ledger local de un solo escritor; hay que tratar SQLITE_BUSY como error bloqueante.
-6. El replay económico verifica solamente el ledger PAPER local. **No** reconcilia por sí mismo reserva, binding de ejecución o SQLiteIdempotencyLedger; B1-R multi-store continúa bloqueado hasta una prueba integrada de recuperación después de un fill confirmado.
+**Comparación local:** el adaptador PAPER anterior habilitaba WAL y el diseño usa más de una conexión SQLite entre componentes. No hay evidencia de que el bug hubiera corrompido el archivo del proyecto; sí existía un patrón de concurrencia parecido.
 
-## Límites
+**Medida aplicada en la rama:** `PaperExecutionAdapter` usa el journal rollback `DELETE` en vez de depender de la versión SQLite incluida en el runtime. Mantiene transacciones explícitas y serializa el escritor. Un `SQLITE_BUSY` debe quedar como fallo/bloqueo, nunca convertirse en un fill supuesto. Si se reintroduce WAL, exigir primero SQLite corregido y una prueba de estrés/recuperación de varias conexiones.
 
-- Un issue externo demuestra que una clase de fallo ha existido; no demuestra que BOT-CRIPTO haya sufrido ese mismo incidente.
-- Los hashes identifican el dataset y la configuración adquiridos, pero no transforman available_at o finality UNKNOWN en evidencia histórica punto-en-tiempo.
-- Un backtest positivo no demuestra rentabilidad futura ni sustituye validación prospectiva PAPER.
-- Esta fase sigue siendo investigación/PAPER. No incluye claves, endpoints privados ni órdenes LIVE.
+La [documentación de Python `sqlite3`](https://docs.python.org/3/library/sqlite3.html) también explica el bloqueo de escrituras, el parámetro `timeout` y la necesidad de serializar escrituras cuando las conexiones se comparten.
+
+## 2. Binance: `LOT_SIZE` frente a `MARKET_LOT_SIZE`
+
+**Fuentes:** [documentación oficial de filtros de Binance Spot](https://github.com/binance/binance-spot-api-docs/blob/master/filters.md), [CCXT issue #663 — LOT_SIZE](https://github.com/ccxt/ccxt/issues/663) y [CCXT issue #6460 — MARKET_LOT_SIZE](https://github.com/ccxt/ccxt/issues/6460).
+
+Los reportes de CCXT documentan rechazos `Filter failure: LOT_SIZE` cuando la cantidad no cumple el paso permitido y la necesidad de distinguir los límites para órdenes de mercado. Binance documenta filtros distintos para lote normal y lote de mercado. No debe usarse `float` ni asumirse que las reglas son idénticas.
+
+**Fallo local observado en CI:** en el commit `000dbb77ae770a9c9e9ac9eceec2ef624033fae0`, la prueba anual pareada terminó con `MARKET_FILTER_INVALID_OR_INCOMPLETE:market_step_size`; el E2E de Product V2 terminó con `quantity_step must be a positive finite Decimal when supplied`. Evidencia: [job BTC→ETH anual](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39059081714) y [E2E público](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39059085206).
+
+**Corrección en esta revisión:** se resuelven los límites efectivos de mercado campo a campo. Si un campo `MARKET_LOT_SIZE` está en cero, solo se usa el correspondiente `LOT_SIZE` normal si es positivo y finito. Si no hay un sustituto válido, la simulación queda bloqueada. Se agregan tests de ambos casos. Así se evita tanto la excepción por paso cero como asumir una cantidad ilimitada.
+
+**Límite:** ExchangeInfo actual no demuestra que esos filtros tuvieran el mismo valor hace un año. Los filtros actuales son un guardarraíl para la simulación; no constituyen historia temporal del filtro por vela.
+
+## 3. Backtesting: sesgo de anticipación (`lookahead bias`)
+
+**Fuentes:** [Freqtrade — lookahead analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/) y [Freqtrade — errores comunes de estrategia](https://docs.freqtrade.io/en/stable/strategy-customization/).
+
+Freqtrade explica que un backtest puede aparentar ganancias exageradas si una señal usa velas futuras, agregaciones sobre todo el dataframe, desplazamientos negativos o alineaciones incorrectas de marcos temporales. Su método compara una corrida base con corridas que aíslan señales para detectar cambios en indicadores y entradas/salidas.
+
+**Comparación local:** el backtester de BOT-CRIPTO calcula indicadores sobre prefijos históricos; la serie incremental se compara por tests con los algoritmos canónicos. El filtro BTC de Product V2 tiene una prueba que modifica datos futuros y comprueba que no alteren una decisión anterior.
+
+**Siguiente defensa:** añadir también una prueba de invariancia de sufijo futuro para el estudio BTC→ETH completo. Cambiar velas posteriores a un timestamp no debe cambiar señales, fills ni correlaciones disponibles hasta ese timestamp. No se debe aceptar rentabilidad si falla esa propiedad.
+
+## 4. Simulación de fills, spread, deslizamiento y datos obsoletos
+
+**Fuentes:** [QuantConnect — modelos de fills al último precio](https://www.quantconnect.com/docs/v2/writing-algorithms/reality-modeling/trade-fills/supported-models/latest-price-model) y [QuantConnect — deslizamiento](https://www.quantconnect.com/docs/v2/writing-algorithms/reality-modeling/slippage/key-concepts).
+
+La documentación de estos desarrolladores explica que el precio efectivo depende del tipo de dato, lado de cotización, instante de orden y modelo de deslizamiento; datos obsoletos o temporalmente incompatibles no deberían producir fills.
+
+**Comparación local:** el backtester declara señal al cierre y fill en la siguiente apertura, aplica comisiones y supuestos de spread/slippage y ofrece liquidación terminal. Los informes marcan `available_at` y finality desconocidos cuando la fuente no aporta evidencia suficiente. Los hashes fijan identidad de datos/configuración, pero no convierten esos campos desconocidos en evidencia temporal.
+
+**Condición:** los escenarios de costes base y estrés deben usar exactamente el mismo dataset normalizado; esta simulación no equivale a una ejecución real en libro de órdenes.
+
+## 5. GitHub Actions: retirada de Node 20 y checkout seguro
+
+**Fuentes oficiales:** [GitHub Changelog — Node 20 ya no está disponible](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/), [checkout releases](https://github.com/actions/checkout/releases), [setup-python releases](https://github.com/actions/setup-python/releases) y [upload-artifact releases](https://github.com/actions/upload-artifact/releases).
+
+GitHub retiró Node 20 en los runners el 23 de septiembre de 2026. Los jobs de esta rama registraban warnings al usar `actions/checkout@v4`, `actions/setup-python@v5` y `actions/upload-artifact@v4`, que se forzaban a Node 24. Se actualizarán los workflows del proyecto a releases oficiales actuales compatibles con Node 24. La guía de GitHub sobre [checkout seguro de PR](https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/) además muestra por qué no se debe ejecutar código no confiable de una PR bajo permisos privilegiados. Los workflows auditados usan `pull_request`, `push` o `workflow_dispatch`; ninguno necesita cambiar a `pull_request_target`.
+
+## 6. Resultados económicos disponibles y límites
+
+La prueba independiente de 365 días EMA/RSI dio estos resultados netos modelados:
+
+| Activo / costes | Retorno neto modelado | Drawdown máximo |
+|---|---:|---:|
+| BTC, base | -29.2995% | -30.0234% |
+| ETH, base | -21.8140% | -24.5854% |
+| BTC, estrés | -40.2913% | -40.7285% |
+| ETH, estrés | -29.4779% | -30.9149% |
+
+Esto demuestra que esa configuración histórica no acreditó edge. No es una predicción del futuro. El estudio pareado BTC→ETH aún debe superar de nuevo el workflow tras la corrección de filtros, además de las tres ventanas walk-forward, el escenario de costes alto y el replay offline con idénticos hashes.
+
+## 7. Bloqueos que siguen separados
+
+1. La estrategia EMA/RSI probada en modo independiente dio pérdidas; no debe activarse como estrategia ganadora.
+2. El estudio BTC→ETH necesita un nuevo CI exitoso con dataset, evaluación, validación y replay.
+3. El replay económico PAPER verifica el ledger local. No acredita recuperación integrada entre reserva, binding, orquestador y `SQLiteIdempotencyLedger` después de un fill confirmado.
+4. Incluso un resultado histórico positivo y reproducible no garantiza ganancias futuras; la decisión requiere benchmark neto, walk-forward sin reoptimización, sensibilidad a costes y evidencia prospectiva PAPER.
+
+**Decisión operativa: `NO_TRADE`. No hay autorización para órdenes LIVE ni promesa de rentabilidad.**
