@@ -15,7 +15,17 @@ from bot_obrero.reservation import SQLiteReservationStore
 from bot_obrero.reservation_execution_bridge import ReservationExecutionBridge
 from bot_obrero.risk_engine import RiskEngine
 from bot_obrero.risk_limit_applicability import RiskLimitApplicabilityResolver
-from bot_obrero.paper_adapter import PaperAdapterError, PaperExecutionAdapter, PaperMarketQuote
+from bot_obrero.paper_adapter import (
+    PaperAdapterError, PaperExecutionAdapter, PaperMarketQuote,
+    canonical_account_state_from_paper_snapshot,
+)
+from bot_obrero.analysis_contracts import ArtifactNature, MarketObservation, Provenance
+from bot_obrero.evidence_binding import AvailabilityBinding, AvailabilitySubjectKind
+from bot_obrero.paper_quote_evidence import evidence_hash
+from bot_obrero.paper_runtime_reconciliation import (
+    PaperRuntimeReconciliationStatus, reconcile_paper_runtime,
+)
+from bot_obrero.persistent_ledger import SQLiteIdempotencyLedger
 from test_hueso_02h2_financial_admission import BASE, make_context, make_policy, make_proposal, make_state
 
 NOW = BASE + timedelta(minutes=1)
@@ -26,20 +36,46 @@ REQUIRED = ("reconciliation_match", "clock_valid", "stream_ready", "resources_he
 def quote(symbol, *, now=NOW, bid="99.9", ask="100"):
     return PaperMarketQuote(
         symbol=symbol, bid=Decimal(bid), ask=Decimal(ask),
-        observed_at=now - timedelta(seconds=5),
-        available_at=now - timedelta(seconds=10),
+        observed_at=now - timedelta(seconds=10),
+        available_at=now - timedelta(seconds=5),
         source="binance-public:deterministic-test-fixture",
     )
 
 
+def quote_evidence(*, symbol="BTC/USDT", decision_timestamp=BASE,
+                   observed_at=None, available_at=None, bid="99.9", ask="100",
+                   observation_id="market-observation-1", context_id="context-1",
+                   source="binance-public:deterministic-test-fixture"):
+    observed_at = decision_timestamp - timedelta(seconds=10) if observed_at is None else observed_at
+    available_at = decision_timestamp - timedelta(seconds=5) if available_at is None else available_at
+    result = {
+        "schema": "paper-quote-evidence-v1",
+        "observation_id": observation_id,
+        "observation_type": "BINANCE_SPOT_BOOK_TICKER",
+        "symbol": symbol,
+        "bid": bid,
+        "ask": ask,
+        "observed_at": observed_at.isoformat(),
+        "available_at": available_at.isoformat(),
+        "decision_timestamp": decision_timestamp.isoformat(),
+        "evaluation_context_id": context_id,
+        "source": source,
+        "source_reference": "deterministic-test-fixture",
+        "venue": "BINANCE",
+    }
+    result["evidence_hash"] = evidence_hash(result)
+    return result
+
+
 def make_order(*, side="BUY", quantity="0.2", max_spend="25", symbol="BTC/USDT",
-               account_id="paper-local", client_order_id="paper-order-1"):
+               account_id="paper-local", client_order_id="paper-order-1",
+               quote_evidence_payload=None, include_quote=True):
     base, quote_asset = symbol.split("/")
     payload = {
         "schema": "reservation-order-intent-v1", "reservation_id": "reservation-1",
         "client_order_id": client_order_id, "proposal_id": "proposal-1", "signal_id": "signal-1",
         "account_id": account_id, "instrument_id": "binance:SPOT:BTCUSDT", "market": "SPOT",
-        "instrument_type": "SPOT", "symbol": symbol, "base_asset": base, "quote_asset": quote_asset,
+        "instrument_type": "CRYPTO_SPOT", "symbol": symbol, "base_asset": base, "quote_asset": quote_asset,
         "side": side, "order_type": "MARKET", "quantity": quantity, "price": None,
         "max_quote_spend": max_spend if side == "BUY" else None, "price_policy": "MARKET_REFERENCE",
         "strategy_identity": "strategy.test", "strategy_version": "1.0.0",
@@ -51,6 +87,8 @@ def make_order(*, side="BUY", quantity="0.2", max_spend="25", symbol="BTC/USDT",
         "asset": quote_asset if side == "BUY" else base,
         "reserved_amount": max_spend if side == "BUY" else quantity, "terms_hash": "a" * 64,
     }
+    if include_quote:
+        payload["paper_quote_evidence"] = quote_evidence() if quote_evidence_payload is None else quote_evidence_payload
     return OrderIntent(client_order_id, payload, "correlation-1")
 
 
@@ -63,8 +101,33 @@ def make_adapter(path, *, quote_provider=None, account_id="paper-local", initial
         database_path=path, account_id=account_id, quote_asset="USDT",
         initial_quote_balance=Decimal(initial), quote_provider=quote_provider or (lambda symbol: quote(symbol)),
         initial_balances=configured,
-        fee_rate=Decimal("0.001"), slippage_bps=Decimal("5"), clock=clock,
+        fee_rate=Decimal("0.001"), slippage_bps=Decimal("5"),
+        max_quote_age=timedelta(minutes=2), clock=clock,
     )
+
+
+
+def test_paper_and_idempotency_databases_use_rollback_journal(tmp_path):
+    adapter = make_adapter(tmp_path / "journal-paper.sqlite3")
+    ledger = SQLiteIdempotencyLedger(tmp_path / "journal-ledger.sqlite3")
+    try:
+        assert adapter._connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
+        assert ledger._connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "delete"
+    finally:
+        ledger.close()
+        adapter.close()
+
+
+def test_paper_quote_evidence_is_hash_bound_and_cannot_be_tampered(tmp_path):
+    adapter = make_adapter(tmp_path / "quote-tamper.sqlite3")
+    try:
+        tampered = quote_evidence()
+        tampered["bid"] = "98"
+        with pytest.raises(PaperAdapterError, match="HASH_MISMATCH"):
+            adapter._submit(make_order(quote_evidence_payload=tampered))
+        assert adapter.snapshot()["fill_count"] == 0
+    finally:
+        adapter.close()
 
 
 def test_buy_fill_uses_decimal_costs_and_persists_across_restart(tmp_path):
@@ -110,42 +173,47 @@ def test_sell_fill_updates_quote_and_base_balances_with_fee(tmp_path):
         adapter.close()
 
 
-def test_unknown_or_stale_quote_fails_closed_without_fill(tmp_path):
-    def unknown(symbol):
-        return PaperMarketQuote(symbol=symbol, bid=Decimal("99"), ask=Decimal("100"),
-            observed_at=NOW, available_at=None, source="binance-public:test")
-    adapter = make_adapter(tmp_path / "unknown.sqlite3", quote_provider=unknown)
+def test_missing_or_stale_quote_evidence_fails_closed_without_fill(tmp_path):
+    adapter = make_adapter(tmp_path / "missing-quote.sqlite3")
     try:
-        with pytest.raises(PaperAdapterError, match="available_at is UNKNOWN"):
-            adapter._submit(make_order())
+        with pytest.raises(PaperAdapterError, match="PAPER_QUOTE_EVIDENCE_MISSING"):
+            adapter._submit(make_order(include_quote=False))
         assert adapter.snapshot()["fill_count"] == 0
     finally:
         adapter.close()
 
-    adapter = make_adapter(tmp_path / "stale.sqlite3",
-                           quote_provider=lambda symbol: quote(symbol, now=NOW - timedelta(minutes=2)))
+    stale_quote = quote_evidence(
+        observed_at=BASE - timedelta(seconds=242),
+        available_at=BASE - timedelta(seconds=241),
+    )
+    adapter = make_adapter(tmp_path / "stale.sqlite3")
     try:
         with pytest.raises(PaperAdapterError, match="PAPER_QUOTE_STALE"):
-            adapter._submit(make_order())
+            adapter._submit(make_order(quote_evidence_payload=stale_quote))
         assert adapter.snapshot()["fill_count"] == 0
     finally:
         adapter.close()
 
 
 def test_future_quote_and_wrong_symbol_fail_closed(tmp_path):
-    future = lambda symbol: PaperMarketQuote(symbol=symbol, bid=Decimal("99"), ask=Decimal("100"),
-        observed_at=NOW + timedelta(seconds=1), available_at=NOW, source="binance-public:test")
-    adapter = make_adapter(tmp_path / "future.sqlite3", quote_provider=future)
+    future_quote = quote_evidence(
+        observed_at=BASE - timedelta(seconds=2),
+        available_at=BASE + timedelta(seconds=1),
+    )
+    adapter = make_adapter(tmp_path / "future.sqlite3")
     try:
         with pytest.raises(PaperAdapterError, match="TEMPORAL_ORDER_INVALID"):
-            adapter._submit(make_order())
+            adapter._submit(make_order(quote_evidence_payload=future_quote))
+        assert adapter.snapshot()["fill_count"] == 0
     finally:
         adapter.close()
 
-    adapter = make_adapter(tmp_path / "wrong.sqlite3", quote_provider=lambda symbol: quote("ETH/USDT"))
+    wrong_quote = quote_evidence(symbol="ETH/USDT")
+    adapter = make_adapter(tmp_path / "wrong.sqlite3")
     try:
-        with pytest.raises(PaperAdapterError, match="QUOTE_SYMBOL_MISMATCH"):
-            adapter._submit(make_order())
+        with pytest.raises(PaperAdapterError, match="SYMBOL_MISMATCH"):
+            adapter._submit(make_order(quote_evidence_payload=wrong_quote))
+        assert adapter.snapshot()["fill_count"] == 0
     finally:
         adapter.close()
 
@@ -173,12 +241,41 @@ def test_buy_max_quote_spend_is_enforced(tmp_path):
 def test_existing_financial_runtime_can_terminate_in_paper_with_synthetic_proposal(tmp_path):
     # This tests the canonical risk/admission/reservation/execution chain with a
     # synthetic proposal. It intentionally does not invent a Product V2 signal bridge.
-    state = make_state(available="100")
     proposal = replace(make_proposal(max_quote_spend=Decimal("25")), requested_quantity=Decimal("0.2"))
+    template_state = make_state(available="100")
+    adapter = make_adapter(
+        tmp_path / "paper-account.sqlite3", account_id=template_state.account_id, clock=lambda: BASE
+    )
+    state = canonical_account_state_from_paper_snapshot(adapter.snapshot())
     context = make_context(proposal, state)
-    context = replace(context, instrument=replace(context.instrument, market="SPOT"))
+    observation = MarketObservation(
+        symbol=proposal.symbol,
+        observation_timestamp=BASE - timedelta(seconds=10),
+        available_timestamp=BASE - timedelta(seconds=5),
+        observation_type="BINANCE_SPOT_BOOK_TICKER",
+        values={"bid": "99.9", "ask": "100"},
+        provenance=Provenance(
+            source="binance-public:deterministic-test-fixture",
+            nature=ArtifactNature.OBSERVED,
+            reference="paper-runtime-test-quote",
+        ),
+        venue="BINANCE",
+        observation_id="paper-runtime-market-observation",
+    )
+    availability = AvailabilityBinding(
+        subject_kind=AvailabilitySubjectKind.MARKET_OBSERVATION,
+        subject_id=observation.observation_id,
+        available_at=observation.available_timestamp,
+        source=observation.provenance.source,
+        evidence_reference=observation.observation_id,
+    )
+    context = replace(
+        context,
+        instrument=replace(context.instrument, market="SPOT"),
+        market_observation=observation,
+        availability_bindings=context.availability_bindings + (availability,),
+    )
     policy = make_policy()
-    adapter = make_adapter(tmp_path / "paper-account.sqlite3", account_id=state.account_id, clock=lambda: NOW)
     store = SQLiteReservationStore(tmp_path / "reservations.sqlite3")
     bridge = ReservationExecutionBridge(store)
     ledger = SQLiteIdempotencyLedger(tmp_path / "execution-ledger.sqlite3")
@@ -208,6 +305,24 @@ def test_existing_financial_runtime_can_terminate_in_paper_with_synthetic_propos
         assert snapshot["mode"] == "PAPER" and snapshot["fill_count"] == 1
         assert snapshot["fills"][0]["proposal_id"] == proposal.proposal_id
         assert snapshot["fills"][0]["mode"] == "PAPER"
+        fill = snapshot["fills"][0]
+        binding = bridge.get_binding(result.reservation_id)
+        assert binding is not None and binding.state == "SUBMITTED"
+        assert fill["quote_observation_id"] == observation.observation_id
+        assert fill["quote_evidence_hash"] == binding.payload["paper_quote_evidence"]["evidence_hash"]
+        assert fill["evaluation_context_id"] == binding.payload["evaluation_context_id"]
+        reservation = store.get(result.reservation_id)
+        assert reservation.state.value == "RELEASED"
+        assert reservation.consumed_amount == (
+            Decimal(fill["quantity"]) * Decimal(fill["price"]) + Decimal(fill["fee"])
+        )
+        projection = ledger.get(binding.client_order_id)
+        assert projection is not None and projection.result == "SUBMITTED"
+        reconciled = reconcile_paper_runtime(
+            adapter=adapter, store=store, bridge=bridge, ledger=ledger, apply=True
+        )
+        assert reconciled.status is PaperRuntimeReconciliationStatus.RECONCILED
+        assert reconciled.reconciled_fill_count == 1
     finally:
         ledger.close()
         store.close()
@@ -353,7 +468,9 @@ def test_paper_economic_replay_marks_legacy_fills_without_quote_evidence_incompl
     try:
         adapter._submit(make_order())
         snapshot = deepcopy(adapter.snapshot())
-        for field in ("quote_bid", "quote_ask", "quote_observed_at", "quote_available_at"):
+        for field in ("quote_bid", "quote_ask", "quote_observed_at", "quote_available_at",
+                      "quote_observation_id", "quote_observation_type", "quote_evidence_hash",
+                      "evaluation_context_id"):
             snapshot["fills"][0][field] = ""
         result = replay_paper_economics(snapshot)
         assert result.status is PaperEconomicReplayStatus.INCOMPLETE
