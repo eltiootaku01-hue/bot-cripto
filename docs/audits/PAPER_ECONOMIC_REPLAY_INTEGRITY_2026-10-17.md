@@ -2,8 +2,9 @@
 
 **Fecha:** 17 de octubre de 2026  
 **Base inspeccionada:** `main` en `19b2d4d43b6b7b301f9b2f6e8dfa19889273575f`  
-**Rama de corrección:** `fix/paper-economic-replay-count-type-2026-10-17`  
-**Estado de CI de esta corrección:** pendiente al redactarse; no interpretar los tests locales del repositorio como ejecutados hasta comprobar el run del SHA exacto.
+**PR #82:** fusionada en main mediante `6728f9097bb6093c980e758ee68f5222d1443f9b`.  
+**CI post-merge de PR #82:** [run 39079511218](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218), `success`, 1598 pruebas en 11.85 s.  
+**HEAD actual de main tras PR #83:** `a07b8aac15970f3349f9de54f021cfbeb71e4e20`; [CI exacto 39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856), `success`, 1598 pruebas en 11.22 s.
 
 ## Dictamen
 
@@ -39,8 +40,11 @@ Estas referencias fundamentan patrones de prevención y recuperación; no deben 
 - La estrategia no tiene una ventaja neta robusta demostrada en un holdout prospectivo independiente.
 - La decisión global se mantiene `NO_TRADE`; sin LIVE, claves privadas, endpoints privados ni dinero real.
 
-## Verificación posterior requerida
+## Verificación completada
 
-- CI completo de GitHub Actions en el head de esta PR y, luego, en el SHA de `main` posterior al merge.
-- Inspeccionar el diff final de `paper_adapter.py`, `paper_economic_replay.py` y `tests/test_paper_adapter.py`.
-- Verificar que el reporte de continuidad registre el SHA exacto y el resultado real de CI sin reutilizar una ejecución de un SHA anterior.
+- PR #82 fusionada: https://github.com/eltiootaku01-hue/bot-cripto/pull/82
+- CI de la punta corregida: [39079462980](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079462980), `success`; SMA e indicadores E2E también pasaron en esa misma punta.
+- CI post-merge del merge SHA #82: [39079511218](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218), `success`, 1598 pruebas en 11.85 s.
+- CI del HEAD actual `main` tras integrar PR #83: [39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856), `success`, 1598 pruebas en 11.22 s.
+- La nueva prueba de replay rechaza el cambio de bid inconsistente con la intención hasheada; otras dos regresiones rechazan `fill_count=True` en replay y en la proyección de la cuenta canónica.
+- La puntuación permanece 73/100: el fix mejora la verificación económica de PAPER, pero la atomicidad global entre bases SQLite separadas, la captura prospectiva real de 24 h y el edge independiente continúan fuera de esta corrección.
