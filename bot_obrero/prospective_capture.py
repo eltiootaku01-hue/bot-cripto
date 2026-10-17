@@ -422,20 +422,35 @@ class ProspectiveCaptureJournal:
             symbols_pass = all(
                 summary[symbol]["has_complete_utc_day"]
                 and summary[symbol]["gap_hours"] == 0
+                and summary[symbol]["duplicate_final_candles"] == 0
                 and summary[symbol]["out_of_order_final_candles"] == 0
                 and summary[symbol]["unaligned_final_candles"] == 0
                 and summary[symbol]["inter_event_gap_count"] == 0
                 and summary[symbol]["clock_regressions"] == 0
                 for symbol in self.symbols
             )
+            start_raw = self._manifest.get("capture_started_at")
+            end_raw = self._manifest.get("capture_ended_at")
+            wall_elapsed = None
+            wall_clock_consistency_pass = False
+            if start_raw is not None and end_raw is not None:
+                wall_elapsed = (
+                    _aware_utc(datetime.fromisoformat(end_raw), "capture_ended_at")
+                    - _aware_utc(datetime.fromisoformat(start_raw), "capture_started_at")
+                ).total_seconds()
+                wall_clock_consistency_pass = (
+                    wall_elapsed >= 0 and abs(wall_elapsed - elapsed_seconds) <= 120.0
+                )
             return {
                 "elapsed_duration_met": elapsed_met,
                 "target_duration_seconds": self.duration_seconds,
                 "actual_elapsed_seconds": round(elapsed_seconds, 3),
+                "wall_clock_elapsed_seconds": None if wall_elapsed is None else round(wall_elapsed, 3),
+                "wall_clock_consistency_pass": wall_clock_consistency_pass,
                 "all_symbols_have_complete_utc_day": all(summary[symbol]["has_complete_utc_day"] for symbol in self.symbols),
                 "hourly_integrity_pass": symbols_pass,
                 "no_fatal_errors": no_fatal,
-                "accepted": elapsed_met and symbols_pass and no_fatal,
+                "accepted": elapsed_met and symbols_pass and no_fatal and wall_clock_consistency_pass,
                 "symbols": summary,
             }
 
@@ -444,11 +459,20 @@ class ProspectiveCaptureJournal:
             raise ProspectiveCaptureError("FINAL_STATUS_INVALID")
         stamp = _aware_utc(ended_at, "capture_ended_at")
         with self._lock:
+            started_raw = self._manifest.get("capture_started_at")
+            if started_raw is not None and stamp < _aware_utc(
+                datetime.fromisoformat(started_raw), "capture_started_at"
+            ):
+                raise ProspectiveCaptureError("CAPTURE_END_PRECEDES_START")
+            if not math.isfinite(elapsed_seconds) or elapsed_seconds < 0:
+                raise ProspectiveCaptureError("CAPTURE_ELAPSED_TIME_INVALID")
             for handle in self._handles.values():
                 handle.flush()
                 os.fsync(handle.fileno())
                 handle.close()
             self._handles.clear()
+            self._manifest["capture_ended_at"] = stamp.isoformat()
+            self._manifest["actual_elapsed_seconds"] = round(elapsed_seconds, 3)
             acceptance = self.acceptance(elapsed_seconds)
             if status == "COMPLETED" and not acceptance["accepted"]:
                 status = "BLOCKED"
@@ -641,16 +665,16 @@ def run_capture(
 
     ended_at = _aware_utc(now(), "capture_ended_at")
     elapsed = max(0.0, monotonic() - start_mono)
-    acceptance = journal.acceptance(elapsed)
     if interrupted:
-        status, reason, exit_code = "INTERRUPTED", "USER_INTERRUPTED_CAPTURE", 130
+        status, reason = "INTERRUPTED", "USER_INTERRUPTED_CAPTURE"
     elif fatal_errors or journal.fatal:
-        status, reason, exit_code = "BLOCKED", "FATAL_CAPTURE_OR_PERSISTENCE_ERROR", 2
-    elif acceptance["accepted"]:
-        status, reason, exit_code = "COMPLETED", None, 0
+        status, reason = "BLOCKED", "FATAL_CAPTURE_OR_PERSISTENCE_ERROR"
     else:
-        status, reason, exit_code = "BLOCKED", "DURATION_OR_UTC_DAY_INTEGRITY_NOT_MET", 2
+        # finalize() evaluates elapsed time, clock agreement, data coverage and
+        # integrity together; it downgrades this candidate status if any gate fails.
+        status, reason = "COMPLETED", None
     manifest = journal.finalize(status=status, ended_at=ended_at, elapsed_seconds=elapsed, reason=reason)
+    exit_code = 130 if interrupted else (0 if manifest["status"] == "COMPLETED" else 2)
     return exit_code, manifest
 
 
