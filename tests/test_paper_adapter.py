@@ -656,6 +656,20 @@ def test_paper_economic_replay_rejects_boolean_fill_count_for_single_fill(tmp_pa
         adapter.close()
 
 
+def test_canonical_account_projection_rejects_boolean_fill_count(tmp_path):
+    from copy import deepcopy
+
+    adapter = make_adapter(tmp_path / "boolean-account-fill-count.sqlite3")
+    try:
+        adapter._submit(make_order())
+        snapshot = deepcopy(adapter.snapshot())
+        snapshot["fill_count"] = True
+        with pytest.raises(PaperAdapterError, match="PAPER_ACCOUNT_SNAPSHOT_FIELDS_INVALID"):
+            canonical_account_state_from_paper_snapshot(snapshot)
+    finally:
+        adapter.close()
+
+
 def test_paper_economic_replay_marks_legacy_fills_without_quote_evidence_incomplete(tmp_path):
     from copy import deepcopy
     from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
