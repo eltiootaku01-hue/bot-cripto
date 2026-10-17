@@ -2,7 +2,7 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Baseline observado al comenzar esta auditoría:** `ff05bb6d70845ba51784da2bceee0ecf99b3e11a` en `main`.
+**Baseline de main al sincronizar esta continuidad (antes del commit documental):** `fd51e0dd1ff3f710680a98b685a6b9369c74a600`.
 
 ## 1. Estado operativo actual
 
@@ -16,13 +16,13 @@
 
 ## 2. Bloqueos que gobiernan el siguiente paso
 
-1. **PAPER no es todavía un ciclo operativo completo.** La rama de PR #64 no demuestra que una señal real de mercado se convierta en una `Signal` canónica y después en una `TradeProposal` económica completa a través de los contratos existentes.
-2. **Cuenta PAPER y estado de riesgo.** El balance/fills persistidos por el adaptador no se han aprobado como una fuente única que alimente `CanonicalAccountState` junto al almacenamiento canónico de reservas. Cualquier discrepancia debe producir `UNKNOWN/BLOCKED`.
-3. **Identidad de cotización.** La documentación de PAPER identifica que el quote se obtiene durante el envío, después de la autorización de riesgo; mientras el intent persistido no vincule la misma evidencia de cotización, no se puede afirmar que riesgo y fill usaron el mismo bid/ask.
-4. **Reconciliación económica B1-R.** El replay de fills de PAPER valida la contabilidad de la cuenta local; por su propio contrato no reconcilia todavía reservas, bindings de ejecución y proyección del ledger de idempotencia. No tratarlo como reconciliación global.
-5. **Captura prospectiva de mercado.** La prueba de humo continua de 24 h, integridad de velas, timestamps de primera recepción, manejo de reconexión y recuperación de huecos tienen que quedar probados antes de fijar T0 para los 365 días de V2.
-6. **SQLite/WAL en PR #64.** El informe de casos externos de esa rama afirma que el adaptador usa journal rollback `DELETE`; el código inspeccionado en el HEAD de PR #64 aún contiene `PRAGMA journal_mode=WAL`. Alinear código y documentación y validar la versión efectiva de SQLite/concurrencia antes de fusionar.
-7. **Actions en main.** Esta actualización alinea los workflows actuales con las versiones de first-party Actions que usan Node 24. La ejecución de CI sobre el SHA de este commit debe revisarse aparte; no se da por aprobada antes de existir ese resultado.
+1. **Productor de señal→PAPER aún ausente.** El puente canónico `Signal → TradeProposal` está integrado, pero Product V2 sigue terminando en `NO_TRADE`; aún no se demuestra un ciclo operativo que adquiera velas públicas recientes de 4h cerradas, genere una `Signal` canónica y la entregue a PAPER.
+2. **Cuenta y riesgo.** El snapshot completo de la cuenta PAPER se proyecta a `CanonicalAccountState`; antes de una nueva admisión se exige conciliación `apply=False`. Cualquier discrepancia permanece `UNKNOWN/BLOCKED`.
+3. **Cotización y autorización.** `PaperQuoteEvidence` versionada/hash-bound viaja con los términos persistidos; el adaptador calcula el fill desde esa evidencia y la reconciliación comprueba que coincide con la evidencia referenciada por riesgo.
+4. **Reconciliación económica B1-R.** Se integró `paper_economic_replay.py` y `paper_runtime_reconciliation.py`. Una prueba simula el fallo tras el commit del fill, reabre PAPER/reserva/binding/ledger y ejecuta dos reconciliaciones, verificando que no haya fills, débitos, consumos ni versiones duplicadas. Los archivos SQLite separados no son atómicos como conjunto: las reparaciones parciales siguen siendo reintentables y fail-closed.
+5. **Captura prospectiva de mercado.** La captura continua de 24 h, integridad diaria, timestamp de primera recepción, reconexión y recuperación de huecos siguen pendientes antes de fijar T0 para la evaluación prospectiva V2.
+6. **SQLite.** El adaptador PAPER y el ledger usan `PRAGMA journal_mode=DELETE`, con prueba automatizada. El caso público WAL-reset motivó el cambio; no hay evidencia de corrupción de BOT-CRIPTO.
+7. **CI y mantenimiento.** Los workflows en main usan Actions first-party compatibles con Node 24. Los checks deben evaluarse por SHA; el éxito de un commit no valida automáticamente sus descendientes.
 
 ## 3. Política económica y de seguridad que se conserva
 
@@ -33,15 +33,17 @@
 - Mantener `UNKNOWN` como bloqueo, sin reintentar efectos ambiguos ni aumentar exposición sin evidencia.
 - Las fechas usadas como evidencia deben tener `tzinfo` y un `utcoffset()` real; un objeto de zona horaria sin offset no satisface el contrato de datetime consciente.
 
-## 4. Evidencia CI observada antes de esta actualización
+## 4. Evidencia CI verificada
 
-- Main baseline `ff05bb6d70845ba51784da2bceee0ecf99b3e11a`: GitHub Actions `tests`, run [38959108299](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/38959108299), `completed/success` (16-10-2026).
-- PR #64 HEAD `8e6ad980481c39dd1504481724e014384ac7187f`: `tests` run [39063159426](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39063159426), y ejecuciones E2E [39063159437](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39063159437), [39063159453](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39063159453), [39063159493](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39063159493): todas `completed/success` en ese SHA.
-- Estos resultados no son tests locales, no prueban reconciliación económica global, no habilitan LIVE y no validan automáticamente un SHA posterior.
+- **Main merge commit:** `fd51e0dd1ff3f710680a98b685a6b9369c74a600`, PR #71 fusionada. GitHub Actions `tests` run [39069869061](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069869061) terminó `completed/success`; log exacto: **1561 passed in 10.11s**.
+- **Punta de integración antes del merge:** `0d139afdf7719d86b7d938ef0cb2a2e8dac949dc`. Suite completa en [39069780762](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780762) y [39069776697](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069776697), ambas `success`. SMA E2E [39069780537](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780537), indicadores E2E [39069780522](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780522) y backtest público/Product V2 [39069780401](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780401), todos `completed/success` sobre ese mismo SHA.
+- Estos E2E comprueban adquisición/backtests públicos y contratos relacionados; no son pruebas LIVE ni de rentabilidad futura.
+- La decisión económica sigue siendo `NO_TRADE`; esta evidencia no habilita LIVE.
 
 ## 5. Enlaces de continuidad
 
-- [PR #64 — adaptador PAPER](https://github.com/eltiootaku01-hue/bot-cripto/pull/64)
+- [PR #71 — integración PAPER reconciliada (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/71)
+- [PR #64 — rama PAPER original (cerrada como supersedida)](https://github.com/eltiootaku01-hue/bot-cripto/pull/64)
 - [PR #66 — recuperación del universo BTC/altcoins](https://github.com/eltiootaku01-hue/bot-cripto/pull/66)
 - [PR #69 — investigación BTC/ETH V1](https://github.com/eltiootaku01-hue/bot-cripto/pull/69)
 - [PR #70 — protocolo prospectivo BTC/ETH V2](https://github.com/eltiootaku01-hue/bot-cripto/pull/70)
