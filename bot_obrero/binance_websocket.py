@@ -1,8 +1,9 @@
 """Binance Spot raw WebSocket Kline acquisition boundary.
 
 This module provides a bounded, injectable WebSocket boundary for Binance Spot
-Kline streams. It stops at canonical MarketData and deliberately excludes
-reconnects, retries, persistence, background workers, and REST fallback.
+Kline streams. Callers may consume events incrementally, but they own persistence,
+reconnection and lifecycle policy. No background worker or REST fallback is
+created by the adapter.
 """
 
 from __future__ import annotations
@@ -51,6 +52,10 @@ class BinanceWebSocketError(RuntimeError):
 
 class BinanceWebSocketTransportError(BinanceWebSocketError):
     """Network, timeout, or closed-connection failure."""
+
+
+class BinanceWebSocketServerShutdown(BinanceWebSocketTransportError):
+    """Binance announced a controlled shutdown; reconnect at the caller."""
 
 
 class BinanceWebSocketProtocolError(BinanceWebSocketError):
@@ -444,12 +449,26 @@ class BinanceSpotWebSocketAdapter:
         symbol: str,
         interval: str,
         max_messages: int = 1,
+        on_item: Callable[[MarketData], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> list[MarketData]:
-        """Receive at most max_messages events and return canonical MarketData."""
+        """Receive a bounded batch of canonical MarketData.
+
+        When on_item is provided, each item receives a separate consumer-handoff
+        timestamp and is delivered immediately after canonicalization. This lets
+        a durable consumer keep earlier events even if a later receive fails.
+        should_stop is checked between receives; no background worker is created.
+        """
         if isinstance(max_messages, bool) or not isinstance(max_messages, int):
             raise ValueError("max_messages must be an integer >= 1")
         if max_messages < 1:
             raise ValueError("max_messages must be >= 1")
+        if on_item is not None and not callable(on_item):
+            raise ValueError("on_item must be callable when supplied")
+        if should_stop is not None and not callable(should_stop):
+            raise ValueError("should_stop must be callable when supplied")
+        if on_item is not None and self._consumer_handoff_clock is None:
+            raise ValueError("on_item requires an explicit consumer_handoff_clock")
 
         validated_interval = validate_binance_spot_interval(interval)
         try:
@@ -486,6 +505,8 @@ class BinanceSpotWebSocketAdapter:
         results: list[MarketData] = []
         try:
             for _ in range(max_messages):
+                if should_stop is not None and should_stop():
+                    break
                 try:
                     message = connection.recv()
                     received_at = self._clock()
@@ -507,18 +528,21 @@ class BinanceSpotWebSocketAdapter:
                     ) from exc
 
                 try:
+                    decoded = _decode_message(message)
+                    if decoded.get("e") == "serverShutdown":
+                        raise BinanceWebSocketServerShutdown(
+                            "Binance sent serverShutdown; reconnect is required"
+                        )
                     provider_record = parse_binance_kline_event(
-                        message,
+                        decoded,
                         requested_symbol=symbol,
                         requested_interval=validated_interval.value,
                     )
-                    results.append(
-                        self._canonicalize_event(
-                            provider_record=provider_record,
-                            received_at=received_at,
-                            instrument_mapper=instrument_mapper,
-                            interval=validated_interval.value,
-                        )
+                    item = self._canonicalize_event(
+                        provider_record=provider_record,
+                        received_at=received_at,
+                        instrument_mapper=instrument_mapper,
+                        interval=validated_interval.value,
                     )
                 except BinanceWebSocketError:
                     raise
@@ -527,6 +551,31 @@ class BinanceSpotWebSocketAdapter:
                         f"Binance WebSocket Kline processing failed: {exc}"
                     ) from exc
 
+                # Keep sink failures separate from provider payload errors.
+                if on_item is not None:
+                    handoff_at = self._consumer_handoff_clock()
+                    evidence = AvailabilityEvidence.consumer_handoff(
+                        received_at=item.received_at,
+                        available_at=handoff_at,
+                        evidence_reference=self.AVAILABILITY_EVIDENCE_REFERENCE,
+                        consumer_scope=self.CONSUMER_SCOPE,
+                    )
+                    available_at = resolve_availability(
+                        evidence,
+                        received_at=item.received_at,
+                    )
+                    if available_at is None:
+                        raise BinanceWebSocketPayloadError(
+                            "consumer handoff did not produce known availability"
+                        )
+                    item = replace(item, available_at=available_at)
+                    on_item(item)
+                results.append(item)
+
+            if not results:
+                return results
+            if on_item is not None:
+                return results
             if self._consumer_handoff_clock is None:
                 evidence = AvailabilityEvidence.unknown()
             else:
@@ -567,6 +616,7 @@ __all__ = [
     "BinanceWebSocketError",
     "BinanceWebSocketPayloadError",
     "BinanceWebSocketProtocolError",
+    "BinanceWebSocketServerShutdown",
     "BinanceWebSocketTransportError",
     "WebSocketConnection",
     "WebSocketFactory",
