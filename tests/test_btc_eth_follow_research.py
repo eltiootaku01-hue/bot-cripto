@@ -150,7 +150,8 @@ def _paired_market_history(*, bars: int, cutoff: int, perturb_future: bool = Fal
             data_type="CANDLE",
             observed_at=end,
             received_at=end + timedelta(seconds=1),
-            available_at=end + timedelta(seconds=2),
+            # The fixture does not claim point-in-time historical availability.
+            available_at=None,
             payload=candle,
             quality=DataQuality.VALID,
             completeness=DataCompleteness.UNKNOWN,
