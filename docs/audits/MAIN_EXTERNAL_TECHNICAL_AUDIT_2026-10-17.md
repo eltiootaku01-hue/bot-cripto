@@ -143,3 +143,18 @@ PR #72 introdujo `bot_obrero/market_signal_pipeline.py`: una pipeline fail-close
 PR #73 añadió identificación de fuente aprobada y procedencia explícita de finality. La fuente WS declara la bandera oficial `k.x`; REST declara una inferencia local basada en el tiempo de cierre, sin fingir que el servidor entregó la misma bandera. Proveedor/venue/origen que no correspondan a Binance Spot REST/WS producen bloqueo. [CI PR #73](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071644011): `success`, 1576 pruebas. Merge: `99424107ccaafe1a0985bb956523fa342e66285c`.
 
 Persisten: captura prospectiva de 24 h, validación económica en holdout independiente, test anti-lookahead/sufijo futuro completo, composición del productor con el runtime de admisión PAPER y ausencia de atomicidad global entre archivos SQLite. No cambiar `NO_TRADE`, no habilitar LIVE ni usar dinero real.
+
+
+## Addendum — PR #74 integra productor de señal con riesgo/PAPER (17 de octubre de 2026)
+
+El HEAD actual auditado después del merge es [`a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`](https://github.com/eltiootaku01-hue/bot-cripto/commit/a00e78a634ea7bac4ad266a3ae7b3394c709b6e0). PR #74 añade `bot_obrero/market_signal_paper_runtime.py`, la composición explícita de `generate_market_signal` con `FinancialExecutionRuntime`. La ruta valida: `PROPOSAL_READY`, misma Signal/TradeProposal/AnalysisResult, cuenta PAP​ER derivada del snapshot persistido, contexto de riesgo completo, quote pública Binance Spot con tiempos válidos y binding de disponibilidad, política y evidencia de readiness suministradas por caller, además de instancia real de `PaperExecutionAdapter`. No hay fallback LIVE ni reintento automático si el outcome resulta incierto.
+
+**Evidencia probatoria:** [PR #74](https://github.com/eltiootaku01-hue/bot-cripto/pull/74) fusionada; [CI post-merge main 39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856) `success`, 1578 pruebas aprobadas en 10.30 s; [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681) e [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684) en la punta PR #74, ambos `success`.
+
+Durante el desarrollo, el E2E dio `UNKNOWN` porque la prueba fechaba el fill antes de que la cotización estuviera disponible según el reloj del fill. La evidencia persistida identificó `PAPER_QUOTE_TEMPORAL_ORDER_INVALID`; se ajustó la fixture a una cronología válida y el CI pasó. Esto era un error del fixture, no una razón para relajar el contrato temporal.
+
+### Alcance todavía no probado
+
+La integración es una función de composición invocable, no un supervisor de captura 24 h ni un loop de adquisición/reconexión. Falta validar una ejecución prospectiva continua, reparar huecos con evidencia verificable, hacer anti-lookahead de sufijo futuro para la investigación BTC/ETH y demostrar edge neto fuera de muestra. La puntuación ponderada pasa de 68 a 71/100 solo por el ciclo técnico integrado; no se otorgan puntos de rentabilidad/captura. `NO_TRADE` sigue siendo la decisión económica global.
+
+Los hallazgos históricos de este informe que indicaban que no existía composición mercado→riesgo→PAPER quedan supersedidos por este addendum. Se mantienen el límite de no atomicidad global entre SQLite separadas, el bloqueo `UNKNOWN/BLOCKED` y la prohibición de LIVE/dinero real/claves privadas.
