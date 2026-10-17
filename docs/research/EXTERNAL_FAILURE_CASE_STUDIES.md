@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 17 de octubre de 2026  
-**Rama de destino verificada:** `main` (PR #71, merge commit `fd51e0dd1ff3f710680a98b685a6b9369c74a600`)  
+**Rama de destino verificada:** `main` (actualizado tras PR #74, merge commit `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`)  
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -33,7 +33,7 @@ Los reportes de CCXT documentan rechazos `Filter failure: LOT_SIZE` cuando la ca
 
 ## 3. Backtesting: sesgo de anticipación (`lookahead bias`)
 
-**Fuentes:** [Freqtrade — lookahead analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/) y [Freqtrade — errores comunes de estrategia](https://docs.freqtrade.io/en/stable/strategy-customization/).
+**Fuentes:** [Freqtrade — lookahead analysis](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/) y [Freqtrade — errores comunes de estrategia](https://docs.freqtrade.io/en/stable/strategy-customization/).
 
 Freqtrade explica que un backtest puede aparentar ganancias exageradas si una señal usa velas futuras, agregaciones sobre todo el dataframe, desplazamientos negativos o alineaciones incorrectas de marcos temporales. Su método compara una corrida base con corridas que aíslan señales para detectar cambios en indicadores y entradas/salidas.
 
@@ -136,3 +136,32 @@ Una revisión de la pipeline añadió un segundo guardarraíl: rechaza fuente/pr
 ### Riesgo económico que permanece
 
 El productor de señal se limita a análisis y a construir una propuesta opcional; no envía órdenes. Los resultados económicos no acreditan ventaja robusta; `NO_TRADE` global se mantiene. Sigue pendiente la prueba completa de invariancia frente a sufijo futuro para el estudio BTC→ETH: Freqtrade advierte que un backtest puede quedar sesgado cuando indicadores/decisiones miran velas futuras y propone contrastar las salidas base con backtests aislados ([Lookahead analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/)).
+
+
+## 10. QuantConnect LEAN: fills contra un precio ya obsoleto en barras horarias/diarias
+
+**Fuente primaria / actualización publicada:** [QuantConnect — Closing the Stale-Price Loophole on Daily and Hourly Data (junio de 2026)](https://www.quantconnect.com/announcements/20949/closing-the-stale-price-loophole-on-daily-and-hourly-data/p1).
+
+QuantConnect explicó que una orden de mercado intradía podía ejecutarse contra el cierre anterior al usar un activo suscrito solo a barras horarias o diarias. Ese precio no era fresco al momento de ordenar y podía inflar silenciosamente el backtest. LEAN modificó el modelo de fills para esperar datos frescos o convertir la orden a un tipo compatible con la siguiente apertura/cierre real.
+
+**Medida equivalente en BOT-CRIPTO:** la pipeline de señales exige vela cerrada, `available_at <= decision_timestamp`, secuencia continua y antigüedad máxima. La integración PR #74 valida además que la cotización pública usada en contexto de riesgo sea de la misma identidad/símbolo, observada y disponible antes de la decisión, enlazada por `AvailabilityBinding` y fresca al intentar completar el fill PAPER. La prueba descubrió que la fixture había fechado el fill antes de la disponibilidad de la quote; el error resultante `PAPER_QUOTE_TEMPORAL_ORDER_INVALID` se resolvió avanzando el reloj de la fixture, sin cambiar el guardarraíl.
+
+**Límite:** esto hace auditable el contrato temporal de la simulación. No vuelve un quote sintético en una cotización real ni prueba ventaja económica.
+
+## 11. CCXT: errores transitorios no son equivalentes a errores de orden
+
+**Fuente primaria:** [CCXT Manual — rate limit](https://docs.ccxt.com/docs/manual#rate-limit) y [CCXT Manual español — manejo de errores](https://docs.ccxt.com/es/docs/manual#manejo-de-errores).
+
+CCXT documenta distintos tipos de fallos: límites de tasa, timeout/red, exchange no disponible, autenticación, orden inválida y fondos insuficientes. Sus rutas de retry se destinan a ciertas fallas recuperables de red/servidor; una orden inválida o insuficiencia de fondos no debe tratarse como un error de transporte que siempre se resuelve reintentando. La guía de rate limit también recomienda reutilizar instancias y respetar el peso de cada endpoint para evitar bloqueos.
+
+**Aplicación a BOT-CRIPTO:** la integración de señal con PAPER invoca una sola vez el runtime financiero y no reintenta automáticamente cuando ocurre una excepción después de efectos durables; devuelve `UNKNOWN` para exigir reconciliación. La futura captura debe reutilizar/adaptar una sola política de limitación/reintento y registrar retry-after, timeout, última secuencia, huecos y recuperación. Ningún timeout del stream debe inventar `available_at`, convertir datos desconocidos en válidos o aprobar una orden.
+
+## 12. Actualización de main: integración señal→riesgo→PAPER
+
+**Cambio aplicado:** [PR #74](https://github.com/eltiootaku01-hue/bot-cripto/pull/74) fusionada en commit [`a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`](https://github.com/eltiootaku01-hue/bot-cripto/commit/a00e78a634ea7bac4ad266a3ae7b3394c709b6e0).
+
+El nuevo módulo `bot_obrero/market_signal_paper_runtime.py` exige propuesta canónica, señal todavía válida, contexto completo y enlazado al mismo análisis/señal/propuesta/cuenta, observación pública Binance Spot con binding de disponibilidad, evidencia explícita de readiness y adaptador PAPER local. Si la estrategia devuelve `NO_TRADE`, no se invoca context factory ni runtime. Ante outcome incierto, no hay retry automático.
+
+**CI verificado:** [run de main 39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), `success`, **1578 pruebas aprobadas en 10.30 s** en el SHA de merge. [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681) e [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684) también pasaron en el SHA de PR #74.
+
+**Dictamen revisado:** preparación técnica ponderada **71/100**, no >90. El avance (+3) solo afecta el ciclo de integración. No se ha probado una captura prospectiva continua de 24 horas ni edge robusto fuera de muestra; el proyecto continúa en `NO_TRADE`. No LIVE, dinero real ni claves privadas.
