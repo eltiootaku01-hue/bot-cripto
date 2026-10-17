@@ -742,11 +742,11 @@ def test_canonical_market_signal_flows_through_risk_admission_and_paper_reconcil
                 kind=kind,
                 value=True,
                 source="deterministic-signal-paper-test",
-                observed_at=BASE,
-                decision_at=BASE,
+                observed_at=decision_timestamp,
+                decision_at=decision_timestamp,
                 intent_id=prepared.client_order_id,
                 correlation_id=correlation,
-                expires_at=BASE + timedelta(minutes=5),
+                expires_at=decision_timestamp + timedelta(minutes=5),
             )
             for kind in REQUIRED
         )
