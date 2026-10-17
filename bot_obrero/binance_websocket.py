@@ -325,7 +325,7 @@ def parse_binance_kline_event(
         candle_completeness="COMPLETE" if closed else "PARTIAL",
         market_data_completeness="UNKNOWN",
         candle_state="CLOSED" if closed else "OPEN",
-        finality="UNKNOWN",
+        finality="FINAL" if closed else "NOT_FINAL",
         source_sequence=None,
         metadata={
             "binance_event_time_ms": event_time_ms,

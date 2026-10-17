@@ -512,7 +512,7 @@ class BinanceSpotRestAdapter:
                     "candle_completeness": "COMPLETE" if is_closed else "PARTIAL",
                     "market_data_completeness": "UNKNOWN",
                     "candle_state": "CLOSED" if is_closed else "OPEN",
-                    "finality": "UNKNOWN",
+                    "finality": "FINAL" if is_closed else "NOT_FINAL",
                     "source_sequence": None,
                     "metadata": {
                         "binance_quote_asset_volume": str(quote_volume),

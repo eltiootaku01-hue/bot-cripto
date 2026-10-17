@@ -197,7 +197,7 @@ def test_decision_between_observed_and_received_is_blocked_by_unknown_availabili
         item.evidence_at(decision)
 
 
-def test_closed_candle_becomes_closed_complete_but_not_final():
+def test_rest_candle_finality_tracks_close_time_explicitly():
     item = adapter(
         ok_getter([valid_row()]),
         clock=lambda: RECEIVED_CLOSED,
@@ -205,17 +205,17 @@ def test_closed_candle_becomes_closed_complete_but_not_final():
     assert item.payload.candle_state is CandleState.CLOSED
     assert item.payload.completeness is DataCompleteness.COMPLETE
     assert item.completeness is DataCompleteness.UNKNOWN
-    assert item.payload.finality.value == "UNKNOWN"
+    assert item.payload.finality.value == "FINAL"
 
 
-def test_open_candle_becomes_open_partial_without_inventing_finality():
+def test_open_candle_is_not_final_until_its_close_time():
     item = adapter(
         ok_getter([valid_row()]),
         clock=lambda: RECEIVED_OPEN,
     ).fetch_one(symbol="BTCUSDT", interval="1m", limit=1)
     assert item.payload.candle_state is CandleState.OPEN
     assert item.payload.completeness is DataCompleteness.PARTIAL
-    assert item.payload.finality.value == "UNKNOWN"
+    assert item.payload.finality.value == "NOT_FINAL"
 
 
 def test_quality_is_valid_only_after_strict_structure_and_canonical_validation():
