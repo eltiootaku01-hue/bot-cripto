@@ -182,3 +182,14 @@ La capa de captura crea ficheros JSONL separados para `BTCUSDT` y `ETHUSDT`, reg
 **Límite decisivo:** el CI prueba el programa con fixtures sintéticas y E2E separados; no demuestra que haya ocurrido una captura real de 24 h. No hay dataset real aceptado ni se asigna T0 al holdout anual. El comando de captura está descrito en [`docs/PROSPECTIVE_BTC_ETH_CAPTURE_V1.md`](../PROSPECTIVE_BTC_ETH_CAPTURE_V1.md); debe ejecutarse desde una máquina persistente y pasar el validador antes de usar los datos. `NO_TRADE` continúa; no LIVE, dinero real ni claves privadas.
 
 El score ponderado pasa de 72 a **73/100** solo por la infraestructura de captura persistente y sus pruebas. No se otorga crédito por evidencia de operación sostenida ni por edge económico, ambos no demostrados.
+
+
+## Addendum final — PR #79, validación independiente reforzada (17 de octubre de 2026)
+
+PR #79 se fusionó en [a196651842a84cdfc31fde2f3230cd27ff61bf55](https://github.com/eltiootaku01-hue/bot-cripto/commit/a196651842a84cdfc31fde2f3230cd27ff61bf55). El cambio corrige el orden en el validador (se interpretan las fechas de inicio/fin antes de comparar el horario programado) y endurece dos contratos: la captura no escribe velas con combinaciones contradictorias de estado/completitud/finality; el validador rechaza registros cuya recepción queda fuera del intervalo de corrida, verifica configuración y duración, y compara los hashes desde los bytes leídos.
+
+**Pruebas adversariales añadidas:** rechazar una Kline CLOSED/COMPLETE/UNKNOWN y rechazar un manifiesto manipulado para afirmar que la corrida comenzó dos horas después, incluso cuando se actualizan los hashes externos del archivo. La intención es verificar el gate temporal, no solo detectar un hash obsoleto.
+
+**CI de la punta PR #79:** [run 39076878077](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076878077), success, 1595 pruebas. **CI post-merge de main:** [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903), success, **1595 pruebas aprobadas en 10.39 s**.
+
+La preparación técnica queda en **73/100**, no >90. No existe aún un dataset real de 24 horas aceptado, ni evidencia de edge neto robusto fuera de muestra. El código de captura no sustituye el trabajo de ejecución y revisión del artefacto real. NO_TRADE permanece; no LIVE, dinero real ni claves privadas.
