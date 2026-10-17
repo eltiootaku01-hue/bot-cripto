@@ -2,15 +2,15 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**HEAD de main al iniciar esta sincronización documental:** `99424107ccaafe1a0985bb956523fa342e66285c` (PR #72 y PR #73 integradas).
+**HEAD de main verificado:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0` (PR #74 integrada después de PR #71–#73).
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
-- **Evaluación ponderada actual:** **68/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
-- **CI de integración comprobado:** [run 39071644011](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071644011) terminó `success`, **1576 pruebas aprobadas** en la punta de PR #73 (`b51c060a9479c484b7ef5a14861972524e5f9f92`). E2E SMA, indicadores y backtest público pasan en la punta PR #72 (`68e3fc19b690c36e8f8341b051ed796b30b78640`). El CI de cualquier SHA posterior debe verificarse por separado.
-- **Próximos gates de mayor prioridad:** validar estrategia con edge neto y holdout independiente; conectar el productor de señal a la admisión financiera y al runtime PAPER bajo una política aprobada; completar captura prospectiva validada de 24 horas. Mientras falte cualquiera, `NO_TRADE` se mantiene.
+- **Evaluación ponderada actual:** **71/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
+- **CI del main actual:** [run 39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856) terminó `success`, **1578 pruebas aprobadas en 10.30 s** en el SHA exacto `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`. En la punta de PR #74 también pasaron [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681), [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684) y la suite [39072943527](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072943527), todas `success`.
+- **Próximos gates de mayor prioridad:** completar captura prospectiva validada de 24 horas; ejecutar el análisis anti-lookahead de sufijo futuro para el estudio BTC/ETH completo; validar edge neto en un holdout independiente y operar la captura con supervisión sostenida. `NO_TRADE` sigue mientras no exista evidencia económica.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
 - **LIVE:** no implementado/habilitado. No usar dinero real, claves privadas ni endpoints privados.
@@ -22,7 +22,7 @@
 
 ## 2. Bloqueos que gobiernan el siguiente paso
 
-1. **Productor de señal integrado; composición financiera completa pendiente.** PR #72 añade adquisición REST→pipeline canónico `MarketData → Analysis/Snapshot/Strategy/Signal` y una `TradeProposal` opcional bajo política explícita. No envía órdenes ni se conecta automáticamente a la admisión financiera para ejecutar en PAPER; Product V2 continúa como investigador independiente y conserva `NO_TRADE`.
+1. **Composición señal→riesgo→PAPER integrada con guardas explícitas.** PR #74 añade `bot_obrero/market_signal_paper_runtime.py`: solo pasa `PROPOSAL_READY` a `FinancialExecutionRuntime`, exige un `PaperExecutionAdapter` local, `RiskEvaluationContext` completo y enlazado a la misma señal/análisis/cuenta, cotización pública Binance Spot y evidencia de disponibilidad consistente. `NO_TRADE`, datos inválidos y errores previos bloquean; excepciones/salidas inciertas no se reintentan. El productor no mantiene por sí solo una captura 24 h ni valida edge económico.
 2. **Cuenta y riesgo.** El snapshot completo de la cuenta PAPER se proyecta a `CanonicalAccountState`; antes de una nueva admisión se exige conciliación `apply=False`. Cualquier discrepancia permanece `UNKNOWN/BLOCKED`.
 3. **Cotización y autorización.** `PaperQuoteEvidence` versionada/hash-bound viaja con los términos persistidos; el adaptador calcula el fill desde esa evidencia y la reconciliación comprueba que coincide con la evidencia referenciada por riesgo.
 4. **Reconciliación económica B1-R.** Se integró `paper_economic_replay.py` y `paper_runtime_reconciliation.py`. Una prueba simula el fallo tras el commit del fill, reabre PAPER/reserva/binding/ledger y ejecuta dos reconciliaciones, verificando que no haya fills, débitos, consumos ni versiones duplicadas. Los archivos SQLite separados no son atómicos como conjunto: las reparaciones parciales siguen siendo reintentables y fail-closed.
@@ -54,6 +54,8 @@
 - [PR #71 — integración PAPER reconciliada (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/71)
 - [PR #72 — productor de señal de velas cerradas y finality (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/72)
 - [PR #73 — procedencia de fuente/finality fail-closed (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/73)
+- [PR #74 — integración de señal con riesgo/admisión/PAPER (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/74)
+- [CI post-merge de main, 1578 pruebas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856)
 - [PR #64 — rama PAPER original (cerrada como supersedida)](https://github.com/eltiootaku01-hue/bot-cripto/pull/64)
 - [PR #66 — recuperación del universo BTC/altcoins](https://github.com/eltiootaku01-hue/bot-cripto/pull/66)
 - [PR #69 — investigación BTC/ETH V1](https://github.com/eltiootaku01-hue/bot-cripto/pull/69)
@@ -66,10 +68,18 @@
 
 ## PRODUCT V2 — especificación histórica conservada
 
-Product V2 utiliza la entrada `python -m bot_obrero.product_v2`, datos públicos Spot y backtests virtuales. Sus filtros/métricas históricos incluyen BTC regime, filtros de instrumento, liquidez/spread, correlación 30/90 días, beta 90 días, fuerza relativa y una partición fija de 60 días separada. El camino termina en `NO_TRADE`; no hay puente operativo demostrado desde el resultado del escáner.
+Product V2 utiliza la entrada `python -m bot_obrero.product_v2`, datos públicos Spot y backtests virtuales. Sus filtros/métricas históricos incluyen BTC regime, filtros de instrumento, liquidez/spread, correlación 30/90 días, beta 90 días, fuerza relativa y una partición fija de 60 días separada. No se debe elevar su resultado a ejecución: si el escáner devuelve `NO_TRADE`, la nueva composición no crea propuesta ni inicia el runtime.
 
 Los datos de klines históricos no incluyen el spread histórico. Los escenarios de backtest deben etiquetar las hipótesis de spread/deslizamiento/comisión y utilizar los mismos supuestos para las estrategias y los benchmarks comparables. No inferir asequibilidad de ARS a partir de un ledger virtual en USDT.
 
 ## Regla de continuidad
 
 Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR abiertas, archivos afectados y checks asociados al SHA exacto. Registrar por separado `OBSERVED`, `TESTED`, `INFERRED`, `UNKNOWN` y `BLOCKED`. No actualizar esta memoria para declarar completada una fase sin evidencia.
+
+## Actualización de continuidad — PR #74 (2026-10-17)
+
+- **Main:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; PR #74 fusionada.
+- **CI post-merge:** [39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), `success`, 1578 pruebas aprobadas en 10.30 s.
+- **Cambio probado:** `market_signal_paper_runtime.py` compone la salida canónica de mercado/señal/propuesta con contexto, política de riesgo y runtime PAPER existente. El E2E usa cotización/evidencias sintéticas; no son datos de rendimiento en vivo.
+- **Preparación ponderada revisada:** 71/100. El aumento de +3 se limita al ciclo señal→riesgo→PAPER que ya tiene una composición y prueba integral. No se otorgan puntos por ventaja económica o captura prospectiva aún no demostradas.
+- **Bloqueos preservados:** `NO_TRADE`, validación anti-lookahead completa, 24 h de captura con integridad/finality/recuperación, supervisión sostenida y ausencia de atomicidad global entre SQLite independientes. Sin LIVE, claves privadas ni dinero real.
