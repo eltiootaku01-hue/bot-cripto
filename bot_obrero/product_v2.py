@@ -563,6 +563,7 @@ def backtest(
     fast_ema_period: int = 12, slow_ema_period: int = 26, rsi_period: int = 14,
     rsi_buy_min: Decimal = D("50"), rsi_sell_at: Decimal = D("70"),
     position_fraction: Decimal = D("0.95"),
+    liquidate_at_end: bool = False,
     evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
     entry_admission: Callable[[int, Sequence[Any]], tuple[bool, str]] | None = None,
 ) -> BacktestResult:
@@ -587,6 +588,7 @@ def backtest(
             else None
         ),
         min_notional=filters.min_notional if filters else None,
+        liquidate_at_end=liquidate_at_end,
     )
     if filters is not None and filters.market_lot_size_present is False:
         raise ProductV2Error("MARKET_LOT_SIZE_UNKNOWN")
@@ -602,13 +604,18 @@ def historical_btc_entry_admission(
     candidate_items: Sequence[Any], btc_items: Sequence[Any], *, fast_ema_period: int,
     slow_ema_period: int, rsi_period: int, rsi_buy_min: Decimal,
     minimum_corr30d: Decimal, minimum_corr90d: Decimal,
+    periods_per_day: int = 6,
 ) -> Callable[[int, Sequence[Any]], tuple[bool, str]]:
-    """Fail-closed entry gate using only aligned 4h bars up to each signal close."""
+    """Fail-closed BTC relationship/regime gate for aligned 4h or 1h candles."""
+    if (isinstance(periods_per_day, bool) or not isinstance(periods_per_day, int)
+            or periods_per_day <= 0):
+        raise ProductV2Error("periods_per_day must be a positive integer")
     if not candidate_items or len(candidate_items) != len(btc_items) or not histories_temporally_aligned(candidate_items, btc_items):
         raise ProductV2Error("candidate and BTC histories are not fully aligned")
+    interval = candidate_items[0].payload.timeframe
     btc_observations = [_observation(item) for item in btc_items]
     indicator_config = BacktestConfig(
-        symbol="BTCUSDT", interval="4h", candles=1080,
+        symbol="BTCUSDT", interval=interval, candles=max(90 * periods_per_day + 1, slow_ema_period + 2),
         fast_ema_period=fast_ema_period, slow_ema_period=slow_ema_period,
         rsi_period=rsi_period, rsi_buy_min=rsi_buy_min,
     )
@@ -617,7 +624,7 @@ def historical_btc_entry_admission(
     def admit(index: int, _candidate_observations: Sequence[Any]) -> tuple[bool, str]:
         if index in cache:
             return cache[index]
-        if index < 90 * 6:
+        if index < 90 * periods_per_day:
             result = (False, "BTC_METRICS_INSUFFICIENT: 90-day warm-up incomplete")
             cache[index] = result
             return result
@@ -651,9 +658,9 @@ def historical_btc_entry_admission(
             cache[index] = result
             return result
         asset_returns, btc_returns = return_series(candidate_prefix), return_series(btc_prefix)
-        corr30, _ = correlation_beta(asset_returns, btc_returns, 30 * 6)
-        corr90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * 6)
-        asset_return30, btc_return30 = return_pct(candidate_prefix, 30 * 6), return_pct(btc_prefix, 30 * 6)
+        corr30, _ = correlation_beta(asset_returns, btc_returns, 30 * periods_per_day)
+        corr90, beta90 = correlation_beta(asset_returns, btc_returns, 90 * periods_per_day)
+        asset_return30, btc_return30 = return_pct(candidate_prefix, 30 * periods_per_day), return_pct(btc_prefix, 30 * periods_per_day)
         strength = asset_return30 - btc_return30 if asset_return30 is not None and btc_return30 is not None else None
         reasons = btc_relationship_reasons(corr30, corr90, beta90, strength, minimum_corr30d, minimum_corr90d)
         btc_values = _indicators(btc_observations[:index + 1], indicator_config)
