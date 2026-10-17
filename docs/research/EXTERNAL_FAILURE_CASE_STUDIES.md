@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 17 de octubre de 2026  
-**Base de código revisada:** `main` incluye PR #74 (composición señal→PAPER), PR #76 (regresiones anti-lookahead), PR #78 (infraestructura de captura prospectiva) y PR #79 (refuerzo del validador), merge commit `a196651842a84cdfc31fde2f3230cd27ff61bf55`  
+**Base de código revisada:** `main` incluye PR #82 (integridad del replay PAPER) y PR #83 (pinning SHA inmutable de Actions), HEAD `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. El CI exacto de main [39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856) terminó `success` con 1598 pruebas.  
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -224,7 +224,7 @@ El patrón aplicado sigue una recomendación de defensa en profundidad: un resul
 
 **Brecha local observada:** el replay independiente comprobaba el formato de `quote_evidence_hash`, pero no recalculaba la evidencia original ni la cotejaba con los campos persistidos del fill. El snapshot además ocultaba `intent_json`, por lo que el replay no podía reconstruir la intención hasheada. Una modificación de `quote_bid` a un valor menor que `quote_ask`, manteniendo el hash con aspecto correcto, podía evadir ese chequeo del replay aislado. No se afirma que la base de datos haya sido alterada en uso real; el caso es una posibilidad demostrable en el contrato de validación.
 
-**Corrección propuesta en la rama de auditoría:** exponer la intención durable decodificada en `snapshot`; recalcular su hash canónico; validar otra vez el objeto completo de quote con `validate_paper_quote_evidence`; cotejar precio bid/ask, fuente, timestamps, identificación de observación, símbolo, contexto e hash con cada fill; rechazar un `fill_count` booleano (porque `True == 1` en Python). Tests de regresión inyectan las dos corrupciones.
+**Corrección aplicada en main via [PR #82](https://github.com/eltiootaku01-hue/bot-cripto/pull/82), merge SHA `6728f9097bb6093c980e758ee68f5222d1443f9b`:** `snapshot` expone el payload de intención durable decodificado; el replay recalcula su hash canónico; valida de nuevo el objeto completo de quote con `validate_paper_quote_evidence`; coteja bid/ask, fuente, timestamps, ID/tipo de observación, símbolo, contexto e hash con el fill; rechaza `fill_count` booleano en el replay y en la proyección canónica. [CI post-merge 39079511218](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079511218) pasó 1598 pruebas en 11.85 s.
 
 **Referencias de patrones de ingeniería:**
 - Freqtrade documenta el riesgo de que un backtest consuma datos futuros y la comparación de corridas base/aisladas para encontrar divergencias: https://docs.freqtrade.io/en/2026.5/lookahead-analysis/
@@ -240,11 +240,11 @@ El patrón aplicado sigue una recomendación de defensa en profundidad: un resul
 
 **Hallazgo local observado:** los ocho workflows usaban `actions/checkout@v7`, `actions/setup-python@v7` y/o `actions/upload-artifact@v7`. Son acciones first-party y versiones modernas, pero el tag mayor no identifica un único commit inmutable.
 
-**Mitigación propuesta:** fijar en cada workflow las releases oficiales verificadas por SHA completo:
+**Mitigación aplicada en main via [PR #83](https://github.com/eltiootaku01-hue/bot-cripto/pull/83), merge SHA `a07b8aac15970f3349f9de54f021cfbeb71e4e20`:** los ocho workflows están fijados a releases oficiales verificadas por SHA completo:
 - `actions/checkout v7.0.1`: `3d3c42e5aac5ba805825da76410c181273ba90b1`. Release: https://github.com/actions/checkout/releases/tag/v7.0.1
 - `actions/setup-python v7.0.0`: `5fda3b95a4ea91299a34e894583c3862153e4b97`. Release: https://github.com/actions/setup-python/releases/tag/v7.0.0
 - `actions/upload-artifact v7.0.2`: `cf430e030ddbb5b0abf93d22962f4752f3646cd9`. Release: https://github.com/actions/upload-artifact/releases/tag/v7.0.2
 
-Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y sus releases publicadas; no se copiaron SHA de forks. Los cambios son de seguridad/reproducibilidad, no de comportamiento financiero. Requieren CI completo en la PR y en main tras merge. Cualquier actualización posterior exige revisar release/diff y cambiar el SHA intencionalmente.
+Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y sus releases publicadas; no se copiaron SHA de forks. Los cambios son de seguridad/reproducibilidad, no de comportamiento financiero. CI completo de PR [39079618993](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079618993) y CI exacto de main tras merge [39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856) pasaron con 1598 pruebas en main. Cualquier actualización posterior exige revisar release/diff y cambiar el SHA intencionalmente.
 
 **Límite:** pinnear una dependencia no demuestra por sí solo que su código esté libre de errores, ni prueba la rentabilidad de BOT-CRIPTO.
