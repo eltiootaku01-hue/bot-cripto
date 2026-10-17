@@ -564,16 +564,18 @@ def backtest(
     rsi_buy_min: Decimal = D("50"), rsi_sell_at: Decimal = D("70"),
     position_fraction: Decimal = D("0.95"),
     liquidate_at_end: bool = False,
+    interval: str = "4h",
     evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
     entry_admission: Callable[[int, Sequence[Any]], tuple[bool, str]] | None = None,
 ) -> BacktestResult:
     config = BacktestConfig(
-        symbol=symbol, interval="4h", candles=bars, fast_ema_period=fast_ema_period,
+        symbol=symbol, interval=interval, candles=bars, fast_ema_period=fast_ema_period,
         slow_ema_period=slow_ema_period, rsi_period=rsi_period, rsi_buy_min=rsi_buy_min, rsi_sell_at=rsi_sell_at,
         initial_quote_balance=initial_quote_balance, position_fraction=position_fraction,
         fee_rate=fee_rate, slippage_bps=slippage_bps, spread_bps=spread_bps, max_entries_per_30d=5,
         min_qty=(
             filters.market_min_qty if filters and filters.market_lot_size_present is True
+            and filters.market_min_qty is not None and filters.market_min_qty > ZERO
             else filters.min_qty if filters and filters.market_lot_size_present is None
             else None
         ),

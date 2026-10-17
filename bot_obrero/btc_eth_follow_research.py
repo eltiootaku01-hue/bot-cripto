@@ -93,7 +93,9 @@ def _filter_from_record(raw: Mapping[str, Any]) -> InstrumentFilters:
 def _require_market_filters(symbol: str, filters: InstrumentFilters) -> None:
     if filters.market_lot_size_present is not True:
         raise BTCETHResearchError(f"{symbol}: MARKET_LOT_SIZE_UNKNOWN")
-    for name in ("market_min_qty", "market_step_size", "market_max_qty", "min_notional"):
+    if filters.market_min_qty is None or filters.market_min_qty < ZERO:
+        raise BTCETHResearchError(f"{symbol}: MARKET_FILTER_INVALID_OR_INCOMPLETE:market_min_qty")
+    for name in ("market_step_size", "market_max_qty", "min_notional"):
         value = getattr(filters, name)
         if value is None or value <= ZERO:
             raise BTCETHResearchError(f"{symbol}: MARKET_FILTER_INVALID_OR_INCOMPLETE:{name}")
@@ -259,7 +261,7 @@ def _run_result(eth_items, filters, *, days, capital, fee, spread, slippage, sta
         ETH, eth_items, days * BPD, filters, initial_quote_balance=capital,
         fee_rate=fee, spread_bps=spread, slippage_bps=slippage, fast_ema_period=FAST,
         slow_ema_period=SLOW, rsi_period=RSI, rsi_buy_min=RSI_BUY, rsi_sell_at=RSI_SELL,
-        position_fraction=FRACTION, liquidate_at_end=True,
+        position_fraction=FRACTION, liquidate_at_end=True, interval=INTERVAL,
         evaluation_start=start_at, evaluation_end=end_at, entry_admission=gate,
     )
 

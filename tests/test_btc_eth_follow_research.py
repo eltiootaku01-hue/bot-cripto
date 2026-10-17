@@ -7,7 +7,7 @@ import pytest
 
 from bot_obrero.btc_eth_follow_research import (
     BTCETHResearchError, _config, _evaluation_plan, _filter_from_record,
-    _filter_to_record, rolling_correlation_summary,
+    _filter_to_record, _require_market_filters, rolling_correlation_summary,
 )
 from bot_obrero.product_v2 import InstrumentFilters
 
@@ -74,3 +74,14 @@ def test_rolling_correlation_summary_reports_perfect_relationship_for_identical_
     assert report["minimum"] == pytest.approx(1.0)
     assert report["median"] == pytest.approx(1.0)
     assert report["maximum"] == pytest.approx(1.0)
+
+
+
+def test_zero_market_minimum_is_accepted_when_other_market_constraints_are_valid():
+    filters = InstrumentFilters(
+        min_qty=Decimal("0.001"), step_size=Decimal("0.001"), min_notional=Decimal("5"),
+        max_qty=Decimal("1000"), market_min_qty=Decimal("0"),
+        market_step_size=Decimal("0.001"), market_max_qty=Decimal("100"),
+        market_lot_size_present=True,
+    )
+    _require_market_filters("ETHUSDT", filters)

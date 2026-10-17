@@ -816,3 +816,27 @@ def test_normalized_affordability_blocks_unknown_market_lot_size():
         slippage_bps=Decimal("5"), position_fraction=Decimal("0.95"),
     )
     assert result == (None, "MARKET_LOT_SIZE_UNKNOWN")
+
+
+
+def test_market_min_qty_zero_is_valid_and_disables_only_lower_bound(monkeypatch):
+    from types import SimpleNamespace
+    from bot_obrero import product_v2
+
+    filters = product_v2.parse_filters([
+        {"filterType": "LOT_SIZE", "minQty": "0.001", "maxQty": "1000", "stepSize": "0.001"},
+        {"filterType": "MARKET_LOT_SIZE", "minQty": "0", "maxQty": "100", "stepSize": "0.001"},
+        {"filterType": "MIN_NOTIONAL", "minNotional": "5"},
+    ])
+    assert filters.market_lot_size_present is True
+    assert filters.market_min_qty == Decimal("0")
+    captured = []
+    monkeypatch.setattr(
+        product_v2, "run_virtual_backtest",
+        lambda items, config, **kwargs: captured.append((config, kwargs)) or SimpleNamespace(config=config),
+    )
+    product_v2.backtest("ETHUSDT", [], 6, filters, interval="1h")
+    assert captured[0][0].interval == "1h"
+    assert captured[0][0].min_qty is None
+    assert captured[0][0].quantity_step == Decimal("0.001")
+    assert captured[0][0].max_qty == Decimal("100")
