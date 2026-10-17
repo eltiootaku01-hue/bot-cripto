@@ -12,6 +12,7 @@ from bot_obrero.binance_websocket import (
     BinanceSpotWebSocketAdapter,
     BinanceWebSocketPayloadError,
     BinanceWebSocketProtocolError,
+    BinanceWebSocketServerShutdown,
     BinanceWebSocketTransportError,
     build_binance_spot_kline_stream_url,
 )
@@ -546,3 +547,68 @@ def test_consumption_guard_still_rejects_decision_before_available_at():
 
     with pytest.raises(ValueError, match="look-ahead"):
         item.evidence_at(RECEIVED_2)
+
+
+def test_incremental_sink_gets_each_event_with_its_own_handoff_timestamp_before_later_disconnect():
+    messages = [
+        kline_message(event_time=EVENT_MS_1, closed=False),
+        kline_message(event_time=EVENT_MS_2, close_value="123.7600", closed=True),
+    ]
+    connection = FakeConnection(messages)
+    handoffs = iter((HANDOFF, HANDOFF + timedelta(seconds=1)))
+    ws, _ = adapter(
+        connection,
+        clock=lambda: RECEIVED_2,
+        handoff_clock=lambda: next(handoffs),
+    )
+    delivered = []
+
+    with pytest.raises(BinanceWebSocketTransportError, match="closed"):
+        ws.listen(
+            symbol="BTCUSDT",
+            interval="1m",
+            max_messages=3,
+            on_item=delivered.append,
+        )
+
+    assert len(delivered) == 2
+    assert delivered[0].available_at == HANDOFF
+    assert delivered[1].available_at == HANDOFF + timedelta(seconds=1)
+    assert all(item.available_at > item.received_at for item in delivered)
+    assert connection.closed
+
+
+def test_incremental_sink_requires_explicit_consumer_handoff_clock():
+    ws, factory = adapter(FakeConnection([kline_message()]))
+    with pytest.raises(ValueError, match="consumer_handoff_clock"):
+        ws.listen(symbol="BTCUSDT", interval="1m", on_item=lambda item: None)
+    assert factory.calls == []
+
+
+def test_should_stop_is_checked_between_messages_and_still_closes_connection():
+    connection = FakeConnection([kline_message(), kline_message(event_time=EVENT_MS_2)])
+    ws, _ = adapter(connection)
+    stop = {"value": False}
+
+    def should_stop():
+        stop["value"] = True
+        return stop["value"]
+
+    results = ws.listen(
+        symbol="BTCUSDT",
+        interval="1m",
+        max_messages=10,
+        should_stop=should_stop,
+    )
+    assert results == []
+    assert connection.recv_calls == 0
+    assert connection.closed
+
+
+def test_binance_server_shutdown_is_classified_as_reconnectable_transport_event():
+    message = json.dumps({"e": "serverShutdown", "E": EVENT_MS_3})
+    connection = FakeConnection([message])
+    ws, _ = adapter(connection)
+    with pytest.raises(BinanceWebSocketServerShutdown, match="serverShutdown"):
+        ws.listen(symbol="BTCUSDT", interval="1m")
+    assert connection.closed
