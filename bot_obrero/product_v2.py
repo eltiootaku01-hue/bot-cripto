@@ -108,12 +108,12 @@ def parse_filters(raw: Any) -> InstrumentFilters:
             if entry.get("filterType") == "LOT_SIZE":
                 minimum = exact_decimal(entry.get("minQty"), "LOT_SIZE.minQty")
                 step = exact_decimal(entry.get("stepSize"), "LOT_SIZE.stepSize")
-                maximum = exact_decimal(entry.get("maxQty"), "LOT_SIZE.maxQty")
+                maximum = None if entry.get("maxQty") is None else exact_decimal(entry.get("maxQty"), "LOT_SIZE.maxQty")
             elif entry.get("filterType") == "MARKET_LOT_SIZE":
                 market_filter_present = True
                 market_minimum = exact_decimal(entry.get("minQty"), "MARKET_LOT_SIZE.minQty")
                 market_step = exact_decimal(entry.get("stepSize"), "MARKET_LOT_SIZE.stepSize")
-                market_notional_maximum = exact_decimal(entry.get("maxQty"), "MARKET_LOT_SIZE.maxQty")
+                market_notional_maximum = None if entry.get("maxQty") is None else exact_decimal(entry.get("maxQty"), "MARKET_LOT_SIZE.maxQty")
             elif entry.get("filterType") in ("MIN_NOTIONAL", "NOTIONAL"):
                 if entry.get("minNotional") is not None:
                     notional = exact_decimal(entry["minNotional"], "minNotional")
