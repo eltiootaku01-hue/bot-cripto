@@ -1115,7 +1115,6 @@ class SQLiteReservationStore:
             "asset": validated.asset,
             "reserved_amount": _canonical_decimal_text(validated.reserved_amount, "reserved_amount"),
             "risk_decision_id": request.risk_decision.risk_decision_id,
-            "paper_quote_evidence": paper_quote_evidence,
             "authorization": {
                 "authorization_id": binding.authorization_id,
                 "semantic_fingerprint": binding.semantic_fingerprint,
@@ -1130,8 +1129,6 @@ class SQLiteReservationStore:
                 "risk_evidence": json.loads(_canonical_evidence_json(binding.risk_evidence)),
             },
         }
-        canonical = _canonical_json(payload)
-        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         observation = request.context.market_observation
         paper_quote_evidence = None
         if observation is not None and observation.observation_type == "BINANCE_SPOT_BOOK_TICKER":
@@ -1182,6 +1179,10 @@ class SQLiteReservationStore:
             except (TypeError, ValueError, PaperQuoteEvidenceError) as exc:
                 raise ReservationContractError("PAPER quote evidence is invalid") from exc
 
+        # Hash the exact persisted terms, including the quote envelope when present.
+        payload["paper_quote_evidence"] = paper_quote_evidence
+        canonical = _canonical_json(payload)
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         created_at = _canonical_utc_datetime(reservation.created_at)
         self._connection.execute(
             """
