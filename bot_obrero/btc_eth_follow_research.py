@@ -128,7 +128,8 @@ def _load_bundle(path: Path, *, days: int, capital: Decimal):
         bundle = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise BTCETHResearchError(f"cannot read dataset bundle: {exc}") from exc
-    if not isinstance(bundle, Mapping) or bundle.get("schema_version") != 1:
+    schema_version = bundle.get("schema_version") if isinstance(bundle, Mapping) else None
+    if type(schema_version) is not int or schema_version != 1:
         raise BTCETHResearchError("unsupported BTC-ETH bundle schema")
     config, data = bundle.get("configuration"), bundle.get("data")
     if config != _config(days, capital):
