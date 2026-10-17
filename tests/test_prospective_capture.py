@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from dataclasses import replace
+import hashlib
 import time
 
 import pytest
@@ -275,3 +277,60 @@ def test_duplicate_final_hour_is_flagged_and_blocks_capture_acceptance(tmp_path)
     assert manifest["acceptance"]["symbols"]["BTCUSDT"]["duplicate_final_candles"] == 1
     with pytest.raises(ProspectiveCaptureError, match="STATUS_NOT_COMPLETED"):
         validate_manifest(journal.manifest_path)
+
+
+
+def test_capture_journal_rejects_closed_candle_without_finality(tmp_path):
+    from bot_obrero.market_data import CandleFinality
+
+    journal = ProspectiveCaptureJournal(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        now=lambda: START,
+        run_id="capture-test-invalid-candle-state",
+    )
+    journal.start(START)
+    invalid = _item("BTCUSDT", 0)
+    invalid_candle = replace(invalid.payload, finality=CandleFinality.UNKNOWN)
+    invalid = replace(invalid, payload=invalid_candle)
+    with pytest.raises(ProspectiveCaptureError, match="CANDLE_STATE_CONTRACT_INVALID"):
+        journal.accept(invalid)
+    manifest = journal.finalize(
+        status="BLOCKED",
+        ended_at=START + timedelta(seconds=1),
+        elapsed_seconds=1,
+        reason="test_invalid_candle_state",
+    )
+    assert manifest["status"] == "BLOCKED"
+
+
+def test_validator_rejects_records_that_precede_the_declared_capture_run(tmp_path):
+    journal = _complete_journal(tmp_path)
+    journal.finalize(
+        status="COMPLETED",
+        ended_at=START + timedelta(hours=24, seconds=3),
+        elapsed_seconds=86403.0,
+    )
+    manifest_path = journal.manifest_path
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    # Forge internally consistent duration fields but claim the actual run began
+    # two hours later. Existing first-hour records must fail the run-bound check.
+    manifest["capture_started_at"] = (START + timedelta(hours=2)).isoformat()
+    manifest["capture_ended_at"] = (START + timedelta(hours=26, seconds=3)).isoformat()
+    manifest["actual_elapsed_seconds"] = 86403.0
+
+    # Recompute the file's own SHA/count metadata so the independent temporal
+    # check, not the outer file hash, is the reason for rejection.
+    data_path = journal.run_dir / "BTCUSDT.jsonl"
+    lines = data_path.read_text(encoding="utf-8").splitlines()
+    assert lines
+    envelopes = [json.loads(line) for line in lines]
+    data_bytes = (("\n".join(json.dumps(row, sort_keys=True, ensure_ascii=False) for row in envelopes)) + "\n").encode("utf-8")
+    data_path.write_bytes(data_bytes)
+    manifest["files"]["BTCUSDT.jsonl"]["bytes"] = len(data_bytes)
+    manifest["files"]["BTCUSDT.jsonl"]["sha256"] = hashlib.sha256(data_bytes).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    with pytest.raises(ProspectiveCaptureError, match="RECORD_OUTSIDE_RUN_INTERVAL"):
+        validate_manifest(manifest_path)
