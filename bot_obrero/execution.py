@@ -39,7 +39,9 @@ class EvidenceRecord:
 
     def __post_init__(self):
         for value in (self.observed_at, self.decision_at, self.expires_at):
-            if value is not None and value.tzinfo is None:
+            if value is not None and (
+                value.tzinfo is None or value.utcoffset() is None
+            ):
                 raise ValueError("EVIDENCE_TIMESTAMP_MUST_BE_TIMEZONE_AWARE")
         if not self.kind or not self.source or not self.intent_id or not self.correlation_id:
             raise ValueError("EVIDENCE_PROVENANCE_INCOMPLETE")
@@ -54,7 +56,7 @@ class EvidenceRecord:
         )
 
     def valid_for(self, intent_id: str, now: datetime) -> bool:
-        if now.tzinfo is None:
+        if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("EVIDENCE_VALIDATION_TIMEZONE_REQUIRED")
         return (
             self.intent_id == intent_id

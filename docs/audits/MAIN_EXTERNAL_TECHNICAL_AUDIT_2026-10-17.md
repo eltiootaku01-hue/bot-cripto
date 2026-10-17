@@ -80,6 +80,13 @@ Binance documenta que las conexiones Spot WebSocket duran como máximo 24 horas 
 
 PR #69 informa que la mejor regla evaluada es inestable entre escenarios de costes y folds de validación; PR #70 solo diseña un protocolo prospectivo y declara `DESIGNED / NOT RUN`. No se promueve ninguna regla como estrategia operable. Cash y buy-and-hold deben compararse con idénticos costes y una ventana verdaderamente prospectiva.
 
+### A-09 — Validación temporal aceptaba un `tzinfo` sin offset real
+**Clasificación:** `OBSERVED` en inspección estática; **corregido con prueba de regresión añadida en el seguimiento**.
+
+**Evidencia:** `bot_obrero/temporal.py` (`EvidenceTimestamp`) y `EvidenceRecord` en `bot_obrero/execution.py` comprobaban `tzinfo is not None`, pero no `utcoffset() is not None`. La definición de Python considera consciente una fecha solo cuando `tzinfo` y su `utcoffset()` no son `None` ([documentación de datetime](https://docs.python.org/3/library/datetime.html#aware-and-naive-objects)). Un `tzinfo` personalizado que devuelva `None` para `utcoffset()` podía pasar esos chequeos y ser tratado como timestamp con zona válida, pese a representar semánticamente un datetime naïve.
+
+**Corrección en el seguimiento de esta auditoría:** `EvidenceTimestamp`, `EvidenceRecord` y `EvidenceRecord.valid_for(now)` comprueban ambas condiciones. Se añadió `tests/test_temporal_timezone_contract.py`, que usa deliberadamente una zona con offset nulo para impedir esa regresión. El resultado de CI para el SHA que incorpora este seguimiento debe comprobarse por separado; los tests añadidos no se presentan como ejecutados localmente.
+
 ## Referencias públicas consultadas
 
 1. [GitHub Changelog: Node 20 is no longer available in GitHub Actions (2026-09-23)](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/) — cambio de runtime y versiones de acciones.
@@ -93,7 +100,9 @@ PR #69 informa que la mejor regla evaluada es inestable entre escenarios de cost
 ## Cambios de main incluidos con esta auditoría
 
 - Seis workflows actualizados a referencias first-party compatibles con Node 24.
+- `bot_obrero/temporal.py` y `EvidenceRecord` en `bot_obrero/execution.py` endurecidos para rechazar timestamps con `tzinfo` sin offset real.
+- Añadida regresión en `tests/test_temporal_timezone_contract.py`.
 - `cerebro/PROJECT_STATE.md` reconstruido sin el literal malformado y con bloqueos actuales.
-- Este informe añadido a `docs/audits/MAIN_EXTERNAL_TECHNICAL_AUDIT_2026-10-17.md`.
+- Este informe, con el hallazgo A-09, se mantiene en `docs/audits/MAIN_EXTERNAL_TECHNICAL_AUDIT_2026-10-17.md`.
 
 No se fusionó PR #64 ni se cambió el comportamiento de ejecución financiera. No se ejecutaron órdenes, no se usaron claves privadas y no se cambió `NO_TRADE`.
