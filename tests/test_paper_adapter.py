@@ -768,7 +768,14 @@ def test_canonical_market_signal_flows_through_risk_admission_and_paper_reconcil
         assert result.status is MarketSignalPaperStatus.RUNTIME_RETURNED
         assert result.pipeline_result.trade_proposal is not None
         assert result.runtime_result is not None
-        assert result.runtime_result.status is FinancialExecutionRuntimeStatus.SUBMITTED
+        if result.runtime_result.status is not FinancialExecutionRuntimeStatus.SUBMITTED:
+            diagnostic = bridge.get_binding(result.runtime_result.reservation_id)
+            raise AssertionError(
+                "signal-to-PAPER runtime failed: "
+                f"status={result.runtime_result.status.value}, reason={result.runtime_result.reason}, "
+                f"binding_state={None if diagnostic is None else diagnostic.state}, "
+                f"binding_error={None if diagnostic is None else diagnostic.last_error}"
+            )
         snapshot = adapter.snapshot()
         assert snapshot["mode"] == "PAPER"
         assert snapshot["fill_count"] == 1
