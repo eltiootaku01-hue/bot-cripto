@@ -592,18 +592,26 @@ def run_capture(
     journal.start(actual_start)
     fatal_errors: list[BaseException] = []
 
+    def stop_for_fatal(symbol: str | None, error: BaseException) -> None:
+        # Always signal the other worker even if the manifest itself cannot be
+        # written (for example, a full or disconnected disk).
+        fatal_errors.append(error)
+        stop.set()
+        try:
+            journal.note_fatal_error(symbol, error)
+        except BaseException as manifest_error:
+            fatal_errors.append(manifest_error)
+
     def worker(symbol: str) -> None:
         consecutive_failures = 0
         try:
             adapter = adapter_factory(symbol, now)
         except BaseException as exc:
-            journal.note_fatal_error(symbol, exc)
-            fatal_errors.append(exc)
-            stop.set()
+            stop_for_fatal(symbol, exc)
             return
         while not stop.is_set():
-            journal.note_connection_attempt(symbol)
             try:
+                journal.note_connection_attempt(symbol)
                 adapter.listen(
                     symbol=symbol,
                     interval=interval,
@@ -620,18 +628,18 @@ def run_capture(
                     return
                 consecutive_failures += 1
                 delay = min(reconnect_max_seconds, reconnect_base_seconds * (2 ** min(consecutive_failures - 1, 10)))
-                journal.note_transport_error(symbol, exc, reconnecting=True)
+                try:
+                    journal.note_transport_error(symbol, exc, reconnecting=True)
+                except BaseException as sink_error:
+                    stop_for_fatal(symbol, sink_error)
+                    return
                 stop.wait(delay)
             except BinanceWebSocketError as exc:
-                journal.note_fatal_error(symbol, exc)
-                fatal_errors.append(exc)
-                stop.set()
+                stop_for_fatal(symbol, exc)
                 return
             except BaseException as exc:
                 # Includes JSONL/fsync/manifest failures: stop rather than retrying a sink failure.
-                journal.note_fatal_error(symbol, exc)
-                fatal_errors.append(exc)
-                stop.set()
+                stop_for_fatal(symbol, exc)
                 return
 
     threads = [
