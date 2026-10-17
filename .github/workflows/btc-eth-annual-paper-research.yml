@@ -36,12 +36,12 @@ jobs:
               --symbol "$symbol" --interval 1h --candles 8760 \
               --initial-quote-balance 31 --liquidate-at-end \
               --fee-rate 0.001 --spread-bps 10 --slippage-bps 5 \
-              --dataset-output "evidence/\${symbol,,}-365d-base-dataset.json" \
-              > "evidence/\${symbol,,}-365d-base-report.txt" 2>&1
-            grep -F "Candles simulated: 8760" "evidence/\${symbol,,}-365d-base-report.txt"
-            grep -F "Terminal liquidation: ENABLED" "evidence/\${symbol,,}-365d-base-report.txt"
-            grep -F "Dataset SHA-256:" "evidence/\${symbol,,}-365d-base-report.txt"
-            grep -F "Effective configuration SHA-256:" "evidence/\${symbol,,}-365d-base-report.txt"
+              --dataset-output "evidence/${symbol,,}-365d-base-dataset.json" \
+              > "evidence/${symbol,,}-365d-base-report.txt" 2>&1
+            grep -F "Candles simulated: 8760" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Terminal liquidation: ENABLED" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Dataset SHA-256:" "evidence/${symbol,,}-365d-base-report.txt"
+            grep -F "Effective configuration SHA-256:" "evidence/${symbol,,}-365d-base-report.txt"
           done
       - name: Run higher-cost stress scenario on the same evaluation length
         shell: bash
@@ -52,16 +52,16 @@ jobs:
               --symbol "$symbol" --interval 1h --candles 8760 \
               --initial-quote-balance 31 --liquidate-at-end \
               --fee-rate 0.0015 --spread-bps 20 --slippage-bps 15 \
-              > "evidence/\${symbol,,}-365d-stress-report.txt" 2>&1
-            grep -F "Candles simulated: 8760" "evidence/\${symbol,,}-365d-stress-report.txt"
-            grep -F "Return:" "evidence/\${symbol,,}-365d-stress-report.txt"
-            grep -F "Maximum drawdown:" "evidence/\${symbol,,}-365d-stress-report.txt"
+              > "evidence/${symbol,,}-365d-stress-report.txt" 2>&1
+            grep -F "Candles simulated: 8760" "evidence/${symbol,,}-365d-stress-report.txt"
+            grep -F "Return:" "evidence/${symbol,,}-365d-stress-report.txt"
+            grep -F "Maximum drawdown:" "evidence/${symbol,,}-365d-stress-report.txt"
           done
       - name: Upload reproducibility evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: btc-eth-365d-virtual-research-\${{ github.sha }}
+          name: btc-eth-365d-virtual-research-${{ github.sha }}
           path: evidence/
           if-no-files-found: warn
           retention-days: 90

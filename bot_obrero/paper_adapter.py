@@ -215,7 +215,7 @@ class PaperExecutionAdapter(ExchangeAdapter):
         if "state_version" not in account_columns:
             self._connection.execute("ALTER TABLE paper_account ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0")
         if "updated_at" not in account_columns:
-            self._connection.execute("ALTER TABLE paper_account ADD COLUMN updated_at TEXT NOT NULL DEFAULT '')
+            self._connection.execute("ALTER TABLE paper_account ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
         fill_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(paper_fills)")}
         fill_migrations = {
             "fee_asset": "TEXT NOT NULL DEFAULT ''",
