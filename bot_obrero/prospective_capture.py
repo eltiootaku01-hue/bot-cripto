@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -140,9 +141,10 @@ class ProspectiveCaptureJournal:
         self.grace_seconds = grace_seconds
         if isinstance(max_messages_per_connection, bool) or not isinstance(max_messages_per_connection, int) or max_messages_per_connection < 1:
             raise ProspectiveCaptureError("MAX_MESSAGES_PER_CONNECTION_INVALID")
-        if reconnect_base_seconds <= 0 or reconnect_max_seconds < reconnect_base_seconds:
+        if (not math.isfinite(reconnect_base_seconds) or not math.isfinite(reconnect_max_seconds)
+                or reconnect_base_seconds <= 0 or reconnect_max_seconds < reconnect_base_seconds):
             raise ProspectiveCaptureError("RECONNECT_BACKOFF_INVALID")
-        if max_inter_event_gap_seconds <= 0:
+        if not math.isfinite(max_inter_event_gap_seconds) or max_inter_event_gap_seconds <= 0:
             raise ProspectiveCaptureError("MAX_INTER_EVENT_GAP_INVALID")
         self.fsync_every_records = fsync_every_records
         self.max_messages_per_connection = max_messages_per_connection
@@ -180,6 +182,7 @@ class ProspectiveCaptureJournal:
                 "first_received_at": None,
                 "last_received_datetime": None,
                 "inter_event_gap_count": 0,
+                "clock_regressions": 0,
                 "maximum_inter_event_gap_seconds": 0.0,
                 "latest_final_candle_start": None,
                 "final_candle_starts": [],
@@ -339,7 +342,10 @@ class ProspectiveCaptureJournal:
             state["records"] = seq
             previous_received_raw = state["last_received_datetime"]
             if previous_received_raw is not None:
-                gap_seconds = max(0.0, (received - previous_received_raw).total_seconds())
+                raw_gap_seconds = (received - previous_received_raw).total_seconds()
+                if raw_gap_seconds < 0:
+                    state["clock_regressions"] += 1
+                gap_seconds = max(0.0, raw_gap_seconds)
                 state["maximum_inter_event_gap_seconds"] = max(
                     state["maximum_inter_event_gap_seconds"], gap_seconds
                 )
@@ -404,6 +410,7 @@ class ProspectiveCaptureJournal:
                     "transport_errors": state["transport_errors"],
                     "reconnects": state["reconnects"],
                     "inter_event_gap_count": state["inter_event_gap_count"],
+                    "clock_regressions": state["clock_regressions"],
                     "maximum_inter_event_gap_seconds": round(state["maximum_inter_event_gap_seconds"], 3),
                     "connection_attempts": state["connection_attempts"],
                     "first_received_at": state["first_received_at"],
@@ -418,6 +425,7 @@ class ProspectiveCaptureJournal:
                 and summary[symbol]["out_of_order_final_candles"] == 0
                 and summary[symbol]["unaligned_final_candles"] == 0
                 and summary[symbol]["inter_event_gap_count"] == 0
+                and summary[symbol]["clock_regressions"] == 0
                 for symbol in self.symbols
             )
             return {
@@ -711,7 +719,7 @@ def _positive_float(text: str) -> float:
         value = float(text)
     except (TypeError, ValueError) as exc:
         raise argparse.ArgumentTypeError("must be a number") from exc
-    if not value > 0:
+    if not math.isfinite(value) or not value > 0:
         raise argparse.ArgumentTypeError("must be positive")
     return value
 
