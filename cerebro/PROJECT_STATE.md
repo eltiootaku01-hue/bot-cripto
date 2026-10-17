@@ -2,15 +2,15 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**HEAD de main de la última integración técnica verificada:** `9e10c34566ed4e068c6360297d49ee6d4dc13e3f` (PR #76 añadió pruebas anti-lookahead; PR #74 sigue siendo el último cambio de composición operativa).
+**HEAD de main verificado:** `92b8b50a0722eea68c435717f870ef361a2927e8` (PR #78 integra la captura prospectiva durable; la ejecución real de 24 h sigue pendiente).
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
-- **Evaluación ponderada actual:** **72/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
-- **CI de main tras PR #76:** [run 39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775) terminó `success`, **1580 pruebas aprobadas en 8.21 s** en el SHA exacto `9e10c34566ed4e068c6360297d49ee6d4dc13e3f`. El CI anterior tras PR #74 fue [39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), con 1578 pruebas. En la punta de PR #74 también pasaron [SMA E2E 39072946681](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946681), [indicadores E2E 39072946684](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072946684) y la suite [39072943527](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39072943527), todas `success`.
-- **Próximos gates de mayor prioridad:** completar captura prospectiva validada de 24 horas; extender la defensa anti-lookahead al reporte/artefactos del estudio BTC→ETH completo; validar edge neto en un holdout independiente y demostrar supervisión sostenida. `NO_TRADE` sigue mientras no exista evidencia económica.
+- **Evaluación ponderada actual:** **73/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
+- **CI post-merge de main tras PR #78:** [run 39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728) terminó `success`, **1593 pruebas aprobadas en 11.13 s** en el SHA exacto `92b8b50a0722eea68c435717f870ef361a2927e8`. En el head de PR #78 también pasaron [SMA E2E 39076551987](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551987), [indicadores E2E 39076551978](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551978) y [backtest público E2E 39076552023](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076552023), todos `success`.
+- **Próximos gates de mayor prioridad:** ejecutar y validar una captura real continua de al menos 24 horas; extender la invariancia anti-lookahead a los artefactos del estudio anual BTC→ETH; y demostrar edge neto en un holdout independiente. La herramienta de captura ya está integrada, pero no cuenta como evidencia de haberla ejecutado. `NO_TRADE` se mantiene.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
 - **LIVE:** no implementado/habilitado. No usar dinero real, claves privadas ni endpoints privados.
@@ -26,7 +26,7 @@
 2. **Cuenta y riesgo.** El snapshot completo de la cuenta PAPER se proyecta a `CanonicalAccountState`; antes de una nueva admisión se exige conciliación `apply=False`. Cualquier discrepancia permanece `UNKNOWN/BLOCKED`.
 3. **Cotización y autorización.** `PaperQuoteEvidence` versionada/hash-bound viaja con los términos persistidos; el adaptador calcula el fill desde esa evidencia y la reconciliación comprueba que coincide con la evidencia referenciada por riesgo.
 4. **Reconciliación económica B1-R.** Se integró `paper_economic_replay.py` y `paper_runtime_reconciliation.py`. Una prueba simula el fallo tras el commit del fill, reabre PAPER/reserva/binding/ledger y ejecuta dos reconciliaciones, verificando que no haya fills, débitos, consumos ni versiones duplicadas. Los archivos SQLite separados no son atómicos como conjunto: las reparaciones parciales siguen siendo reintentables y fail-closed.
-5. **Captura prospectiva de mercado.** La captura continua de 24 h, integridad diaria, timestamp de primera recepción, reconexión y recuperación de huecos siguen pendientes antes de fijar T0 para la evaluación prospectiva V2.
+5. **Captura prospectiva de mercado.** PR #78 integra `bot_obrero/prospective_capture.py`: persistencia JSONL evento a evento, fsync, hash por registro/archivo, manifest, reconexión con backoff, evento `serverShutdown`, coherencia de timestamps y validador independiente. **Solo el código y sus pruebas están verificados**; ninguna captura real de 24 h se ha ejecutado ni aceptado. No fijar T0 hasta que el manifest real quede `COMPLETED` y pase `validate`.
 6. **SQLite.** El adaptador PAPER y el ledger usan `PRAGMA journal_mode=DELETE`, con prueba automatizada. El caso público WAL-reset motivó el cambio; no hay evidencia de corrupción de BOT-CRIPTO.
 7. **CI y mantenimiento.** Los workflows en main usan Actions first-party compatibles con Node 24. Los checks deben evaluarse por SHA; el éxito de un commit no valida automáticamente sus descendientes.
 
@@ -56,6 +56,9 @@
 - [PR #73 — procedencia de fuente/finality fail-closed (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/73)
 - [PR #74 — integración de señal con riesgo/admisión/PAPER (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/74)
 - [PR #76 — invariancia de sufijo futuro anti-lookahead (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/76)
+- [PR #78 — captura prospectiva BTC/ETH durable (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/78)
+- [Protocolo y comandos de captura prospectiva](../docs/PROSPECTIVE_BTC_ETH_CAPTURE_V1.md)
+- [CI de main tras PR #78, 1593 pruebas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728)
 - [CI de main con pruebas anti-lookahead, 1580 aprobadas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775)
 - [CI post-merge de main, 1578 pruebas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856)
 - [PR #64 — rama PAPER original (cerrada como supersedida)](https://github.com/eltiootaku01-hue/bot-cripto/pull/64)
@@ -94,3 +97,12 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - CI de main para ese SHA: [run 39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775), `success`, **1580 pruebas en 8.21 s**. Los E2E SMA/indicadores y backtest público también aprobaron en el head de PR #76.
 - Puntuación ponderada: **72/100** (antes 71). El punto adicional corresponde a esta defensa causal de regresión, no a edge económico demostrado.
 - Aún no existe un ensayo de invariancia sobre todos los outputs/artefactos del estudio anual como ejecución completa, ni prueba de 24 h de captura prospectiva íntegra. `NO_TRADE` se mantiene.
+
+
+## Actualización — PR #78, infraestructura de captura prospectiva (2026-10-17)
+
+- Main: `92b8b50a0722eea68c435717f870ef361a2927e8`; PR #78 fusionada.
+- CI post-merge [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728): `success`, 1593 pruebas aprobadas en 11.13 s.
+- El colector persiste de forma incremental la pareja pública BTCUSDT/ETHUSDT 1h, mantiene hashes/manifiesto y rechaza duración insuficiente, velas faltantes/duplicadas/desordenadas, gaps por encima del umbral, regresiones de reloj y errores de persistencia.
+- Preparación revisada: 73/100 (+1 por infraestructura implementada y probada). No se conceden puntos por captura prospectiva real, porque aún no existe artefacto real de 24 h aceptado; edge neto independiente sigue sin demostrarse.
+- Próximo gate: ejecutar en una máquina persistente el comando descrito en `docs/PROSPECTIVE_BTC_ETH_CAPTURE_V1.md`, conservar sus ficheros inmutables y validar el manifest. `NO_TRADE` permanece; sin LIVE, dinero real ni claves privadas.

@@ -46,9 +46,11 @@ A run is accepted only when every condition holds:
 1. `manifest.json` has status `COMPLETED`.
 2. Actual elapsed capture time is at least 86,400 seconds.
 3. Both symbols contain at least one entire UTC day of 24 unique, aligned final hourly candles, from 00:00 through 23:00 UTC.
-4. No missing hourly bars, out-of-order final bars, unaligned final bars, or inter-event gaps above the configured limit are recorded.
-5. No fatal parsing, availability, or persistence error occurred.
-6. File sizes, line counts, per-record hashes, and whole-file SHA-256 values pass independent validation.
+4. No missing hourly bars, duplicate final bars, out-of-order final bars, unaligned final bars, inter-event gaps above the configured limit, or local clock regressions are recorded.
+5. No fatal parsing, availability, or persistence error occurred; every accepted record has a valid open/partial/non-final or closed/complete/final Kline state contract.
+6. Every record's receive timestamp is within the declared capture interval, and event/receive/availability timestamps are ordered.
+7. Capture start/end wall-clock duration agrees with the monotonic duration within the defined tolerance; a record cannot be outside the run window even if a manifest is edited.
+8. File sizes, record counts/sequences, per-record hashes, configuration hash, and whole-file SHA-256 values pass independent validation.
 
 Validate a run:
 
@@ -56,7 +58,7 @@ Validate a run:
 python -m bot_obrero.prospective_capture validate evidence/prospective-btc-eth/<run-id>/manifest.json
 ```
 
-The validator must print `status: VALID` and returns exit code zero only for an accepted manifest with unchanged dataset files. A directory left `RUNNING` after a crash is not a completed run. Do not manually change its status to `COMPLETED`.
+The validator must print `status: VALID` and returns exit code zero only for an accepted manifest with unchanged dataset files. It independently recomputes the file/record hashes, sequence numbers, source identity, candle-state contract, receive timestamps versus the run start/end, daily coverage and continuity gates; it does not simply trust the manifest's `accepted` flag. A directory left `RUNNING` after a crash is not a completed run. Do not manually change its status to `COMPLETED`.
 
 ## What this does not prove
 
