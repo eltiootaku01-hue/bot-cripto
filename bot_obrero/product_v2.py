@@ -127,7 +127,7 @@ def parse_filters(raw: Any) -> InstrumentFilters:
     )
 
 
-def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal | None, Decimal, Decimal]:
+def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal | None, Decimal, Decimal | None]:
     """Resolve effective market-order quantity bounds without accepting zero steps.
 
     A zero MARKET_LOT_SIZE field falls back to the corresponding ordinary LOT_SIZE
@@ -167,9 +167,13 @@ def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal | No
         step = positive(filters.step_size, "step_size")
         maximum = positive(filters.max_qty, "max_qty")
 
-    if step is None or maximum is None:
+    if step is None:
         raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
-    if minimum is not None and minimum > maximum:
+    # Live ExchangeInfo explicitly says whether MARKET_LOT_SIZE exists (True/False).
+    # None is retained for legacy research callers whose fixtures only provide LOT_SIZE.
+    if filters.market_lot_size_present is True and maximum is None:
+        raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
+    if minimum is not None and maximum is not None and minimum > maximum:
         raise ProductV2Error("MARKET_LOT_SIZE_MIN_EXCEEDS_MAX")
     return minimum, step, maximum
 
@@ -720,6 +724,8 @@ def normalized_affordability(
     position_fraction: Decimal,
 ) -> tuple[bool | None, str]:
     """Estimate MARKET-order affordability without dividing by unknown/zero filters."""
+    if filters.market_lot_size_present is False:
+        return None, "MARKET_LOT_SIZE_UNKNOWN"
     if (type(price) is not Decimal or not price.is_finite() or price <= ZERO
             or type(budget_usdt) is not Decimal or not budget_usdt.is_finite() or budget_usdt <= ZERO
             or type(position_fraction) is not Decimal or not position_fraction.is_finite()
@@ -744,7 +750,7 @@ def normalized_affordability(
         return False, "NON_POSITIVE_QUANTITY"
     if minimum is not None and qty < minimum:
         return False, "MIN_QTY"
-    if qty > maximum:
+    if maximum is not None and qty > maximum:
         return False, "MAX_QTY"
     if qty * price < filters.min_notional:
         return False, "MIN_NOTIONAL"
