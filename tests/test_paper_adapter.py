@@ -752,6 +752,9 @@ def test_canonical_market_signal_flows_through_risk_admission_and_paper_reconcil
         )
         return EvidenceBundle(records, correlation)
 
+    # Keep account initialization anchored at BASE, then advance the PAPER fill clock.
+    # The quote must be no later than decision time and fresh at fill time.
+    adapter.clock = lambda: NOW
     try:
         result = run_market_signal_to_paper_runtime(
             items,
