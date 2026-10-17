@@ -10,8 +10,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+import hashlib
 import re
 from typing import Any, Mapping, Sequence
+
+from .paper_quote_evidence import (
+    PaperQuoteEvidenceError,
+    canonical_json,
+    validate_paper_quote_evidence,
+)
 
 
 class PaperEconomicReplayStatus(str, Enum):
@@ -79,9 +86,15 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
     fills = tuple(raw_fills)
     if snapshot.get("completeness") != "COMPLETE":
         return PaperEconomicReplayResult(PaperEconomicReplayStatus.UNKNOWN, len(fills), {}, ("PAPER_SNAPSHOT_NOT_COMPLETE",))
-    if (isinstance(snapshot.get("state_version"), bool) or not isinstance(snapshot.get("state_version"), int)
-            or snapshot.get("state_version") != len(fills)
-            or snapshot.get("fill_count") != len(fills)):
+    reported_fill_count = snapshot.get("fill_count")
+    if (
+        isinstance(snapshot.get("state_version"), bool)
+        or not isinstance(snapshot.get("state_version"), int)
+        or snapshot.get("state_version") != len(fills)
+        or isinstance(reported_fill_count, bool)
+        or not isinstance(reported_fill_count, int)
+        or reported_fill_count != len(fills)
+    ):
         return PaperEconomicReplayResult(PaperEconomicReplayStatus.UNKNOWN, len(fills), {}, ("PAPER_VERSION_FILL_COUNT_MISMATCH",))
 
     initial = snapshot.get("asset_universe")
@@ -159,6 +172,61 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
             max_age_delta = timedelta(microseconds=int(max_age))
         except ValueError as exc:
             errors.append(str(exc))
+            continue
+
+        intent_payload = fill.get("intent_payload")
+        intent_hash = fill.get("intent_hash")
+        if not isinstance(intent_payload, Mapping) or type(intent_hash) is not str:
+            return _result(
+                PaperEconomicReplayStatus.INCOMPLETE,
+                len(fills),
+                replayed,
+                (f"{label}:PERSISTED_INTENT_PAYLOAD_MISSING",),
+            )
+        try:
+            computed_intent_hash = hashlib.sha256(canonical_json(intent_payload).encode("utf-8")).hexdigest()
+        except (TypeError, ValueError):
+            errors.append(f"{label}:PERSISTED_INTENT_PAYLOAD_INVALID")
+            continue
+        if not re.fullmatch(r"[0-9a-f]{64}", intent_hash) or computed_intent_hash != intent_hash:
+            errors.append(f"{label}:PERSISTED_INTENT_HASH_MISMATCH")
+            continue
+        try:
+            quote_evidence = intent_payload.get("paper_quote_evidence")
+            decision_at = _read_timestamp(intent_payload.get("decision_timestamp"), f"{label}.decision_timestamp")
+            validated_quote = validate_paper_quote_evidence(
+                quote_evidence,
+                expected_symbol=symbol,
+                expected_decision_timestamp=decision_at,
+                expected_context_id=fill.get("evaluation_context_id"),
+                now=filled_at,
+                max_age=max_age_delta,
+            )
+        except (KeyError, TypeError, ValueError, PaperQuoteEvidenceError) as exc:
+            errors.append(f"{label}:PERSISTED_QUOTE_EVIDENCE_INVALID:{type(exc).__name__}")
+            continue
+
+        quote_payload = validated_quote.evidence
+        if (
+            intent_payload.get("schema") != "reservation-order-intent-v1"
+            or intent_payload.get("client_order_id") != client_order_id
+            or intent_payload.get("account_id") != snapshot.get("account_id")
+            or intent_payload.get("symbol") != symbol
+            or intent_payload.get("base_asset") != base_asset
+            or intent_payload.get("quote_asset") != quote_asset
+            or intent_payload.get("side") != side
+            or intent_payload.get("quantity") != fill.get("quantity")
+            or intent_payload.get("evaluation_context_id") != fill.get("evaluation_context_id")
+            or quote_payload.get("bid") != fill.get("quote_bid")
+            or quote_payload.get("ask") != fill.get("quote_ask")
+            or validated_quote.observed_at != observed_at
+            or validated_quote.available_at != available_at
+            or quote_payload.get("source") != fill.get("quote_source")
+            or quote_payload.get("observation_id") != fill.get("quote_observation_id")
+            or quote_payload.get("observation_type") != fill.get("quote_observation_type")
+            or quote_payload.get("evidence_hash") != fill.get("quote_evidence_hash")
+        ):
+            errors.append(f"{label}:FILL_DIFFERS_FROM_HASHED_INTENT_OR_QUOTE")
             continue
 
         if quantity <= 0 or price <= 0 or fee < 0 or fee_rate < 0 or slippage_bps < 0 or bid <= 0 or ask < bid:

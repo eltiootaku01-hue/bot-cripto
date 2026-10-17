@@ -622,6 +622,54 @@ def test_paper_economic_replay_checks_quote_fee_and_balance_arithmetic(tmp_path)
         adapter.close()
 
 
+def test_paper_economic_replay_rejects_quote_fields_that_disagree_with_hashed_intent(tmp_path):
+    from copy import deepcopy
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
+
+    adapter = make_adapter(tmp_path / "tampered-quote-replay.sqlite3")
+    try:
+        adapter._submit(make_order())
+        snapshot = deepcopy(adapter.snapshot())
+        # The stored hash string still has a valid shape, but the persisted quote
+        # column has been changed independently of the signed-by-hash intent payload.
+        snapshot["fills"][0]["quote_bid"] = "98"
+        result = replay_paper_economics(snapshot)
+        assert result.status is PaperEconomicReplayStatus.MISMATCH
+        assert result.discrepancies == ("fill[1]:FILL_DIFFERS_FROM_HASHED_INTENT_OR_QUOTE",)
+    finally:
+        adapter.close()
+
+
+def test_paper_economic_replay_rejects_boolean_fill_count_for_single_fill(tmp_path):
+    from copy import deepcopy
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
+
+    adapter = make_adapter(tmp_path / "boolean-fill-count.sqlite3")
+    try:
+        adapter._submit(make_order())
+        snapshot = deepcopy(adapter.snapshot())
+        snapshot["fill_count"] = True  # bool compares equal to integer 1 in Python.
+        result = replay_paper_economics(snapshot)
+        assert result.status is PaperEconomicReplayStatus.UNKNOWN
+        assert result.discrepancies == ("PAPER_VERSION_FILL_COUNT_MISMATCH",)
+    finally:
+        adapter.close()
+
+
+def test_canonical_account_projection_rejects_boolean_fill_count(tmp_path):
+    from copy import deepcopy
+
+    adapter = make_adapter(tmp_path / "boolean-account-fill-count.sqlite3")
+    try:
+        adapter._submit(make_order())
+        snapshot = deepcopy(adapter.snapshot())
+        snapshot["fill_count"] = True
+        with pytest.raises(PaperAdapterError, match="PAPER_ACCOUNT_SNAPSHOT_FIELDS_INVALID"):
+            canonical_account_state_from_paper_snapshot(snapshot)
+    finally:
+        adapter.close()
+
+
 def test_paper_economic_replay_marks_legacy_fills_without_quote_evidence_incomplete(tmp_path):
     from copy import deepcopy
     from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics

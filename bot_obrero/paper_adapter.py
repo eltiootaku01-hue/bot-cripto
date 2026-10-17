@@ -490,9 +490,20 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     "SELECT asset,initial_balance FROM paper_assets ORDER BY asset").fetchall()}
                 balances = {row["asset"]: row["balance"] for row in self._connection.execute(
                     "SELECT asset,balance FROM paper_balances ORDER BY asset").fetchall()}
-                fills = tuple({key: value for key, value in dict(row).items() if key != "intent_json"}
-                    for row in self._connection.execute(
-                        "SELECT * FROM paper_fills ORDER BY filled_at,client_order_id").fetchall())
+                def snapshot_fill(row):
+                    fill = dict(row)
+                    intent_json = fill.pop("intent_json", None)
+                    try:
+                        fill["intent_payload"] = (
+                            json.loads(intent_json) if type(intent_json) is str else None
+                        )
+                    except (TypeError, ValueError):
+                        fill["intent_payload"] = None
+                    return fill
+
+                fills = tuple(snapshot_fill(row) for row in self._connection.execute(
+                    "SELECT * FROM paper_fills ORDER BY filled_at,client_order_id"
+                ).fetchall())
                 complete = bool(assets) and set(assets) == set(balances) and all(
                     Decimal(value).is_finite() and Decimal(value) >= _ZERO for value in balances.values()
                 ) and account["state_version"] == len(fills)
@@ -531,6 +542,7 @@ def canonical_account_state_from_paper_snapshot(snapshot: Mapping[str, Any]):
         or not isinstance(balances, Mapping) or not isinstance(assets, Mapping)
         or not assets or set(balances) != set(assets)
         or isinstance(version, bool) or not isinstance(version, int) or version < 0
+        or isinstance(fill_count, bool) or not isinstance(fill_count, int)
         or fill_count != version or type(as_of_raw) is not str or not as_of_raw
     ):
         raise PaperAdapterError("PAPER_ACCOUNT_SNAPSHOT_FIELDS_INVALID")

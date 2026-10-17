@@ -216,3 +216,19 @@ El patrón aplicado sigue una recomendación de defensa en profundidad: un resul
 **CI de main exacto:** [run 39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903), success, 1595 pruebas aprobadas en 10.39 s, SHA a196651842a84cdfc31fde2f3230cd27ff61bf55.
 
 **Estado operativo:** preparación ponderada 73/100. El código para captura prospectiva está en main; no existe todavía una captura real de 24 horas aceptada ni un edge neto independiente. No elevar el score por código que aún no produjo evidencia real. Mantener NO_TRADE, sin LIVE, claves privadas o dinero real.
+
+
+## 11. Replay económico PAPER: presencia de hash no equivale a verificar el contenido
+
+**Fuente técnica interna:** inspección del replay independiente en `bot_obrero/paper_economic_replay.py` y del snapshot durable en `bot_obrero/paper_adapter.py`. La clase de riesgo es una divergencia entre una evidencia hash-bound y sus campos proyectados: validar que un SHA-256 tenga 64 caracteres hexadecimales no demuestra que los valores de quote guardados sean los que contiene la evidencia hasheada.
+
+**Brecha local observada:** el replay independiente comprobaba el formato de `quote_evidence_hash`, pero no recalculaba la evidencia original ni la cotejaba con los campos persistidos del fill. El snapshot además ocultaba `intent_json`, por lo que el replay no podía reconstruir la intención hasheada. Una modificación de `quote_bid` a un valor menor que `quote_ask`, manteniendo el hash con aspecto correcto, podía evadir ese chequeo del replay aislado. No se afirma que la base de datos haya sido alterada en uso real; el caso es una posibilidad demostrable en el contrato de validación.
+
+**Corrección propuesta en la rama de auditoría:** exponer la intención durable decodificada en `snapshot`; recalcular su hash canónico; validar otra vez el objeto completo de quote con `validate_paper_quote_evidence`; cotejar precio bid/ask, fuente, timestamps, identificación de observación, símbolo, contexto e hash con cada fill; rechazar un `fill_count` booleano (porque `True == 1` en Python). Tests de regresión inyectan las dos corrupciones.
+
+**Referencias de patrones de ingeniería:**
+- Freqtrade documenta el riesgo de que un backtest consuma datos futuros y la comparación de corridas base/aisladas para encontrar divergencias: https://docs.freqtrade.io/en/2026.5/lookahead-analysis/
+- SQLite detalla un bug de corrupción WAL y la corrección publicada en 3.51.3; BOT-CRIPTO usa rollback journal `DELETE`, sin evidencia de que el incidente ocurriera aquí: https://www.sqlite.org/wal.html#walresetbug
+- Binance registra requisitos de ciclo de vida/reconexión del stream de mercado: https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md
+
+**Importante:** estas fuentes explican clases de fallos y mitigaciones; no son evidencia de que BOT-CRIPTO haya sufrido esos mismos incidentes. La evidencia de la corrección local será el diff y el CI del SHA exacto.
