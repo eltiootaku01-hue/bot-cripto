@@ -468,7 +468,7 @@ class ProspectiveCaptureJournal:
         for symbol, state in self._state.items():
             summaries[symbol] = {
                 key: value for key, value in state.items()
-                if key not in {"seen_record_hashes", "final_candle_starts", "last_final_start", "line_count_since_fsync"}
+                if key not in {"seen_record_hashes", "final_candle_starts", "last_final_start", "last_received_datetime", "line_count_since_fsync"}
             }
             summaries[symbol]["complete_utc_days"] = _complete_utc_days(state["final_candle_starts"])
         self._manifest["symbols_summary"] = summaries
