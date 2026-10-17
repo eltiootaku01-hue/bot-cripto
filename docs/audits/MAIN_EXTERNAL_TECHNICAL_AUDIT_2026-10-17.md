@@ -121,3 +121,16 @@ No se fusionó PR #64 ni se cambió el comportamiento de ejecución financiera. 
 ### Estado de esta integración
 
 Se está preparando un candidato basado en el `main` actual, aplicando los archivos funcionales de la rama PAPER y preservando los cambios de main posteriores a su base común. Las referencias a commits/checks históricos siguen siendo solo evidencia histórica; el CI del commit integrado exacto es condición de aceptación. No cambia `NO_TRADE`, no habilita LIVE y no autoriza dinero real.
+
+
+## Addendum final — 2026-10-17, PR #71 integrada y B1-R recuperación probada
+
+**Estado verificado:** PR #71 está fusionada en `main` mediante `fd51e0dd1ff3f710680a98b685a6b9369c74a600`; PR #64 se cerró como supersedida, no se fusionó directamente. El cambio de integración se construyó sobre el `main` vigente y conservó los ajustes existentes de timestamps conscientes y GitHub Actions.
+
+- **Prueba de recuperación tras fallo y reinicio:** se agregó `test_paper_fill_recovers_after_interrupted_finalization_and_restart`. La prueba inyecta una excepción al persistir `SUBMITTED` después de que PAPER haya guardado el fill; cierra adaptador, reserva y ledger; reconstruye las conexiones desde disco; concilia una vez y luego una segunda vez. Verifica un único fill, `state_version=1`, balances exactos, consumo exacto, binding/ledger `SUBMITTED` y ninguna transición adicional en la segunda conciliación.
+- **CI de la punta exacta pre-merge:** suite completa `1561 passed`; runs [39069780762](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780762) y [39069776697](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069776697), ambos `success`. SMA, indicadores y Product V2/backtest público también terminaron `success`: [39069780537](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780537), [39069780522](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780522), [39069780401](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780401).
+- **CI de main después del merge:** [run 39069869061](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069869061) terminó `success`, con `1561 passed in 10.11s` en SHA `fd51e0dd1ff3f710680a98b685a6b9369c74a600`.
+- **SQLite:** el adaptador PAPER integrado configura y verifica `journal_mode=DELETE`. La mención de WAL en las secciones históricas refleja un HEAD anterior; la contradicción ya quedó corregida. No se observó corrupción del proyecto.
+- **Brecha restante:** la prueba verifica la recuperación de un fill PAPER local y sus proyecciones; no crea atomicidad global entre archivos SQLite. Ante una reparación parcial, el resultado sigue siendo `UNKNOWN/BLOCKED`. La integración todavía no genera una `Signal` canónica desde velas públicas recientes y cerradas para completar automáticamente mercado→señal→propuesta→riesgo→PAPER. Product V2 mantiene `NO_TRADE`; LIVE, claves privadas y dinero real siguen fuera de alcance.
+
+Este addendum **supersede** el estado previo del informe que describía B1-R como carente de una prueba integrada de recuperación y la integración como todavía en preparación.
