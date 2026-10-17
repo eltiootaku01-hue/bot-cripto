@@ -701,8 +701,22 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
     configuration = manifest.get("configuration")
     if not isinstance(configuration, Mapping) or _json_hash(configuration) != manifest.get("configuration_sha256"):
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_HASH_MISMATCH")
-    if configuration.get("interval") != DEFAULT_INTERVAL or tuple(configuration.get("symbols", ())) != symbols:
+    if (
+        configuration.get("interval") != DEFAULT_INTERVAL
+        or tuple(configuration.get("symbols", ())) != symbols
+        or configuration.get("target_duration_seconds") != manifest.get("target_duration_seconds")
+    ):
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_CONTRACT_INVALID")
+    scheduled_raw = manifest.get("scheduled_capture_start_at")
+    if scheduled_raw is not None:
+        scheduled_start = _aware_utc(datetime.fromisoformat(str(scheduled_raw)), "scheduled_capture_start_at")
+        if capture_start < scheduled_start:
+            raise ProspectiveCaptureError("CAPTURE_STARTED_BEFORE_SCHEDULED_START")
+        if configuration.get("align_next_utc_midnight") is True and (
+            scheduled_start.hour != 0 or scheduled_start.minute != 0
+            or scheduled_start.second != 0 or scheduled_start.microsecond != 0
+        ):
+            raise ProspectiveCaptureError("CAPTURE_SCHEDULE_NOT_UTC_MIDNIGHT")
     max_inter_event_gap = configuration.get("maximum_inter_event_gap_seconds")
     if (
         isinstance(max_inter_event_gap, bool)
@@ -774,10 +788,15 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
                         or source.get("provider") != "binance"
                         or source.get("venue") != "BINANCE"
                         or candle.get("timeframe") != DEFAULT_INTERVAL
+                        or record.get("data_type") != "CANDLE"
+                        or record.get("quality") != "VALID"
+                        or record.get("completeness") not in ("UNKNOWN", "COMPLETE")
                     ):
                         raise ProspectiveCaptureError(f"CAPTURE_RECORD_SOURCE_OR_IDENTITY_INVALID:{filename}:{line_no}")
                     observed_at = _aware_utc(datetime.fromisoformat(str(record["observed_at"])), "observed_at")
                     received_at = _aware_utc(datetime.fromisoformat(str(record["received_at"])), "received_at")
+                    if received_at < capture_start or received_at > capture_end:
+                        raise ProspectiveCaptureError(f"CAPTURE_RECORD_OUTSIDE_RUN_INTERVAL:{filename}:{line_no}")
                     available_raw = record.get("available_at")
                     if available_raw is None:
                         raise ProspectiveCaptureError(f"CAPTURE_RECORD_AVAILABILITY_UNKNOWN:{filename}:{line_no}")
@@ -800,7 +819,11 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
                     state = candle.get("candle_state")
                     completeness = candle.get("completeness")
                     finality = candle.get("finality")
-                    if state == "CLOSED" and completeness == "COMPLETE" and finality == "FINAL":
+                    valid_open = state == "OPEN" and completeness == "PARTIAL" and finality == "NOT_FINAL"
+                    valid_final = state == "CLOSED" and completeness == "COMPLETE" and finality == "FINAL"
+                    if not (valid_open or valid_final):
+                        raise ProspectiveCaptureError(f"CAPTURE_CANDLE_STATE_CONTRACT_INVALID:{filename}:{line_no}")
+                    if valid_final:
                         candle_start = _aware_utc(datetime.fromisoformat(str(candle["start"])), "candle_start")
                         candle_end = _aware_utc(datetime.fromisoformat(str(candle["end"])), "candle_end")
                         expected_end = candle_start + timedelta(hours=1) - timedelta(milliseconds=1)
