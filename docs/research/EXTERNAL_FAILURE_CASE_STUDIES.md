@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 17 de octubre de 2026  
-**Base de código revisada:** `main` incluye PR #74 (composición señal→PAPER) y PR #76 (regresiones anti-lookahead), esta última en `9e10c34566ed4e068c6360297d49ee6d4dc13e3f`  
+**Base de código revisada:** `main` incluye PR #74 (composición señal→PAPER), PR #76 (regresiones anti-lookahead) y PR #78 (infraestructura de captura prospectiva), merge commit `92b8b50a0722eea68c435717f870ef361a2927e8`  
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -178,3 +178,30 @@ Freqtrade advierte que un backtest puede introducir sesgo si el cálculo de indi
 **Evidencia:** PR #76 [mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/76); CI exacto de main [39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775), `success`, 1580 pruebas en 8.21 s. E2E de SMA, indicadores y backtest público de la punta de la PR también pasó.
 
 **Límite:** estos tests verifican invariancia local al sufijo para dos rutas, no el output/artefactos completos de un backtest anual ni validación de disponibilidad/finality a nivel de datos prospectivos. La estrategia no está aprobada por rentabilidad: `NO_TRADE` se mantiene.
+
+
+## 14. Binance Spot WebSocket: rotación de 24 h y evento `serverShutdown`
+
+**Fuente primaria / documentación del mantenedor:** [Binance Spot WebSocket Streams](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md).
+
+Binance documenta que una conexión WebSocket de mercado permanece válida hasta 24 horas; el servidor puede emitir `serverShutdown` antes de desconectarla. La misma guía especifica el ping/pong para mantener la conexión y límites para mensajes de control/intentos de conexión. Por eso una conexión que funciona durante minutos no prueba un proceso prospectivo íntegro de 24 horas. El consumidor debe rotar/reconectar sin suponer que no hubo un hueco y debe persistir los eventos antes de depender de ellos.
+
+**Medida local:** PR #78 extiende el adaptador de WebSocket con entrega incremental y handoff temporal individual, reconoce `serverShutdown` como evento de transporte y añade `bot_obrero/prospective_capture.py` para dos streams públicos (BTCUSDT/ETHUSDT, 1h). La captura registra JSONL con hashes, manifiesto, reconexiones y gaps; cualquier evento no válido o fallo de persistencia deja el resultado bloqueado. La validación vuelve a comprobar hashes, orden de secuencia, procedencia, timestamps, duración y criterios del día UTC.
+
+**CI:** [main run 39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728), `success`, 1593 pruebas. PR #78 [mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/78).
+
+**Límite:** no se ha ejecutado una captura real aceptada de 24 horas. Un test sintético ni la prueba de E2E del backtest público son evidencia prospectiva; no iniciar el holdout BTC/ETH hasta que el comando `validate` acepte el manifiesto real y se conserven los hashes inmutables.
+
+## 15. CCXT: clasificar los fallos antes de reintentar
+
+**Fuente primaria:** [CCXT Manual (español)](https://docs.ccxt.com/es/docs/manual).
+
+La documentación de CCXT distingue errores de red/timeouts y límites de tasa de errores de exchange que no se arreglan repitiendo ciegamente una llamada (por ejemplo, una orden inválida o autenticación). Un retry genérico puede duplicar efectos cuando el resultado de la primera operación es incierto; los límites de rate-limit deben tratarse según la clase de solicitud y el servidor.
+
+**Medida local:** el colector reinicia la conexión solo ante fallos de transporte, con backoff exponencial limitado. Errores de payload, coherencia temporal, callback, escritura JSONL/fsync o manifiesto detienen la corrida en `BLOCKED`; no se pretende recuperar un fallo de persistencia como si fuera un timeout del exchange. La capa PAPER ya evita reintentos automáticos cuando los efectos económicos podrían haberse confirmado parcialmente.
+
+**Límite:** la política actual es un punto de partida conservador, no un servicio de observabilidad gestionado. Sigue haciendo falta operación real, recuperación controlada y manifest de 24h aceptado antes del holdout. `NO_TRADE` continúa.
+
+## 16. Dictamen actualizado tras PR #78
+
+La infraestructura de captura, reconexión, fsync, hashes y validación independiente está integrada en main. El CI post-merge [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728) terminó `success`, 1593 pruebas en 11.13 s. El puntaje ponderado sube de 72 a **73/100**, solo por el componente de infraestructura probado. No existe aún captura real aceptada ni edge neto independiente; no hay base para un score >90 ni para cambiar `NO_TRADE`.
