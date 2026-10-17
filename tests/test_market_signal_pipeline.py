@@ -39,7 +39,9 @@ NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
 def build_market_data(closes, *, now=NOW, finality_override=None, availability=True, timeframe="4h"):
     closes = tuple(Decimal(str(value)) for value in closes)
-    first_start = now - timedelta(hours=4 * (len(closes) - 1), minutes=30)
+    # Last 4h candle ends 30 minutes before the decision; keep all its
+    # receipt/availability timestamps on the past side of the decision boundary.
+    first_start = now - BAR * len(closes) - timedelta(minutes=30)
     items = []
     previous_close = closes[0]
     for index, close in enumerate(closes):
@@ -96,9 +98,6 @@ def config():
 def test_closed_final_candles_produce_canonical_up_signal_and_explicit_paper_proposal():
     # Strong final reversal makes the fast EMA cross above the slow EMA on the
     # latest candle; all evidence is synthetic and this is not an edge claim.
-    items = build_market_data(
-        [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100]
-    )
     now = datetime.now(timezone.utc).replace(microsecond=0)
     items = build_market_data(
         [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
