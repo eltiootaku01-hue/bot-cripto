@@ -9,6 +9,8 @@ on:
       - "bot_obrero/product_v2.py"
       - "bot_obrero/virtual_backtest.py"
       - "tests/test_btc_eth_follow_research.py"
+      - "tests/test_product_v2.py"
+      - "tests/test_virtual_backtest.py"
       - ".github/workflows/btc-eth-follow-research.yml"
 
 permissions:
