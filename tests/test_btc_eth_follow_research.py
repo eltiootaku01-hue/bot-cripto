@@ -6,8 +6,9 @@ from decimal import Decimal
 import pytest
 
 from bot_obrero.btc_eth_follow_research import (
-    BTCETHResearchError, _config, _evaluation_plan, _filter_from_record,
-    _filter_to_record, _require_market_filters, rolling_correlation_summary,
+    BTC, ETH, BTCETHResearchError, COSTS, _config, _evaluation_plan,
+    _filter_from_record, _filter_to_record, _load_bundle, _make_bundle,
+    _print_result, _require_market_filters, _run_result, rolling_correlation_summary,
 )
 from bot_obrero.market_data import (
     Candle, CandleFinality, CandleState, DataCompleteness, DataQuality,
@@ -205,3 +206,118 @@ def test_historical_btc_gate_is_invariant_to_prices_after_the_decision_cutoff():
     baseline_decision = gate(eth, btc)(cutoff, ())
     perturbed_decision = gate(changed_eth, changed_btc)(cutoff, ())
     assert baseline_decision == perturbed_decision
+
+
+
+def _annual_research_test_filters() -> InstrumentFilters:
+    return InstrumentFilters(
+        min_qty=Decimal("0.001"), step_size=Decimal("0.001"),
+        min_notional=Decimal("5"), max_qty=Decimal("1000"),
+        market_min_qty=Decimal("0.001"), market_step_size=Decimal("0.001"),
+        market_max_qty=Decimal("1000"), market_lot_size_present=True,
+    )
+
+
+def _render_scope_result(scope: str, strategy: str, result) -> str:
+    from contextlib import redirect_stdout
+    from io import StringIO
+
+    buffer = StringIO()
+    with redirect_stdout(buffer):
+        _print_result(scope, strategy, "BASE", result)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("scope_index", "scope_name"),
+    [
+        (0, "EVALUATION"),
+        (1, "VALIDATION_1"),
+        (2, "VALIDATION_2"),
+        (3, "VALIDATION_3"),
+    ],
+)
+def test_annual_scope_metrics_and_fill_report_are_invariant_to_later_price_suffix(
+    scope_index: int, scope_name: str
+):
+    """Each report window must be unchanged when only later prices are altered.
+
+    The dataset/configuration hashes are deliberately not compared here: a new
+    suffix must produce a different dataset identity. This test compares only
+    the scope-local metrics, entries, fills, fees and terminal liquidation.
+    """
+    scope_start = 90 * 24 + scope_index * 24
+    scope_end = scope_start + 24
+    # Keep 90 days of causal warm-up plus four short, sequential report scopes.
+    bars = scope_end + 24
+    btc, eth = _paired_market_history(bars=bars, cutoff=scope_end, perturb_future=False)
+    future_btc, future_eth = _paired_market_history(
+        bars=bars, cutoff=scope_end, perturb_future=True
+    )
+    assert [item.payload.close for item in btc[:scope_end + 1]] == [
+        item.payload.close for item in future_btc[:scope_end + 1]
+    ]
+    assert [item.payload.close for item in eth[:scope_end + 1]] == [
+        item.payload.close for item in future_eth[:scope_end + 1]
+    ]
+    assert any(
+        left.payload.close != right.payload.close
+        for left, right in zip(btc[scope_end + 1:], future_btc[scope_end + 1:])
+    )
+    assert any(
+        left.payload.close != right.payload.close
+        for left, right in zip(eth[scope_end + 1:], future_eth[scope_end + 1:])
+    )
+
+    filters = _annual_research_test_filters()
+    filter_map = {BTC: filters, ETH: filters}
+
+    def gate_for(candidate, benchmark):
+        return historical_btc_entry_admission(
+            candidate, benchmark,
+            fast_ema_period=12, slow_ema_period=26, rsi_period=14,
+            rsi_buy_min=Decimal("50"),
+            minimum_corr30d=Decimal("0.50"),
+            minimum_corr90d=Decimal("0.60"),
+            periods_per_day=24,
+        )
+
+    variants = (
+        ("BASELINE", None),
+        ("BTC_GATED", "gate"),
+    )
+    for strategy, gated in variants:
+        original_gate = gate_for(eth, btc) if gated else None
+        changed_gate = gate_for(future_eth, future_btc) if gated else None
+        original_result = _run_result(
+            eth, filter_map[ETH], days=1, capital=Decimal("31"),
+            fee=COSTS[0][1], spread=COSTS[0][2], slippage=COSTS[0][3],
+            start_at=eth[scope_start].payload.start,
+            end_at=eth[scope_end].payload.start, gate=original_gate,
+        )
+        changed_result = _run_result(
+            future_eth, filter_map[ETH], days=1, capital=Decimal("31"),
+            fee=COSTS[0][1], spread=COSTS[0][2], slippage=COSTS[0][3],
+            start_at=future_eth[scope_start].payload.start,
+            end_at=future_eth[scope_end].payload.start, gate=changed_gate,
+        )
+        assert original_result == changed_result
+        assert _render_scope_result(scope_name, strategy, original_result) == _render_scope_result(
+            scope_name, strategy, changed_result
+        )
+
+
+def test_dataset_bundle_rejects_boolean_schema_version_even_when_hashes_are_valid(tmp_path):
+    start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    btc, eth = _paired_market_history(bars=3, cutoff=1, perturb_future=False)
+    filters = _annual_research_test_filters()
+    bundle = _make_bundle(
+        btc, eth, {BTC: filters, ETH: filters},
+        days=365, capital=Decimal("31"), acquired_at=start,
+    )
+    # bool is a subclass of int in Python; JSON true compares equal to integer 1.
+    bundle["schema_version"] = True
+    path = tmp_path / "boolean-schema-version.json"
+    path.write_text(__import__("json").dumps(bundle), encoding="utf-8")
+    with pytest.raises(BTCETHResearchError, match="unsupported BTC-ETH bundle schema"):
+        _load_bundle(path, days=365, capital=Decimal("31"))
