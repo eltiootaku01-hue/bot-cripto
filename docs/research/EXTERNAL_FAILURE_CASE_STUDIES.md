@@ -232,3 +232,19 @@ El patrón aplicado sigue una recomendación de defensa en profundidad: un resul
 - Binance registra requisitos de ciclo de vida/reconexión del stream de mercado: https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md
 
 **Importante:** estas fuentes explican clases de fallos y mitigaciones; no son evidencia de que BOT-CRIPTO haya sufrido esos mismos incidentes. La evidencia de la corrección local será el diff y el CI del SHA exacto.
+
+
+## 12. Supply chain de GitHub Actions: etiqueta mayor frente a SHA inmutable
+
+**Fuente primaria:** [GitHub Docs — Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use). GitHub señala que fijar acciones a un SHA de commit completo es la forma de referenciarlas como releases inmutables y mitigar que una etiqueta referenciada cambie de código.
+
+**Hallazgo local observado:** los ocho workflows usaban `actions/checkout@v7`, `actions/setup-python@v7` y/o `actions/upload-artifact@v7`. Son acciones first-party y versiones modernas, pero el tag mayor no identifica un único commit inmutable.
+
+**Mitigación propuesta:** fijar en cada workflow las releases oficiales verificadas por SHA completo:
+- `actions/checkout v7.0.1`: `3d3c42e5aac5ba805825da76410c181273ba90b1`. Release: https://github.com/actions/checkout/releases/tag/v7.0.1
+- `actions/setup-python v7.0.0`: `5fda3b95a4ea91299a34e894583c3862153e4b97`. Release: https://github.com/actions/setup-python/releases/tag/v7.0.0
+- `actions/upload-artifact v7.0.2`: `cf430e030ddbb5b0abf93d22962f4752f3646cd9`. Release: https://github.com/actions/upload-artifact/releases/tag/v7.0.2
+
+Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y sus releases publicadas; no se copiaron SHA de forks. Los cambios son de seguridad/reproducibilidad, no de comportamiento financiero. Requieren CI completo en la PR y en main tras merge. Cualquier actualización posterior exige revisar release/diff y cambiar el SHA intencionalmente.
+
+**Límite:** pinnear una dependencia no demuestra por sí solo que su código esté libre de errores, ni prueba la rentabilidad de BOT-CRIPTO.
