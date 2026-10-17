@@ -21,6 +21,7 @@ from bot_obrero.prospective_capture import (
     ProspectiveCaptureError,
     ProspectiveCaptureJournal,
     _complete_utc_days,
+    run_capture,
     validate_manifest,
 )
 
@@ -193,3 +194,55 @@ def test_complete_utc_day_helper_requires_each_of_24_hour_starts():
     assert _complete_utc_days(starts) == ["2025-01-01"]
     assert _complete_utc_days(starts[:-1]) == []
     assert _complete_utc_days(starts[:12] + starts[13:]) == []
+
+
+
+def test_run_capture_accepts_only_after_both_streams_supply_a_complete_utc_day(tmp_path):
+    from threading import Event
+
+    class FakeAdapter:
+        def __init__(self, symbol):
+            self.symbol = symbol
+            self.sent = False
+
+        def listen(self, *, symbol, interval, max_messages, on_item, should_stop):
+            assert symbol == self.symbol
+            assert interval == "1h"
+            assert max_messages > 0
+            if not self.sent:
+                for index in range(24):
+                    on_item(_item(self.symbol, index))
+                self.sent = True
+            while not should_stop():
+                Event().wait(0.001)
+            return []
+
+    now_calls = {"count": 0}
+
+    def fake_now():
+        now_calls["count"] += 1
+        return START + timedelta(hours=24, seconds=3) if now_calls["count"] >= 5 else START
+
+    fake_mono = {"value": 0.0}
+
+    def fake_wait(_seconds):
+        fake_mono["value"] += 86401.0
+
+    code, manifest = run_capture(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        grace_seconds=300,
+        max_messages_per_connection=10,
+        max_inter_event_gap_seconds=3600,
+        align_next_utc_midnight=False,
+        adapter_factory=lambda symbol, _clock: FakeAdapter(symbol),
+        now=fake_now,
+        monotonic=lambda: fake_mono["value"],
+        wait=fake_wait,
+    )
+    assert code == 0
+    assert manifest["status"] == "COMPLETED"
+    assert manifest["acceptance"]["accepted"] is True
+    assert manifest["acceptance"]["symbols"]["BTCUSDT"]["complete_utc_days"] == ["2025-01-01"]
+    assert manifest["acceptance"]["symbols"]["ETHUSDT"]["complete_utc_days"] == ["2025-01-01"]
+    assert validate_manifest(tmp_path / manifest["run_id"] / "manifest.json")["status"] == "VALID"
