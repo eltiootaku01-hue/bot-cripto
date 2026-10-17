@@ -134,3 +134,12 @@ Se está preparando un candidato basado en el `main` actual, aplicando los archi
 - **Brecha restante:** la prueba verifica la recuperación de un fill PAPER local y sus proyecciones; no crea atomicidad global entre archivos SQLite. Ante una reparación parcial, el resultado sigue siendo `UNKNOWN/BLOCKED`. La integración todavía no genera una `Signal` canónica desde velas públicas recientes y cerradas para completar automáticamente mercado→señal→propuesta→riesgo→PAPER. Product V2 mantiene `NO_TRADE`; LIVE, claves privadas y dinero real siguen fuera de alcance.
 
 Este addendum **supersede** el estado previo del informe que describía B1-R como carente de una prueba integrada de recuperación y la integración como todavía en preparación.
+
+
+## Addendum posterior — PR #72 y PR #73, 17 de octubre de 2026
+
+PR #72 introdujo `bot_obrero/market_signal_pipeline.py`: una pipeline fail-closed que valida velas 4h completas/cerradas, continuidad, timestamps y disponibilidad; usa los contratos EMA/RSI/Analysis/Snapshot/Strategy/Signal y opcionalmente construye una `TradeProposal` solo con política PAPER explícita. La propuesta se devuelve como artefacto sin enviar ni ejecutar orden. Por ello, la frase anterior de que no existía productor de señales queda supersedida, pero **no** queda probado el ciclo automático hasta riesgo/PAPER ni la rentabilidad de la regla EMA/RSI.
+
+PR #73 añadió identificación de fuente aprobada y procedencia explícita de finality. La fuente WS declara la bandera oficial `k.x`; REST declara una inferencia local basada en el tiempo de cierre, sin fingir que el servidor entregó la misma bandera. Proveedor/venue/origen que no correspondan a Binance Spot REST/WS producen bloqueo. [CI PR #73](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071644011): `success`, 1576 pruebas. Merge: `99424107ccaafe1a0985bb956523fa342e66285c`.
+
+Persisten: captura prospectiva de 24 h, validación económica en holdout independiente, test anti-lookahead/sufijo futuro completo, composición del productor con el runtime de admisión PAPER y ausencia de atomicidad global entre archivos SQLite. No cambiar `NO_TRADE`, no habilitar LIVE ni usar dinero real.

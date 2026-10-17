@@ -2,27 +2,27 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Baseline de main al sincronizar esta continuidad (antes del commit documental):** `fd51e0dd1ff3f710680a98b685a6b9369c74a600`.
+**HEAD de main al iniciar esta sincronización documental:** `99424107ccaafe1a0985bb956523fa342e66285c` (PR #72 y PR #73 integradas).
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
-- **Evaluación ponderada actual:** **64/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
-- **CI actual al revisar la continuidad:** [run 39070159226](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39070159226), `success`, 1561 pruebas aprobadas. El SHA al que corresponde ese CI es `1eba201b06f8e2dccc62e94e6d9ffeb42e57734e`; cambios posteriores deben verificar su SHA propio.
-- **Próximos gates de mayor prioridad:** estrategia con edge neto y holdout independiente; productor de Signal desde velas públicas cerradas que complete el flujo hasta PAPER; captura prospectiva validada de 24 horas. La ausencia de cualquiera de esos gates conserva `NO_TRADE`.
+- **Evaluación ponderada actual:** **68/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
+- **CI de integración comprobado:** [run 39071644011](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071644011) terminó `success`, **1576 pruebas aprobadas** en la punta de PR #73 (`b51c060a9479c484b7ef5a14861972524e5f9f92`). E2E SMA, indicadores y backtest público pasan en la punta PR #72 (`68e3fc19b690c36e8f8341b051ed796b30b78640`). El CI de cualquier SHA posterior debe verificarse por separado.
+- **Próximos gates de mayor prioridad:** validar estrategia con edge neto y holdout independiente; conectar el productor de señal a la admisión financiera y al runtime PAPER bajo una política aprobada; completar captura prospectiva validada de 24 horas. Mientras falte cualquiera, `NO_TRADE` se mantiene.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
 - **LIVE:** no implementado/habilitado. No usar dinero real, claves privadas ni endpoints privados.
 - **Product V2:** el cambio de PR #63 está fusionado en main (merge commit histórico `8bbd9fc9511690db171c163b4a978a07e8aeb222`). El escáner/backtest sigue siendo investigación; no convierte sus resultados en señales de ejecución.
-- **PR #64 — PAPER runtime:** abierta y sin fusionar. HEAD observado durante la auditoría: `8e6ad980481c39dd1504481724e014384ac7187f`. Sus pruebas remotas recientes terminaron en éxito, pero eso no cierra los bloqueos de reconciliación ni la frontera de cuenta/riesgo.
+- **PR #64 — PAPER runtime:** cerrada como supersedida; el runtime PAPER y la reconciliación se integraron por PR #71 (`fd51e0dd1ff3f710680a98b685a6b9369c74a600`).
 - **PR #69 — investigación BTC/ETH V1:** abierta, draft, sin fusionar. Dictamen declarado: `NO_ROBUST_EDGE_FOUND / NO_TRADE`; el propio informe mantiene desconocida la temporalidad/finality de las observaciones y documenta solapamiento parcial con estudios anteriores.
 - **PR #70 — BTC_ETH_STRATEGIES_V2:** abierta, draft, sin fusionar. Estado `DESIGNED / NOT RUN`. No asignar T0 ni iniciar evaluación hasta congelar código/configuración y superar 24 horas de captura continua validada.
 - **PR #66 — recuperación del universo BTC/altcoins:** abierta, sin fusionar. Se mantiene bloqueada la reconstrucción de la lista histórica canónica mientras falte una fuente primaria que confirme exactamente el universo aprobado.
 
 ## 2. Bloqueos que gobiernan el siguiente paso
 
-1. **Productor de señal→PAPER aún ausente.** El puente canónico `Signal → TradeProposal` está integrado, pero Product V2 sigue terminando en `NO_TRADE`; aún no se demuestra un ciclo operativo que adquiera velas públicas recientes de 4h cerradas, genere una `Signal` canónica y la entregue a PAPER.
+1. **Productor de señal integrado; composición financiera completa pendiente.** PR #72 añade adquisición REST→pipeline canónico `MarketData → Analysis/Snapshot/Strategy/Signal` y una `TradeProposal` opcional bajo política explícita. No envía órdenes ni se conecta automáticamente a la admisión financiera para ejecutar en PAPER; Product V2 continúa como investigador independiente y conserva `NO_TRADE`.
 2. **Cuenta y riesgo.** El snapshot completo de la cuenta PAPER se proyecta a `CanonicalAccountState`; antes de una nueva admisión se exige conciliación `apply=False`. Cualquier discrepancia permanece `UNKNOWN/BLOCKED`.
 3. **Cotización y autorización.** `PaperQuoteEvidence` versionada/hash-bound viaja con los términos persistidos; el adaptador calcula el fill desde esa evidencia y la reconciliación comprueba que coincide con la evidencia referenciada por riesgo.
 4. **Reconciliación económica B1-R.** Se integró `paper_economic_replay.py` y `paper_runtime_reconciliation.py`. Una prueba simula el fallo tras el commit del fill, reabre PAPER/reserva/binding/ledger y ejecuta dos reconciliaciones, verificando que no haya fills, débitos, consumos ni versiones duplicadas. Los archivos SQLite separados no son atómicos como conjunto: las reparaciones parciales siguen siendo reintentables y fail-closed.
@@ -41,14 +41,19 @@
 
 ## 4. Evidencia CI verificada
 
-- **Main merge commit:** `fd51e0dd1ff3f710680a98b685a6b9369c74a600`, PR #71 fusionada. GitHub Actions `tests` run [39069869061](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069869061) terminó `completed/success`; log exacto: **1561 passed in 10.11s**.
+- **PAPER main merge commit:** `fd51e0dd1ff3f710680a98b685a6b9369c74a600`, PR #71; run [39069869061](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069869061) terminó `success`, 1561 pruebas.
 - **Punta de integración antes del merge:** `0d139afdf7719d86b7d938ef0cb2a2e8dac949dc`. Suite completa en [39069780762](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780762) y [39069776697](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069776697), ambas `success`. SMA E2E [39069780537](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780537), indicadores E2E [39069780522](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780522) y backtest público/Product V2 [39069780401](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780401), todos `completed/success` sobre ese mismo SHA.
 - Estos E2E comprueban adquisición/backtests públicos y contratos relacionados; no son pruebas LIVE ni de rentabilidad futura.
+
+- **Productor de señal y finality:** PR #72 fusionada en `90bc281b70ec3a50fc2e4b24a37b6a8b037637f3`; en su SHA previo al merge, tests [39071436733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436733) y [39071432824](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071432824) terminaron `success` con 1574 pruebas; E2E SMA [39071436664](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436664), indicadores [39071436711](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436711) y backtest público [39071436661](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071436661) terminaron `success`.
+- **Procedencia de finality:** PR #73 fusionada en `99424107ccaafe1a0985bb956523fa342e66285c`. CI de la punta exacta [39071644011](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071644011) terminó `success`, **1576 passed in 10.04s**. El CI de main tras el merge debe citarse por su propio SHA una vez finalice.
 - La decisión económica sigue siendo `NO_TRADE`; esta evidencia no habilita LIVE.
 
 ## 5. Enlaces de continuidad
 
 - [PR #71 — integración PAPER reconciliada (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/71)
+- [PR #72 — productor de señal de velas cerradas y finality (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/72)
+- [PR #73 — procedencia de fuente/finality fail-closed (mergeada)](https://github.com/eltiootaku01-hue/bot-cripto/pull/73)
 - [PR #64 — rama PAPER original (cerrada como supersedida)](https://github.com/eltiootaku01-hue/bot-cripto/pull/64)
 - [PR #66 — recuperación del universo BTC/altcoins](https://github.com/eltiootaku01-hue/bot-cripto/pull/66)
 - [PR #69 — investigación BTC/ETH V1](https://github.com/eltiootaku01-hue/bot-cripto/pull/69)

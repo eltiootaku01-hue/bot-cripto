@@ -119,3 +119,20 @@ El caso se convirtió en una prueba de regresión concreta: `test_paper_fill_rec
 - Product V2 mantiene `NO_TRADE`: los resultados económicos actuales no justifican habilitar operaciones. Esta corrección no habilita LIVE, no requiere claves privadas y no ejecuta órdenes reales.
 
 Este seguimiento supersede el punto 7.4 anterior en su afirmación de que aún no había una prueba de recuperación integrada; el resto de los límites de esta sección se mantienen.
+
+
+## 9. Binance finality y productor de señales — actualización posterior a PR #72/#73 (17 de octubre de 2026)
+
+### Hallazgo: un indicador de cierre no debe perder su procedencia
+
+El adaptador WebSocket ya parseaba el campo oficial Binance Kline `k.x` (vela cerrada) pero la capa normalizadora no conservaba la distinción y establecía `finality=UNKNOWN`. La traducción se corrigió: `k.x=true` produce `CandleFinality.FINAL`; `false` produce `NOT_FINAL`. Fuente oficial: [Binance Spot WebSocket Streams — Kline](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md).
+
+En REST de klines no se usa una bandera de cierre del servidor en cada fila. La finality de la vela que ya alcanzó su tiempo de cierre se deriva de `received_at >= candle_end` usando el reloj local. La pipeline expone eso como `REST_RECEIVE_TIME_AFTER_CANDLE_CLOSE`, mientras WebSocket queda como `BINANCE_WEBSOCKET_KLINE_X_FLAG`. Son tipos de evidencia distintos y no deben describirse ambos como una bandera explícita de exchange. Véase [Binance Spot REST API](https://developers.binance.com/en/docs/products/spot/rest-api).
+
+### Cambio fail-closed post-merge
+
+Una revisión de la pipeline añadió un segundo guardarraíl: rechaza fuente/provider/venue salvo Binance Spot REST (`binance-spot-rest`) o WebSocket (`binance-spot-websocket`). La base de finality se conserva en la observación y en la evidencia de la señal. CI de la punta PR #73 [39071644011](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39071644011) terminó `success` con **1576 pruebas aprobadas en 10.04s**. La integración se fusionó vía [PR #73](https://github.com/eltiootaku01-hue/bot-cripto/pull/73) en commit `99424107ccaafe1a0985bb956523fa342e66285c`.
+
+### Riesgo económico que permanece
+
+El productor de señal se limita a análisis y a construir una propuesta opcional; no envía órdenes. Los resultados económicos no acreditan ventaja robusta; `NO_TRADE` global se mantiene. Sigue pendiente la prueba completa de invariancia frente a sufijo futuro para el estudio BTC→ETH: Freqtrade advierte que un backtest puede quedar sesgado cuando indicadores/decisiones miran velas futuras y propone contrastar las salidas base con backtests aislados ([Lookahead analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/)).
