@@ -679,7 +679,7 @@ def run_capture(
 
 
 def validate_manifest(manifest_path: Path) -> dict[str, Any]:
-    """Re-hash all datasets and independently validate a completed capture."""
+    """Independently re-hash datasets and recompute the prospective-capture acceptance gates."""
     path = Path(manifest_path)
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -689,42 +689,194 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
         raise ProspectiveCaptureError("MANIFEST_SCHEMA_INVALID")
     if manifest.get("status") != "COMPLETED":
         raise ProspectiveCaptureError("CAPTURE_STATUS_NOT_COMPLETED")
-    if not isinstance(manifest.get("acceptance"), Mapping) or manifest["acceptance"].get("accepted") is not True:
-        raise ProspectiveCaptureError("CAPTURE_ACCEPTANCE_NOT_TRUE")
+    symbols = _validate_symbols(manifest.get("symbols", []))
+    configuration = manifest.get("configuration")
+    if not isinstance(configuration, Mapping) or _json_hash(configuration) != manifest.get("configuration_sha256"):
+        raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_HASH_MISMATCH")
+    if configuration.get("interval") != DEFAULT_INTERVAL or tuple(configuration.get("symbols", ())) != symbols:
+        raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_CONTRACT_INVALID")
+    max_inter_event_gap = configuration.get("maximum_inter_event_gap_seconds")
+    if (
+        isinstance(max_inter_event_gap, bool)
+        or not isinstance(max_inter_event_gap, (int, float))
+        or not math.isfinite(max_inter_event_gap)
+        or max_inter_event_gap <= 0
+    ):
+        raise ProspectiveCaptureError("CAPTURE_INTER_EVENT_GAP_POLICY_INVALID")
+
+    try:
+        capture_start = _aware_utc(datetime.fromisoformat(str(manifest["capture_started_at"])), "capture_started_at")
+        capture_end = _aware_utc(datetime.fromisoformat(str(manifest["capture_ended_at"])), "capture_ended_at")
+        elapsed_seconds = float(manifest["actual_elapsed_seconds"])
+        target_seconds = int(manifest["target_duration_seconds"])
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ProspectiveCaptureError("CAPTURE_TIMESTAMPS_OR_DURATION_INVALID") from exc
+    if not math.isfinite(elapsed_seconds) or elapsed_seconds < target_seconds or target_seconds < DEFAULT_DURATION_SECONDS:
+        raise ProspectiveCaptureError("CAPTURE_ELAPSED_DURATION_NOT_MET")
+    wall_elapsed = (capture_end - capture_start).total_seconds()
+    if wall_elapsed < 0 or abs(wall_elapsed - elapsed_seconds) > 120.0:
+        raise ProspectiveCaptureError("CAPTURE_WALL_CLOCK_MONOTONIC_MISMATCH")
+
     files = manifest.get("files")
-    if not isinstance(files, Mapping) or set(files) != {f"{s}.jsonl" for s in _validate_symbols(manifest.get("symbols", []))}:
+    expected_files = {f"{symbol}.jsonl" for symbol in symbols}
+    if not isinstance(files, Mapping) or set(files) != expected_files:
         raise ProspectiveCaptureError("MANIFEST_FILE_SET_INVALID")
-    for filename, details in files.items():
+
+    recomputed: dict[str, dict[str, Any]] = {}
+    for symbol in symbols:
+        filename = f"{symbol}.jsonl"
+        details = files.get(filename)
         data_path = path.parent / filename
         if not data_path.is_file() or not isinstance(details, Mapping):
             raise ProspectiveCaptureError(f"CAPTURE_FILE_MISSING:{filename}")
         if data_path.stat().st_size != details.get("bytes") or _file_hash(data_path) != details.get("sha256"):
             raise ProspectiveCaptureError(f"CAPTURE_FILE_HASH_MISMATCH:{filename}")
+
         count = 0
+        final_starts: list[datetime] = []
+        previous_final_start: datetime | None = None
+        previous_received_at: datetime | None = None
+        gap_hours = duplicate_finals = out_of_order_finals = unaligned_finals = 0
+        inter_event_gaps = clock_regressions = 0
         with data_path.open("r", encoding="utf-8") as handle:
             for line_no, line in enumerate(handle, start=1):
                 try:
                     envelope = json.loads(line)
                     record = envelope["market_data"]
+                    if not isinstance(envelope, Mapping) or not isinstance(record, Mapping):
+                        raise ValueError("record envelope must contain an object")
                     fingerprint = _json_hash(record)
-                except (ValueError, KeyError, TypeError) as exc:
-                    raise ProspectiveCaptureError(f"CAPTURE_JSONL_INVALID:{filename}:{line_no}") from exc
-                if envelope.get("schema_version") != SCHEMA_VERSION or envelope.get("run_id") != manifest.get("run_id"):
-                    raise ProspectiveCaptureError(f"CAPTURE_RECORD_ENVELOPE_INVALID:{filename}:{line_no}")
-                if envelope.get("record_sha256") != fingerprint:
-                    raise ProspectiveCaptureError(f"CAPTURE_RECORD_HASH_MISMATCH:{filename}:{line_no}")
-                count += 1
+                    if envelope.get("schema_version") != SCHEMA_VERSION or envelope.get("run_id") != manifest.get("run_id"):
+                        raise ProspectiveCaptureError(f"CAPTURE_RECORD_ENVELOPE_INVALID:{filename}:{line_no}")
+                    if envelope.get("symbol") != symbol or envelope.get("sequence") != count + 1:
+                        raise ProspectiveCaptureError(f"CAPTURE_RECORD_SEQUENCE_INVALID:{filename}:{line_no}")
+                    if envelope.get("record_sha256") != fingerprint:
+                        raise ProspectiveCaptureError(f"CAPTURE_RECORD_HASH_MISMATCH:{filename}:{line_no}")
+
+                    instrument = record["instrument"]
+                    source = record["source"]
+                    candle = record["candle"]
+                    if not all(isinstance(component, Mapping) for component in (instrument, source, candle)):
+                        raise ValueError("record instrument/source/candle must be objects")
+                    if (
+                        instrument.get("symbol", "").replace("/", "") != symbol
+                        or instrument.get("market") != "SPOT"
+                        or source.get("source_id") != "binance-spot-websocket"
+                        or source.get("provider") != "binance"
+                        or source.get("venue") != "BINANCE"
+                        or candle.get("timeframe") != DEFAULT_INTERVAL
+                    ):
+                        raise ProspectiveCaptureError(f"CAPTURE_RECORD_SOURCE_OR_IDENTITY_INVALID:{filename}:{line_no}")
+                    observed_at = _aware_utc(datetime.fromisoformat(str(record["observed_at"])), "observed_at")
+                    received_at = _aware_utc(datetime.fromisoformat(str(record["received_at"])), "received_at")
+                    available_raw = record.get("available_at")
+                    if available_raw is None:
+                        raise ProspectiveCaptureError(f"CAPTURE_RECORD_AVAILABILITY_UNKNOWN:{filename}:{line_no}")
+                    available_at = _aware_utc(datetime.fromisoformat(str(available_raw)), "available_at")
+                    if observed_at > received_at or received_at > available_at:
+                        raise ProspectiveCaptureError(f"CAPTURE_RECORD_TEMPORAL_ORDER_INVALID:{filename}:{line_no}")
+
+                    if previous_received_at is not None:
+                        interval_seconds = (received_at - previous_received_at).total_seconds()
+                        if interval_seconds < 0:
+                            clock_regressions += 1
+                        elif interval_seconds > max_inter_event_gap:
+                            inter_event_gaps += 1
+                    previous_received_at = received_at
+
+                    state = candle.get("candle_state")
+                    completeness = candle.get("completeness")
+                    finality = candle.get("finality")
+                    if state == "CLOSED" and completeness == "COMPLETE" and finality == "FINAL":
+                        candle_start = _aware_utc(datetime.fromisoformat(str(candle["start"])), "candle_start")
+                        candle_end = _aware_utc(datetime.fromisoformat(str(candle["end"])), "candle_end")
+                        expected_end = candle_start + timedelta(hours=1) - timedelta(milliseconds=1)
+                        if candle_end != expected_end:
+                            raise ProspectiveCaptureError(f"CAPTURE_FINAL_CANDLE_DURATION_INVALID:{filename}:{line_no}")
+                        final_starts.append(candle_start)
+                        if candle_start.minute != 0 or candle_start.second != 0 or candle_start.microsecond != 0:
+                            unaligned_finals += 1
+                        if previous_final_start is not None:
+                            delta = candle_start - previous_final_start
+                            if delta == timedelta(0):
+                                duplicate_finals += 1
+                            elif delta < timedelta(0):
+                                out_of_order_finals += 1
+                            elif delta > timedelta(hours=1):
+                                gap_hours += max(1, int(delta.total_seconds() // 3600) - 1)
+                        if previous_final_start is None or candle_start > previous_final_start:
+                            previous_final_start = candle_start
+                    count += 1
+                except ProspectiveCaptureError:
+                    raise
+                except (ValueError, KeyError, TypeError, OverflowError) as exc:
+                    raise ProspectiveCaptureError(f"CAPTURE_JSONL_INVALID:{filename}:{line_no}:{exc}") from exc
         if count != details.get("records"):
             raise ProspectiveCaptureError(f"CAPTURE_RECORD_COUNT_MISMATCH:{filename}")
+
+        days = _complete_utc_days(final_starts)
+        symbol_summary = {
+            "records": count,
+            "final_candle_events": sum(1 for _ in final_starts),
+            "unique_final_candle_starts": len(set(final_starts)),
+            "complete_utc_days": days,
+            "has_complete_utc_day": bool(days),
+            "gap_hours": gap_hours,
+            "duplicate_final_candles": duplicate_finals,
+            "out_of_order_final_candles": out_of_order_finals,
+            "unaligned_final_candles": unaligned_finals,
+            "inter_event_gap_count": inter_event_gaps,
+            "clock_regressions": clock_regressions,
+            "maximum_inter_event_gap_seconds": round(
+                max(
+                    (
+                        (b.received_at - a.received_at).total_seconds()
+                        for a, b in ()
+                    ),
+                    default=0.0,
+                ),
+                3,
+            ),
+        }
+        symbol_pass = (
+            symbol_summary["has_complete_utc_day"]
+            and gap_hours == 0
+            and duplicate_finals == 0
+            and out_of_order_finals == 0
+            and unaligned_finals == 0
+            and inter_event_gaps == 0
+            and clock_regressions == 0
+        )
+        symbol_summary["hourly_integrity_pass"] = symbol_pass
+        recomputed[symbol] = symbol_summary
+
+    elapsed_met = elapsed_seconds >= target_seconds
+    no_fatal_errors = not manifest.get("fatal_errors")
+    hourly_integrity_pass = all(recomputed[symbol]["hourly_integrity_pass"] for symbol in symbols)
+    accepted = elapsed_met and no_fatal_errors and hourly_integrity_pass
+    manifest_acceptance = manifest.get("acceptance")
+    if (
+        not isinstance(manifest_acceptance, Mapping)
+        or manifest_acceptance.get("accepted") is not True
+        or not accepted
+    ):
+        raise ProspectiveCaptureError("CAPTURE_ACCEPTANCE_RECOMPUTE_FAILED")
     return {
         "status": "VALID",
         "run_id": manifest.get("run_id"),
         "manifest_path": str(path),
-        "capture_started_at": manifest.get("capture_started_at"),
-        "capture_ended_at": manifest.get("capture_ended_at"),
-        "actual_elapsed_seconds": manifest.get("actual_elapsed_seconds"),
+        "capture_started_at": capture_start.isoformat(),
+        "capture_ended_at": capture_end.isoformat(),
+        "actual_elapsed_seconds": elapsed_seconds,
         "dataset_sha256": {filename: details["sha256"] for filename, details in files.items()},
-        "acceptance": manifest["acceptance"],
+        "acceptance": {
+            "accepted": accepted,
+            "elapsed_duration_met": elapsed_met,
+            "wall_clock_consistency_pass": True,
+            "no_fatal_errors": no_fatal_errors,
+            "hourly_integrity_pass": hourly_integrity_pass,
+            "symbols": recomputed,
+        },
     }
 
 
