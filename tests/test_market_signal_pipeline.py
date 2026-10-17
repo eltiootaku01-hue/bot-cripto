@@ -131,6 +131,8 @@ def test_closed_final_candles_produce_canonical_up_signal_and_explicit_paper_pro
     assert result.signal.direction == "UP"
     assert result.signal.validity.value == "VALID"
     assert result.signal.evidence["timeframe"] == "4h"
+    assert result.signal.evidence["latest_candle_finality_basis"] == "BINANCE_WEBSOCKET_KLINE_X_FLAG"
+    assert "REST_RECEIVE_TIME_AFTER_CANDLE_CLOSE" in result.signal.evidence["candle_finality_bases"]
     assert result.signal.provenance.metadata["strategy_identity"] == STRATEGY_IDENTITY
     assert result.trade_proposal is not None
     assert result.trade_proposal.signal_id == result.signal.signal_id
@@ -275,6 +277,39 @@ def test_unmapped_or_mismatched_policy_cannot_create_a_proposal():
     assert result.signal is not None
     assert result.trade_proposal is None
     assert "PAPER_PROPOSAL_REJECTED" in result.reason
+
+
+
+def test_latest_rest_finality_records_local_time_derivation_explicitly():
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    items = build_market_data(
+        [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
+        now=now,
+    )
+    items[-1] = replace(
+        items[-1],
+        source=SourceIdentity("binance-spot-rest", "binance", "BINANCE"),
+    )
+    result = generate_market_signal(
+        items, decision_timestamp=now, config=config(), expected_symbol="BTC/USDT"
+    )
+    assert result.status is MarketSignalPipelineStatus.SIGNAL_READY
+    assert result.signal is not None
+    assert result.signal.evidence["latest_candle_finality_basis"] == "REST_RECEIVE_TIME_AFTER_CANDLE_CLOSE"
+
+
+def test_unsupported_market_data_source_is_rejected_fail_closed():
+    items = build_market_data([30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19])
+    items[-1] = replace(
+        items[-1],
+        source=SourceIdentity("third-party-feed", "other-provider", "OTHER"),
+    )
+    result = generate_market_signal(
+        items, decision_timestamp=NOW, config=config(), expected_symbol="BTC/USDT"
+    )
+    assert result.status is MarketSignalPipelineStatus.BLOCKED
+    assert result.signal is None
+    assert "MARKET_DATA_SOURCE_UNSUPPORTED" in result.reason
 
 
 
