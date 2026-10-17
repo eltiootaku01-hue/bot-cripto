@@ -684,7 +684,7 @@ def normalized_affordability(
         minimum, step, maximum = filters.market_min_qty, filters.market_step_size, filters.market_max_qty
     else:
         minimum, step, maximum = filters.min_qty, filters.step_size, filters.max_qty
-    if price <= ZERO or minimum is None or step is None or maximum is None or filters.min_notional is None:
+    if price <= ZERO or minimum is None or step is None or filters.min_notional is None:
         return None, "FILTERS_OR_PRICE_UNKNOWN"
     entry_cost_rate = (spread_bps / D("2") + slippage_bps) / D("10000")
     unit_cost = price * (ONE + entry_cost_rate) * (ONE + fee_rate)
@@ -692,7 +692,7 @@ def normalized_affordability(
     qty = (raw_qty / step).to_integral_value(rounding=ROUND_DOWN) * step
     if qty < minimum:
         return False, "MIN_QTY"
-    if qty > maximum:
+    if maximum is not None and qty > maximum:
         return False, "MAX_QTY"
     if qty * price < filters.min_notional:
         return False, "MIN_NOTIONAL"
