@@ -329,6 +329,168 @@ def test_existing_financial_runtime_can_terminate_in_paper_with_synthetic_propos
         adapter.close()
 
 
+
+def test_paper_fill_recovers_after_interrupted_finalization_and_restart(tmp_path, monkeypatch):
+    """A durable PAPER fill is reconciled after every SQLite store is reopened.
+
+    Inject a failure after the adapter commits a fill but before the execution
+    binding can persist SUBMITTED. Recovery must use only durable evidence and
+    repeated recovery must not change balances, versions, or reservation usage.
+    """
+    paper_path = tmp_path / "paper-account.sqlite3"
+    reservation_path = tmp_path / "reservations.sqlite3"
+    ledger_path = tmp_path / "execution-ledger.sqlite3"
+    proposal = replace(make_proposal(max_quote_spend=Decimal("25")), requested_quantity=Decimal("0.2"))
+    template_state = make_state(available="100")
+    adapter = make_adapter(paper_path, account_id=template_state.account_id, clock=lambda: BASE)
+    state = canonical_account_state_from_paper_snapshot(adapter.snapshot())
+    context = make_context(proposal, state)
+    observation = MarketObservation(
+        symbol=proposal.symbol,
+        observation_timestamp=BASE - timedelta(seconds=10),
+        available_timestamp=BASE - timedelta(seconds=5),
+        observation_type="BINANCE_SPOT_BOOK_TICKER",
+        values={"bid": "99.9", "ask": "100"},
+        provenance=Provenance(
+            source="binance-public:deterministic-test-fixture",
+            nature=ArtifactNature.OBSERVED,
+            reference="paper-crash-recovery-test-quote",
+        ),
+        venue="BINANCE",
+        observation_id="paper-crash-recovery-market-observation",
+    )
+    availability = AvailabilityBinding(
+        subject_kind=AvailabilitySubjectKind.MARKET_OBSERVATION,
+        subject_id=observation.observation_id,
+        available_at=observation.available_timestamp,
+        source=observation.provenance.source,
+        evidence_reference=observation.observation_id,
+    )
+    context = replace(
+        context,
+        instrument=replace(context.instrument, market="SPOT"),
+        market_observation=observation,
+        availability_bindings=context.availability_bindings + (availability,),
+    )
+    policy = make_policy()
+    store = SQLiteReservationStore(reservation_path)
+    bridge = ReservationExecutionBridge(store)
+    ledger = SQLiteIdempotencyLedger(ledger_path)
+    orchestrator = ExecutionOrchestrator(
+        adapter=adapter, ledger=ledger, murphy_guard=MurphyGuard(),
+        reservation_bridge=bridge, clock=lambda: NOW,
+    )
+    runtime = FinancialExecutionRuntime(
+        store=store, risk_engine=RiskEngine(),
+        risk_limit_resolver=RiskLimitApplicabilityResolver(),
+        admission_boundary=FinancialAdmissionBoundary(store),
+        reservation_bridge=bridge, execution_orchestrator=orchestrator,
+    )
+
+    def evidence_provider(prepared):
+        binding = bridge.verify_prepared(prepared)
+        correlation = binding.payload["correlation_id"]
+        records = tuple(
+            EvidenceRecord(
+                kind=kind, value=True, source="deterministic-paper-crash-recovery-test",
+                observed_at=BASE, decision_at=BASE, intent_id=prepared.client_order_id,
+                correlation_id=correlation, expires_at=BASE + timedelta(minutes=5),
+            )
+            for kind in REQUIRED
+        )
+        return EvidenceBundle(records, correlation)
+
+    original_finish = bridge.finish_submission
+
+    def fail_after_fill_before_finalization(prepared, *, outcome, occurred_at, error=None):
+        if outcome == "SUBMITTED":
+            raise RuntimeError("INJECTED_CRASH_AFTER_PAPER_FILL_COMMIT")
+        return original_finish(prepared, outcome=outcome, occurred_at=occurred_at, error=error)
+
+    try:
+        monkeypatch.setattr(bridge, "finish_submission", fail_after_fill_before_finalization)
+        result = runtime.start(
+            proposal=proposal, context=context, policy=policy,
+            canonical_account_state=state, account_id=state.account_id,
+            created_at=BASE + timedelta(seconds=30), evidence_provider=evidence_provider,
+        )
+        assert result.status is FinancialExecutionRuntimeStatus.UNKNOWN
+        assert result.reservation_id is not None
+        before_close = adapter.snapshot()
+        assert before_close["mode"] == "PAPER"
+        assert before_close["fill_count"] == 1
+        assert before_close["state_version"] == 1
+        reservation_id = result.reservation_id
+        fill = before_close["fills"][0]
+        assert fill["client_order_id"]
+        assert fill["quote_evidence_hash"]
+        binding = bridge.get_binding(reservation_id)
+        assert binding is not None and binding.state == "SUBMISSION_STARTED"
+        assert store.get(reservation_id).state.value == "ACTIVE"
+        ledger_record = ledger.get(binding.client_order_id)
+        assert ledger_record is not None and ledger_record.result == "ORDER_RESULT_UNKNOWN"
+        expected_balances = dict(before_close["balances"])
+        expected_consumption = Decimal(fill["quantity"]) * Decimal(fill["price"]) + Decimal(fill["fee"])
+    finally:
+        ledger.close()
+        store.close()
+        adapter.close()
+
+    # Reconstruct every store from its durable file; no in-memory first-run
+    # object is allowed to participate in recovery.
+    recovered_adapter = make_adapter(
+        paper_path, account_id=template_state.account_id, clock=lambda: NOW
+    )
+    recovered_store = SQLiteReservationStore(reservation_path)
+    recovered_bridge = ReservationExecutionBridge(recovered_store)
+    recovered_ledger = SQLiteIdempotencyLedger(ledger_path)
+    try:
+        monkeypatch.setattr(
+            recovered_adapter, "_submit",
+            lambda *_args, **_kwargs: pytest.fail("reconciliation must never submit an order"),
+        )
+        first = reconcile_paper_runtime(
+            adapter=recovered_adapter, store=recovered_store, bridge=recovered_bridge,
+            ledger=recovered_ledger, occurred_at=NOW, apply=True,
+        )
+        assert first.status is PaperRuntimeReconciliationStatus.RECONCILED
+        assert first.reconciled_fill_count == 1
+
+        after_first = recovered_adapter.snapshot()
+        reservation_after_first = recovered_store.get(reservation_id)
+        binding_after_first = recovered_bridge.get_binding(reservation_id)
+        ledger_after_first = recovered_ledger.get(fill["client_order_id"])
+        transitions_after_first = recovered_store.transitions(reservation_id)
+        assert after_first["fill_count"] == 1
+        assert after_first["state_version"] == 1
+        assert dict(after_first["balances"]) == expected_balances
+        assert reservation_after_first.state.value == "RELEASED"
+        assert reservation_after_first.consumed_amount == expected_consumption
+        assert binding_after_first is not None and binding_after_first.state == "SUBMITTED"
+        assert ledger_after_first is not None and ledger_after_first.result == "SUBMITTED"
+
+        second = reconcile_paper_runtime(
+            adapter=recovered_adapter, store=recovered_store, bridge=recovered_bridge,
+            ledger=recovered_ledger, occurred_at=NOW + timedelta(seconds=1), apply=True,
+        )
+        assert second.status is PaperRuntimeReconciliationStatus.RECONCILED
+        after_second = recovered_adapter.snapshot()
+        reservation_after_second = recovered_store.get(reservation_id)
+        binding_after_second = recovered_bridge.get_binding(reservation_id)
+        ledger_after_second = recovered_ledger.get(fill["client_order_id"])
+        assert after_second["fill_count"] == after_first["fill_count"] == 1
+        assert after_second["state_version"] == after_first["state_version"] == 1
+        assert dict(after_second["balances"]) == expected_balances
+        assert reservation_after_second.consumed_amount == reservation_after_first.consumed_amount
+        assert reservation_after_second.state == reservation_after_first.state
+        assert binding_after_second.state == binding_after_first.state == "SUBMITTED"
+        assert ledger_after_second.result == ledger_after_first.result == "SUBMITTED"
+        assert recovered_store.transitions(reservation_id) == transitions_after_first
+    finally:
+        recovered_ledger.close()
+        recovered_store.close()
+        recovered_adapter.close()
+
 def test_paper_adapter_has_no_live_or_financial_runtime_imports():
     import ast
     from pathlib import Path
