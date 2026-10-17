@@ -490,9 +490,20 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     "SELECT asset,initial_balance FROM paper_assets ORDER BY asset").fetchall()}
                 balances = {row["asset"]: row["balance"] for row in self._connection.execute(
                     "SELECT asset,balance FROM paper_balances ORDER BY asset").fetchall()}
-                fills = tuple({key: value for key, value in dict(row).items() if key != "intent_json"}
-                    for row in self._connection.execute(
-                        "SELECT * FROM paper_fills ORDER BY filled_at,client_order_id").fetchall())
+                def snapshot_fill(row):
+                    fill = dict(row)
+                    intent_json = fill.pop("intent_json", None)
+                    try:
+                        fill["intent_payload"] = (
+                            json.loads(intent_json) if type(intent_json) is str else None
+                        )
+                    except (TypeError, ValueError):
+                        fill["intent_payload"] = None
+                    return fill
+
+                fills = tuple(snapshot_fill(row) for row in self._connection.execute(
+                    "SELECT * FROM paper_fills ORDER BY filled_at,client_order_id"
+                ).fetchall())
                 complete = bool(assets) and set(assets) == set(balances) and all(
                     Decimal(value).is_finite() and Decimal(value) >= _ZERO for value in balances.values()
                 ) and account["state_version"] == len(fills)
