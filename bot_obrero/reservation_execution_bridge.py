@@ -316,6 +316,25 @@ class ReservationExecutionBridge:
             raise ExecutionBridgeBlocked("proposal/instrument symbol mismatch")
 
         fingerprint = self._verify_authorization(terms, authorization_binding)
+        from .paper_quote_evidence import PaperQuoteEvidenceError, validate_paper_quote_evidence
+
+        try:
+            validated_quote = validate_paper_quote_evidence(
+                terms.get("paper_quote_evidence"),
+                expected_symbol=instrument["symbol"],
+                expected_decision_timestamp=datetime.fromisoformat(terms["decision_timestamp"]),
+                expected_context_id=authorization_binding.evaluation_context_id,
+            )
+        except (KeyError, TypeError, ValueError, PaperQuoteEvidenceError) as exc:
+            raise ExecutionBridgeBlocked("SPOT_QUOTE_EVIDENCE_NOT_BOUND_TO_AUTHORIZATION") from exc
+        quote = validated_quote.evidence
+        if not any(
+            item.kind == "MARKET_OBSERVATION"
+            and item.reference_id == quote["observation_id"]
+            and _utc(item.as_of) == quote["available_at"]
+            for item in authorization_binding.risk_evidence
+        ):
+            raise ExecutionBridgeBlocked("SPOT_QUOTE_RISK_EVIDENCE_REFERENCE_MISMATCH")
         for field in ("proposal_id", "signal_id", "correlation_id"):
             if terms.get(field) != getattr(authorization_binding, field):
                 raise ExecutionBridgeBlocked(f"authorization {field} mismatch")
@@ -395,6 +414,7 @@ class ReservationExecutionBridge:
             "asset": expected_asset,
             "reserved_amount": _decimal_text(reserved),
             "terms_hash": snapshot_row.terms_hash,
+            "paper_quote_evidence": dict(quote),
         }
         intent_json = _canonical_json(payload)
         return expected_client_id, payload, intent_json, _digest(intent_json)

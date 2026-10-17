@@ -113,6 +113,8 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
         required_evidence = (
             "fee_asset", "fee_rate", "slippage_bps", "quote_bid", "quote_ask",
             "quote_observed_at", "quote_available_at", "quote_max_age_microseconds", "quote_source",
+            "quote_observation_id", "quote_observation_type", "quote_evidence_hash",
+            "evaluation_context_id",
         )
         if any(fill.get(key) in (None, "") for key in required_evidence):
             return _result(PaperEconomicReplayStatus.INCOMPLETE, len(fills), replayed,
@@ -165,8 +167,16 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
         if not isinstance(fill.get("quote_source"), str) or not fill["quote_source"].startswith("binance-public:"):
             errors.append(f"{label}:QUOTE_PROVENANCE_INVALID")
             continue
-        if available_at > observed_at or observed_at > filled_at or filled_at - available_at > max_age_delta:
+        if observed_at > available_at or available_at > filled_at or filled_at - available_at > max_age_delta:
             errors.append(f"{label}:QUOTE_TIMING_INVALID_OR_STALE")
+            continue
+        if (
+            fill.get("quote_observation_type") != "BINANCE_SPOT_BOOK_TICKER"
+            or not re.fullmatch(r"[0-9a-f]{64}", str(fill.get("quote_evidence_hash", "")))
+            or not fill.get("quote_observation_id")
+            or not fill.get("evaluation_context_id")
+        ):
+            errors.append(f"{label}:QUOTE_NOT_BOUND_TO_RISK_CONTEXT")
             continue
 
         slip = slippage_bps / Decimal("10000")

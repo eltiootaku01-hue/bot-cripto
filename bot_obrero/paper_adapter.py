@@ -88,8 +88,8 @@ class PaperMarketQuote:
         if available_at is None:
             raise PaperAdapterError("quote available_at is UNKNOWN; PAPER fill blocked")
         available = _aware(available_at, "available_at")
-        if available > observed:
-            raise PaperAdapterError("quote available_at cannot follow observed_at")
+        if observed > available:
+            raise PaperAdapterError("quote observed_at cannot follow available_at")
         if type(source) is not str or not source.startswith("binance-public:"):
             raise PaperAdapterError("quote provenance must identify a public Binance source")
         self.symbol, self.bid, self.ask = symbol, bid, ask
@@ -158,7 +158,10 @@ class PaperExecutionAdapter(ExchangeAdapter):
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(path, check_same_thread=False, timeout=5.0)
         self._connection.row_factory = sqlite3.Row
-        self._connection.execute("PRAGMA journal_mode=WAL")
+        journal = self._connection.execute("PRAGMA journal_mode=DELETE").fetchone()
+        if journal is None or str(journal[0]).lower() != "delete":
+            self._connection.close()
+            raise PaperAdapterError("PAPER_SQLITE_DELETE_JOURNAL_REQUIRED")
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.executescript(
             """
@@ -206,7 +209,11 @@ class PaperExecutionAdapter(ExchangeAdapter):
                 quote_observed_at TEXT NOT NULL DEFAULT '',
                 quote_available_at TEXT NOT NULL DEFAULT '',
                 quote_max_age_microseconds TEXT NOT NULL DEFAULT '',
-                quote_source TEXT NOT NULL
+                quote_source TEXT NOT NULL,
+                quote_observation_id TEXT NOT NULL DEFAULT '',
+                quote_observation_type TEXT NOT NULL DEFAULT '',
+                quote_evidence_hash TEXT NOT NULL DEFAULT '',
+                evaluation_context_id TEXT NOT NULL DEFAULT ''
             );
             """
         )
@@ -226,6 +233,10 @@ class PaperExecutionAdapter(ExchangeAdapter):
             "quote_observed_at": "TEXT NOT NULL DEFAULT ''",
             "quote_available_at": "TEXT NOT NULL DEFAULT ''",
             "quote_max_age_microseconds": "TEXT NOT NULL DEFAULT ''",
+            "quote_observation_id": "TEXT NOT NULL DEFAULT ''",
+            "quote_observation_type": "TEXT NOT NULL DEFAULT ''",
+            "quote_evidence_hash": "TEXT NOT NULL DEFAULT ''",
+            "evaluation_context_id": "TEXT NOT NULL DEFAULT ''",
         }
         for column, declaration in fill_migrations.items():
             if column not in fill_columns:
@@ -312,21 +323,31 @@ class PaperExecutionAdapter(ExchangeAdapter):
             raise PaperAdapterError("PAPER_MAX_QUOTE_SPEND_NOT_ALLOWED_FOR_ORDER")
         return payload, _canonical_json(payload)
 
-    def _fresh_quote(self, symbol: str, now: datetime) -> PaperMarketQuote:
-        quote = self.quote_provider(symbol)
-        if not isinstance(quote, PaperMarketQuote):
-            raise PaperAdapterError("PAPER_QUOTE_PROVIDER_CONTRACT_INVALID")
-        if quote.symbol != symbol:
-            raise PaperAdapterError("PAPER_QUOTE_SYMBOL_MISMATCH")
-        available, observed = quote.available_at, _aware(quote.observed_at, "observed_at")
-        if available is None:
-            raise PaperAdapterError("PAPER_QUOTE_AVAILABILITY_UNKNOWN")
-        available = _aware(available, "available_at")
-        if available > observed or observed > now or available > now:
-            raise PaperAdapterError("PAPER_QUOTE_TEMPORAL_ORDER_INVALID")
-        if now - available > self.max_quote_age:
-            raise PaperAdapterError("PAPER_QUOTE_STALE")
-        return quote
+    def _quote_from_persisted_evidence(
+        self, payload: Mapping[str, Any], now: datetime
+    ) -> PaperMarketQuote:
+        from .paper_quote_evidence import PaperQuoteEvidenceError, validate_paper_quote_evidence
+
+        try:
+            validated = validate_paper_quote_evidence(
+                payload.get("paper_quote_evidence"),
+                expected_symbol=payload["symbol"],
+                expected_decision_timestamp=datetime.fromisoformat(payload["decision_timestamp"]),
+                expected_context_id=payload["evaluation_context_id"],
+                now=now,
+                max_age=self.max_quote_age,
+            )
+        except (KeyError, TypeError, ValueError, PaperQuoteEvidenceError) as exc:
+            raise PaperAdapterError("PAPER_QUOTE_EVIDENCE_INVALID:" + str(exc)) from exc
+        quote = validated.evidence
+        return PaperMarketQuote(
+            symbol=quote["symbol"],
+            bid=validated.bid,
+            ask=validated.ask,
+            observed_at=validated.observed_at,
+            available_at=validated.available_at,
+            source=quote["source"],
+        )
 
     def _load_fill(self, client_order_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
@@ -347,7 +368,7 @@ class PaperExecutionAdapter(ExchangeAdapter):
                         "quantity": existing["quantity"]}
 
         now = _aware(self.clock(), "clock")
-        quote = self._fresh_quote(payload["symbol"], now)
+        quote = self._quote_from_persisted_evidence(payload, now)
         side = payload["side"]
         quantity = _payload_decimal(payload, "quantity")
         requested_price = _payload_decimal(payload, "price", optional=True)
@@ -424,8 +445,9 @@ class PaperExecutionAdapter(ExchangeAdapter):
                         proposal_id,symbol,base_asset,quote_asset,side,quantity,price,fee,
                         filled_at,quote_balance_after,base_balance_after,fee_asset,fee_rate,
                         slippage_bps,quote_bid,quote_ask,quote_observed_at,quote_available_at,
-                        quote_max_age_microseconds,quote_source
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        quote_max_age_microseconds,quote_source,quote_observation_id,
+                        quote_observation_type,quote_evidence_hash,evaluation_context_id
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (order.client_order_id, intent_hash, intent_json, "PAPER", self.account_id,
                      reservation_id, proposal_id, payload["symbol"], base_asset, quote_asset,
                      side, _decimal_text(quantity), _decimal_text(fill_price), _decimal_text(fee),
@@ -433,7 +455,11 @@ class PaperExecutionAdapter(ExchangeAdapter):
                      quote_asset, _decimal_text(self.fee_rate), _decimal_text(self.slippage_bps),
                      _decimal_text(quote.bid), _decimal_text(quote.ask), quote.observed_at.isoformat(),
                      quote.available_at.isoformat(),
-                     str(self.max_quote_age // timedelta(microseconds=1)), quote.source),
+                     str(self.max_quote_age // timedelta(microseconds=1)), quote.source,
+                      payload["paper_quote_evidence"]["observation_id"],
+                      payload["paper_quote_evidence"]["observation_type"],
+                      payload["paper_quote_evidence"]["evidence_hash"],
+                      payload["evaluation_context_id"]),
                 )
                 self._connection.execute(
                     "UPDATE paper_account SET state_version=state_version+1, updated_at=? WHERE singleton=1",
