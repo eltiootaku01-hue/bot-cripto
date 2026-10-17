@@ -2,7 +2,7 @@
 
 **Actualizado:** 2026-10-17  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**HEAD de main verificado:** `a196651842a84cdfc31fde2f3230cd27ff61bf55` (PR #78 integra captura prospectiva; PR #79 endurece la validación temporal/manifest). La ejecución real de 24 h sigue pendiente.
+**Último SHA de código y pruebas verificado:** `a196651842a84cdfc31fde2f3230cd27ff61bf55` (PR #79; CI 1595 pruebas). La PR #80 solo sincronizó documentación y se fusionó después en `562e4b8af936786b543cb0fbf186a21f12e97de1`; no cambió código ni pruebas. La ejecución real de 24 h sigue pendiente.
 
 ## 1. Estado operativo actual
 
