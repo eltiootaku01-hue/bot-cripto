@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Evaluación de preparación técnica y ruta hacia >90%
 
 **Evaluación:** 2026-10-17  
-**Composición señal→riesgo/PAPER:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; **HEAD de main tras PR #78 (captura prospectiva):** `92b8b50a0722eea68c435717f870ef361a2927e8`  
+**Composición señal→riesgo/PAPER:** `a00e78a634ea7bac4ad266a3ae7b3394c709b6e0`; **HEAD actual de main tras PR #79:** `a196651842a84cdfc31fde2f3230cd27ff61bf55`  
 **Actualización de puntuación:** 2026-10-17, después de PR #74 (integración), PR #76 (anti-lookahead) y PR #78 (infraestructura de captura); revisión basada en CI post-merge y E2E.  
 **Propósito del porcentaje:** preparación demostrada para un bot de investigación y PAPER; no es porcentaje de líneas de código, probabilidad de beneficio ni autorización para operar con dinero real.
 
@@ -15,7 +15,7 @@ El porcentaje usa pesos publicados y puntúa solo capacidades con evidencia obse
 
 | Área | Peso | Puntaje | Evidencia para el puntaje | Brecha que impide puntaje completo |
 |---|---:|---:|---|---|
-| Integridad del repositorio y CI reproducible | 10 | 10 | PR #71–#78 fusionadas; CI de main tras PR #78 con 1593 pruebas y E2E SMA/indicadores/backtest público aprobados en la punta de PR #78 | Seguir exigiendo CI en cada SHA de main |
+| Integridad del repositorio y CI reproducible | 10 | 10 | PR #71–#79 fusionadas; CI post-merge main tras PR #79 con 1595 pruebas; E2E SMA/indicadores/backtest público de la punta de PR #78 aprobados | Seguir exigiendo CI en cada SHA de main |
 | Adquisición pública y contratos temporales | 15 | 12 | Adaptadores Binance REST/WebSocket, validación de vela cerrada y continuidad, finality diferenciada por fuente y procedencia conservada | Finality REST derivada del reloj local; `available_at`/`finality` históricos pueden seguir UNKNOWN; falta captura prospectiva validada de 24 h |
 | Análisis, backtest y defensa anti-lookahead | 15 | 14 | SMA/EMA/RSI canónicos, cálculo incremental; PR #76 compara resultados al alterar solo el sufijo posterior a evaluación y el gate histórico BTC→ETH con sufijo posterior al corte; 1580 pruebas pasan | Falta ejecutar/contrastar la invariancia sobre el reporte y artefactos completos del estudio, y validar la evidencia temporal prospectiva |
 | Evidencia económica de estrategia | 20 | 5 | Backtests, benchmarks cash/buy-and-hold y evaluación walk-forward están implementados; el resultado conserva honestamente `NO_TRADE` | Las estrategias evaluadas perdieron dinero neto o no demostraron robustez; falta una validación independiente que justifique avance |
@@ -27,7 +27,7 @@ El porcentaje usa pesos publicados y puntúa solo capacidades con evidencia obse
 ### Cómo interpretar la cifra
 
 - **73/100** es una puntuación de preparación demostrada bajo la matriz anterior, no una estimación del trabajo de programación restante.
-- **1.593 pruebas aprobadas** en main `92b8b50a0722eea68c435717f870ef361a2927e8` (run [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728)) pasan en el SHA probado; no demuestran que toda situación operativa esté cubierta ni que la estrategia sea rentable.
+- **1.595 pruebas aprobadas** en main `a196651842a84cdfc31fde2f3230cd27ff61bf55` (run [39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903)) pasan en el SHA probado; no demuestran que toda situación operativa esté cubierta ni que la estrategia sea rentable.
 - El objetivo >90 debe tratarse como un *release gate*, no como una meta de apariencia. No se dan puntos por una función solo diseñada o por una prueba que no se ejecutó.
 - `NO_TRADE` no es un defecto que deba quitarse para aumentar el porcentaje. Es el bloqueo correcto mientras falte evidencia económica.
 
@@ -71,7 +71,8 @@ QuantConnect publicó en junio de 2026 una corrección a LEAN para impedir que �
 ## Evidencia GitHub del estado que se puntúa
 
 - Integración PAPER y reconciliación: [PR #71 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/71).
-- Captura prospectiva durable (sin claim de captura real ya realizada): [PR #78 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/78); CI de main [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728), `success`, 1593 pruebas en 11.13 s; SMA E2E [39076551987](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551987), indicadores [39076551978](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551978) y backtest público [39076552023](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076552023), todos `success` en la punta PR #78.
+- Captura prospectiva durable (sin claim de captura real ya realizada): [PR #78 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/78); CI de main [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728), `success`, 1593 pruebas.
+- Endurecimiento del validador y sincronización: [PR #79 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/79); CI de main [39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903), `success`, 1595 pruebas en 10.39 s.
 - Composición canónica señal→riesgo→PAPER: [PR #74 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/74), CI de main [39073000856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073000856), `success`, 1578 pruebas en 10.30 s.
 - Defensa anti-lookahead suffix invariance: [PR #76 — mergeada](https://github.com/eltiootaku01-hue/bot-cripto/pull/76), CI de main [39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775), `success`, 1580 pruebas en 8.21 s; SMA E2E [39073419193](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419193), indicadores E2E [39073419196](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419196) y backtest público [39073419200](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419200), todos `success` en la punta de PR #76.
 - CI de main tras el merge: [run 39069869061](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069869061), `success`, 1561 pruebas.
@@ -116,3 +117,10 @@ La cifra ponderada aumenta de **71 a 72/100** (+1 en análisis/defensa anti-look
 PR #78 se fusionó en [`92b8b50a0722eea68c435717f870ef361a2927e8`](https://github.com/eltiootaku01-hue/bot-cripto/commit/92b8b50a0722eea68c435717f870ef361a2927e8). El CI post-merge de main [39076567728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076567728) terminó `success`, con **1593 pruebas aprobadas en 11.13 s**. En el head de PR #78 también pasaron [SMA E2E 39076551987](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551987), [indicadores E2E 39076551978](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076551978) y [backtest público 39076552023](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076552023).
 
 El score aumenta de **72 a 73/100** (+1 en operación/captura por infraestructura persistente y verificable). No se agregan puntos por haber capturado datos en tiempo real: una ejecución real de 24 h sigue pendiente. `NO_TRADE` sigue vigente; la rentabilidad neta independiente y los artefactos completos anti-lookahead anual continúan bloqueados.
+
+
+## Última verificación después de PR #79 — 17 de octubre de 2026
+
+Main está en [`a196651842a84cdfc31fde2f3230cd27ff61bf55`](https://github.com/eltiootaku01-hue/bot-cripto/commit/a196651842a84cdfc31fde2f3230cd27ff61bf55). El CI post-merge exacto [39076940903](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39076940903) concluyó `success`, con **1595 pruebas en 10.39 s**. PR #79 endurece la validación de la captura prospectiva y sus pruebas negativas.
+
+La matriz permanece en **73/100**. La infraestructura de captura está implementada y probada, pero no se ha ejecutado una captura real completa de 24 horas; la validación neta independiente de estrategia y la invariancia de todos los artefactos del estudio anual permanecen pendientes. Por estas razones no se declara >90 y `NO_TRADE` continúa.
