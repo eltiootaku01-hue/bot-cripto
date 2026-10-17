@@ -1,7 +1,8 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 17 de octubre de 2026  
-**Rama inspeccionada:** `feat/paper-operational-runtime-v1`  
+**Rama de destino verificada:** `main` (PR #71, merge commit `fd51e0dd1ff3f710680a98b685a6b9369c74a600`)  
+**Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
 ## 1. SQLite: corrupción poco frecuente en modo WAL
@@ -95,7 +96,26 @@ Por tanto, el estudio pareado ya no está pendiente de ejecución: terminó corr
 1. Las estrategias independientes EMA/RSI y la variante BTC-gated evaluadas en este estudio dieron pérdidas netas durante la evaluación anual. No deben activarse como estrategias ganadoras.
 2. **Disponibilidad temporal del histórico:** las observaciones reportan `available_at=UNKNOWN` y `finality=UNKNOWN`. El estudio no puede afirmar que cada precio fuera observable exactamente en el momento que simula la señal. Se requiere una política punto-en-tiempo verificable o una clasificación explícitamente limitada a histórico OHLC retrospectivo.
 3. **Integridad de datos y robustez:** la prueba completa de invariancia frente a modificación del sufijo futuro para el estudio BTC→ETH sigue siendo una defensa adicional. Los tres folds de 60 días y dos escenarios de estrés no deben alterarse después de ver sus resultados.
-4. El replay económico PAPER verifica el ledger local. No acredita recuperación integrada entre reserva, binding, orquestador y `SQLiteIdempotencyLedger` después de un fill confirmado.
+4. **Actualización B1-R:** tras PR #71, la recuperación de un fill PAPER después de fallo y reinicio sí cuenta con una prueba integrada. Sigue sin existir atomicidad global entre los archivos SQLite de cuenta, reservas/binding y ledger; un fallo parcial debe seguir devolviendo `UNKNOWN/BLOCKED` y recuperarse sin un segundo envío.
 5. Incluso un resultado histórico positivo y reproducible no garantiza ganancias futuras. Se exige validación prospectiva PAPER reconciliada y repetible antes de plantear cualquier autorización posterior.
 
 **Decisión operativa: `NO_TRADE`. No hay autorización para órdenes LIVE ni promesa de rentabilidad.**
+
+
+## 8. Seguimiento tras integrar PAPER en main — 17 de octubre de 2026
+
+**Cambio verificado:** [PR #71](https://github.com/eltiootaku01-hue/bot-cripto/pull/71) fusionada. La antigua [PR #64](https://github.com/eltiootaku01-hue/bot-cripto/pull/64) se cerró como supersedida para evitar mantener dos rutas de integración.
+
+### Error de ciclo de vida PAPER: fill persistido pero finalización interrumpida
+
+El caso se convirtió en una prueba de regresión concreta: `test_paper_fill_recovers_after_interrupted_finalization_and_restart`. La prueba fuerza una excepción después de que el adaptador haya persistido el fill y antes de confirmar `SUBMITTED`; después cierra y reconstruye PAPER, reservas/binding y ledger desde disco. La primera conciliación debe reparar el estado; la segunda debe ser un no-op económico, sin fills, débitos, versiones o transiciones adicionales.
+
+**Evidencia:** la suite del commit de main `fd51e0dd1ff3f710680a98b685a6b9369c74a600` terminó en [GitHub Actions run 39069869061](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069869061), `completed/success`, con **1561 pruebas aprobadas en 10.11 s**. En la punta de integración antes de fusionar, la suite y los E2E públicos relacionados también finalizaron con `success`: [tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780762), [SMA](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780537), [indicadores](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780522), [backtest/Producto V2 con datos públicos](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39069780401).
+
+### Estado que no debe inferirse de esa prueba
+
+- La reparación entre bases de datos separadas no es una transacción ACID única; por eso cualquier estado parcial se bloquea hasta una conciliación verificable.
+- El puente canónico `Signal → TradeProposal` ya está en main, pero el productor operativo de señal a partir de velas públicas actuales/cerradas todavía no está completo.
+- Product V2 mantiene `NO_TRADE`: los resultados económicos actuales no justifican habilitar operaciones. Esta corrección no habilita LIVE, no requiere claves privadas y no ejecuta órdenes reales.
+
+Este seguimiento supersede el punto 7.4 anterior en su afirmación de que aún no había una prueba de recuperación integrada; el resto de los límites de esta sección se mantienen.
