@@ -449,8 +449,8 @@ class ProspectiveCaptureJournal:
         os.replace(temp_path, self.manifest_path)
 
 
-AdapterFactory = Callable[[str, datetime_callable], BinanceSpotWebSocketAdapter]
 datetime_callable = Callable[[], datetime]
+AdapterFactory = Callable[[str, datetime_callable], BinanceSpotWebSocketAdapter]
 
 
 def default_adapter_factory(symbol: str, clock: datetime_callable = _utc_now) -> BinanceSpotWebSocketAdapter:
