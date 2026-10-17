@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import time
 
 import pytest
 
@@ -223,10 +224,13 @@ def test_run_capture_accepts_only_after_both_streams_supply_a_complete_utc_day(t
         now_calls["count"] += 1
         return START + timedelta(hours=24, seconds=3) if now_calls["count"] >= 5 else START
 
-    fake_mono = {"value": 0.0}
+    fake_mono = {"value": 0.0, "advanced": False}
 
     def fake_wait(_seconds):
-        fake_mono["value"] += 86401.0
+        if not fake_mono["advanced"]:
+            fake_mono["value"] += 86401.0
+            fake_mono["advanced"] = True
+        time.sleep(0.01)
 
     code, manifest = run_capture(
         output_dir=tmp_path,
