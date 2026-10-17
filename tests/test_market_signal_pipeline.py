@@ -24,6 +24,7 @@ from bot_obrero.market_signal_pipeline import (
     STRATEGY_IDENTITY,
     STRATEGY_VERSION,
     generate_market_signal,
+    generate_market_signal_from_rest_adapter,
 )
 from bot_obrero.trade_proposal import PricePolicy, TradeOrderType, TradeSide
 
@@ -270,3 +271,103 @@ def test_unmapped_or_mismatched_policy_cannot_create_a_proposal():
     assert result.signal is not None
     assert result.trade_proposal is None
     assert "PAPER_PROPOSAL_REJECTED" in result.reason
+
+
+
+class FakeRestAdapter:
+    def __init__(self, data=None, error=None):
+        self.data = list(data or [])
+        self.error = error
+        self.calls = []
+
+    def fetch_market_data(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return list(self.data)
+
+
+def open_trailing_candle(now):
+    start = now.replace(minute=0, second=0, microsecond=0)
+    start = start - timedelta(hours=start.hour % 4) + BAR
+    end = start + BAR - EPSILON
+    candle = Candle(
+        start=start,
+        end=end,
+        timeframe="4h",
+        open=Decimal("100"),
+        high=Decimal("101"),
+        low=Decimal("99"),
+        close=Decimal("100"),
+        volume=Decimal("1"),
+        candle_state=CandleState.OPEN,
+        completeness=DataCompleteness.PARTIAL,
+        finality=CandleFinality.NOT_FINAL,
+    )
+    return MarketData(
+        instrument=INSTRUMENT,
+        source=SourceIdentity("binance-spot-rest", "binance", "BINANCE"),
+        data_type=CANDLE_DATA_TYPE,
+        observed_at=now,
+        received_at=now,
+        # The consumer handoff can precede the scheduled close of this open candle.
+        available_at=now,
+        payload=candle,
+        quality=DataQuality.VALID,
+        completeness=DataCompleteness.UNKNOWN,
+        market_data_id="BTCUSDT-4h-open-tail",
+    )
+
+
+def test_rest_adapter_pipeline_excludes_only_the_incomplete_trailing_candle():
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    closed = build_market_data(
+        [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
+        now=now,
+    )
+    adapter = FakeRestAdapter(closed + [open_trailing_candle(now)])
+    result = generate_market_signal_from_rest_adapter(
+        adapter,
+        provider_symbol="BTCUSDT",
+        clock=lambda: now,
+        limit=100,
+        config=config(),
+        expected_symbol="BTC/USDT",
+    )
+    assert result.status is MarketSignalPipelineStatus.SIGNAL_READY
+    assert result.signal is not None and result.signal.direction == "UP"
+    assert result.excluded_market_data_ids == ("BTCUSDT-4h-open-tail",)
+    assert adapter.calls == [{"symbol": "BTCUSDT", "interval": "4h", "limit": 100}]
+
+
+def test_rest_adapter_pipeline_preserves_unknown_availability_as_blocked():
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    closed = build_market_data(
+        [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
+        now=now,
+        availability=False,
+    )
+    result = generate_market_signal_from_rest_adapter(
+        FakeRestAdapter(closed),
+        provider_symbol="BTCUSDT",
+        clock=lambda: now,
+        config=config(),
+        expected_symbol="BTC/USDT",
+    )
+    assert result.status is MarketSignalPipelineStatus.BLOCKED
+    assert "AVAILABLE_AT_UNKNOWN" in result.reason
+    assert result.signal is None
+
+
+def test_rest_adapter_failure_is_not_converted_to_no_trade_or_signal():
+    result = generate_market_signal_from_rest_adapter(
+        FakeRestAdapter(error=TimeoutError("public endpoint timeout")),
+        provider_symbol="BTCUSDT",
+        clock=lambda: NOW,
+        config=config(),
+        expected_symbol="BTC/USDT",
+    )
+    assert result.status is MarketSignalPipelineStatus.BLOCKED
+    assert result.signal is None
+    assert result.trade_proposal is None
+    assert "PUBLIC_CANDLE_ACQUISITION_FAILED" in result.reason
