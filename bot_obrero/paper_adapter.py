@@ -542,6 +542,7 @@ def canonical_account_state_from_paper_snapshot(snapshot: Mapping[str, Any]):
         or not isinstance(balances, Mapping) or not isinstance(assets, Mapping)
         or not assets or set(balances) != set(assets)
         or isinstance(version, bool) or not isinstance(version, int) or version < 0
+        or isinstance(fill_count, bool) or not isinstance(fill_count, int)
         or fill_count != version or type(as_of_raw) is not str or not as_of_raw
     ):
         raise PaperAdapterError("PAPER_ACCOUNT_SNAPSHOT_FIELDS_INVALID")
