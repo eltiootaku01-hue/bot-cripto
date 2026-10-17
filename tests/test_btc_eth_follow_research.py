@@ -246,9 +246,9 @@ def test_annual_scope_metrics_and_fill_report_are_invariant_to_later_price_suffi
     suffix must produce a different dataset identity. This test compares only
     the scope-local metrics, entries, fills, fees and terminal liquidation.
     """
-    scope_start = 90 * 24 + scope_index * 24
-    scope_end = scope_start + 24
-    # Keep 90 days of causal warm-up plus four short, sequential report scopes.
+    scope_start = 90 * 24 + scope_index * 48
+    scope_end = scope_start + 48
+    # Keep 90 days of causal warm-up plus four sequential 48-hour scopes.
     bars = scope_end + 24
     btc, eth = _paired_market_history(bars=bars, cutoff=scope_end, perturb_future=False)
     future_btc, future_eth = _paired_market_history(
@@ -290,13 +290,13 @@ def test_annual_scope_metrics_and_fill_report_are_invariant_to_later_price_suffi
         original_gate = gate_for(eth, btc) if gated else None
         changed_gate = gate_for(future_eth, future_btc) if gated else None
         original_result = _run_result(
-            eth, filter_map[ETH], days=1, capital=Decimal("31"),
+            eth, filter_map[ETH], days=2, capital=Decimal("31"),
             fee=COSTS[0][1], spread=COSTS[0][2], slippage=COSTS[0][3],
             start_at=eth[scope_start].payload.start,
             end_at=eth[scope_end].payload.start, gate=original_gate,
         )
         changed_result = _run_result(
-            future_eth, filter_map[ETH], days=1, capital=Decimal("31"),
+            future_eth, filter_map[ETH], days=2, capital=Decimal("31"),
             fee=COSTS[0][1], spread=COSTS[0][2], slippage=COSTS[0][3],
             start_at=future_eth[scope_start].payload.start,
             end_at=future_eth[scope_end].payload.start, gate=changed_gate,
