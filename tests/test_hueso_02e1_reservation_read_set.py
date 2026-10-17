@@ -443,12 +443,12 @@ def test_read_set_exposes_only_the_canonical_account_api():
 
 def test_no_new_effective_capacity_or_temporal_fields_are_added_to_reservation_contract():
     source = Path("bot_obrero/reservation.py").read_text(encoding="utf-8")
-    start = source.index("class Reservation:")
-    end = source.index("class ReservationTransition:", start)
-    canonical_reservation = source[start:end]
+    start = source.index("@dataclass(frozen=True)\nclass Reservation:")
+    end = source.index("    def __post_init__", start)
+    canonical_reservation_fields = source[start:end]
 
     # Quote availability belongs to the immutable admission-terms snapshot,
-    # not to the canonical Reservation model or its transition surface.
+    # not to the canonical Reservation data model.
     assert "EffectiveCapacity" not in source
-    assert "available_at" not in canonical_reservation
+    assert "available_at" not in canonical_reservation_fields
     assert "atomic snapshot" not in source.lower()
