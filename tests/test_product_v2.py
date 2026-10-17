@@ -886,3 +886,38 @@ def test_product_backtest_uses_effective_market_lot_rules(monkeypatch):
     assert result.config.min_qty == Decimal("0.01")
     assert result.config.quantity_step == Decimal("0.01")
     assert result.config.max_qty == Decimal("100")
+
+
+
+def test_normalized_affordability_fails_closed_on_zero_market_and_regular_steps():
+    from bot_obrero.product_v2 import InstrumentFilters, normalized_affordability
+
+    filters = InstrumentFilters(
+        min_qty=Decimal("0.001"), step_size=Decimal("0"),
+        min_notional=Decimal("5"), max_qty=Decimal("1000"),
+        market_min_qty=Decimal("0.001"), market_step_size=Decimal("0"),
+        market_max_qty=Decimal("0"), market_lot_size_present=True,
+    )
+    result = normalized_affordability(
+        Decimal("2"), filters, Decimal("100"),
+        fee_rate=Decimal("0.001"), spread_bps=Decimal("10"),
+        slippage_bps=Decimal("5"), position_fraction=Decimal("0.95"),
+    )
+    assert result == (None, "MARKET_LOT_SIZE_UNKNOWN_OR_INVALID")
+
+
+def test_normalized_affordability_uses_valid_market_step_when_regular_step_is_zero():
+    from bot_obrero.product_v2 import InstrumentFilters, normalized_affordability
+
+    filters = InstrumentFilters(
+        min_qty=Decimal("0.001"), step_size=Decimal("0"),
+        min_notional=Decimal("5"), max_qty=Decimal("1000"),
+        market_min_qty=Decimal("0.001"), market_step_size=Decimal("0.01"),
+        market_max_qty=Decimal("100"), market_lot_size_present=True,
+    )
+    result = normalized_affordability(
+        Decimal("2"), filters, Decimal("100"),
+        fee_rate=Decimal("0.001"), spread_bps=Decimal("10"),
+        slippage_bps=Decimal("5"), position_fraction=Decimal("0.95"),
+    )
+    assert result == (True, "PASS")

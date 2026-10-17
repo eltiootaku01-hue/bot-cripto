@@ -719,22 +719,32 @@ def normalized_affordability(
     fee_rate: Decimal, spread_bps: Decimal, slippage_bps: Decimal,
     position_fraction: Decimal,
 ) -> tuple[bool | None, str]:
-    """Estimate affordability at current public ticker, only for normalized research."""
-    if filters.market_lot_size_present is False:
-        return None, "MARKET_LOT_SIZE_UNKNOWN"
-    if filters.market_lot_size_present is True:
-        minimum, step, maximum = filters.market_min_qty, filters.market_step_size, filters.market_max_qty
-    else:
-        minimum, step, maximum = filters.min_qty, filters.step_size, filters.max_qty
-    if price <= ZERO or minimum is None or step is None or filters.min_notional is None:
-        return None, "FILTERS_OR_PRICE_UNKNOWN"
+    """Estimate MARKET-order affordability without dividing by unknown/zero filters."""
+    if (type(price) is not Decimal or not price.is_finite() or price <= ZERO
+            or type(budget_usdt) is not Decimal or not budget_usdt.is_finite() or budget_usdt <= ZERO
+            or type(position_fraction) is not Decimal or not position_fraction.is_finite()
+            or not ZERO < position_fraction <= ONE):
+        return None, "FILTERS_OR_PRICE_UNKNOWN_OR_INVALID"
+    if (filters.min_notional is None or type(filters.min_notional) is not Decimal
+            or not filters.min_notional.is_finite() or filters.min_notional <= ZERO):
+        return None, "MIN_NOTIONAL_UNKNOWN_OR_INVALID"
+    try:
+        minimum, step, maximum = effective_market_lot_rules(filters)
+    except ProductV2Error:
+        return None, "MARKET_LOT_SIZE_UNKNOWN_OR_INVALID"
     entry_cost_rate = (spread_bps / D("2") + slippage_bps) / D("10000")
     unit_cost = price * (ONE + entry_cost_rate) * (ONE + fee_rate)
+    if not unit_cost.is_finite() or unit_cost <= ZERO:
+        return None, "UNIT_COST_UNKNOWN_OR_INVALID"
     raw_qty = budget_usdt * position_fraction / unit_cost
+    if not raw_qty.is_finite() or raw_qty < ZERO:
+        return None, "RAW_QUANTITY_UNKNOWN_OR_INVALID"
     qty = (raw_qty / step).to_integral_value(rounding=ROUND_DOWN) * step
-    if qty < minimum:
+    if qty <= ZERO:
+        return False, "NON_POSITIVE_QUANTITY"
+    if minimum is not None and qty < minimum:
         return False, "MIN_QTY"
-    if maximum is not None and qty > maximum:
+    if qty > maximum:
         return False, "MAX_QTY"
     if qty * price < filters.min_notional:
         return False, "MIN_NOTIONAL"
@@ -938,11 +948,15 @@ def run(args: argparse.Namespace) -> int:
             reasons.append("SPREAD_UNKNOWN_OR_WIDE")
         if not args.min_price <= tick.price <= args.max_price:
             reasons.append("NOMINAL_PRICE_OUT_OF_RANGE")
-        if filt.min_qty is None or filt.step_size is None or filt.min_notional is None:
-            reasons.append("INSTRUMENT_FILTERS_UNKNOWN")
-        if (filt.market_lot_size_present is not True or filt.market_min_qty is None
-                or filt.market_step_size is None or filt.market_max_qty is None):
-            reasons.append("MARKET_LOT_SIZE_UNKNOWN")
+        if (filt.min_qty is None or filt.step_size is None or filt.min_notional is None
+                or filt.step_size <= ZERO or filt.min_qty < ZERO or filt.min_notional <= ZERO):
+            reasons.append("INSTRUMENT_FILTERS_UNKNOWN_OR_INVALID")
+        try:
+            effective_market_lot_rules(filt)
+            if filt.min_notional is None or filt.min_notional <= ZERO:
+                raise ProductV2Error("MIN_NOTIONAL_UNKNOWN_OR_INVALID")
+        except ProductV2Error:
+            reasons.append("MARKET_LOT_SIZE_UNKNOWN_OR_INVALID")
         if reasons:
             excluded.append((symbol, ",".join(reasons)))
         else:
