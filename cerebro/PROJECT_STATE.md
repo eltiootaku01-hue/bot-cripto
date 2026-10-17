@@ -6,6 +6,12 @@
 
 ## 1. Estado operativo actual
 
+## Preparación demostrada hacia el objetivo >90%
+
+- **Evaluación ponderada actual:** **64/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
+- **CI actual al revisar la continuidad:** [run 39070159226](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39070159226), `success`, 1561 pruebas aprobadas. El SHA al que corresponde ese CI es `1eba201b06f8e2dccc62e94e6d9ffeb42e57734e`; cambios posteriores deben verificar su SHA propio.
+- **Próximos gates de mayor prioridad:** estrategia con edge neto y holdout independiente; productor de Signal desde velas públicas cerradas que complete el flujo hasta PAPER; captura prospectiva validada de 24 horas. La ausencia de cualquiera de esos gates conserva `NO_TRADE`.
+
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
 - **LIVE:** no implementado/habilitado. No usar dinero real, claves privadas ni endpoints privados.
 - **Product V2:** el cambio de PR #63 está fusionado en main (merge commit histórico `8bbd9fc9511690db171c163b4a978a07e8aeb222`). El escáner/backtest sigue siendo investigación; no convierte sus resultados en señales de ejecución.
@@ -48,6 +54,8 @@
 - [PR #69 — investigación BTC/ETH V1](https://github.com/eltiootaku01-hue/bot-cripto/pull/69)
 - [PR #70 — protocolo prospectivo BTC/ETH V2](https://github.com/eltiootaku01-hue/bot-cripto/pull/70)
 - [Informe de auditoría externa y riesgos](docs/audits/MAIN_EXTERNAL_TECHNICAL_AUDIT_2026-10-17.md)
+- [Evaluación ponderada de preparación hacia >90%](docs/audits/PROJECT_READINESS_V1_2026-10-17.md)
+- [Casos externos de fallos y mitigaciones](docs/research/EXTERNAL_FAILURE_CASE_STUDIES.md)
 
 ---
 
