@@ -158,3 +158,12 @@ Durante el desarrollo, el E2E dio `UNKNOWN` porque la prueba fechaba el fill ant
 La integración es una función de composición invocable, no un supervisor de captura 24 h ni un loop de adquisición/reconexión. Falta validar una ejecución prospectiva continua, reparar huecos con evidencia verificable, hacer anti-lookahead de sufijo futuro para la investigación BTC/ETH y demostrar edge neto fuera de muestra. La puntuación ponderada pasa de 68 a 71/100 solo por el ciclo técnico integrado; no se otorgan puntos de rentabilidad/captura. `NO_TRADE` sigue siendo la decisión económica global.
 
 Los hallazgos históricos de este informe que indicaban que no existía composición mercado→riesgo→PAPER quedan supersedidos por este addendum. Se mantienen el límite de no atomicidad global entre SQLite separadas, el bloqueo `UNKNOWN/BLOCKED` y la prohibición de LIVE/dinero real/claves privadas.
+
+
+## Addendum — PR #76 añade regresiones de invariancia a sufijo futuro (17 de octubre de 2026)
+
+PR #76 quedó fusionada en [`9e10c34566ed4e068c6360297d49ee6d4dc13e3f`](https://github.com/eltiootaku01-hue/bot-cripto/commit/9e10c34566ed4e068c6360297d49ee6d4dc13e3f). El cambio solo añade pruebas: modifica barras fuera del periodo de evaluación y exige igualdad del resultado del backtest virtual; además, cambia el sufijo del histórico BTC/ETH después de un índice de decisión y exige la misma decisión/motivo del gate histórico. Los prefijos están comprobados como iguales.
+
+**CI post-merge main:** [run 39073489775](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073489775), `success`, **1580 pruebas aprobadas en 8.21 s**. En el head de PR #76 aprobaron asimismo [SMA E2E 39073419193](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419193), [indicadores E2E 39073419196](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419196) y [backtest público 39073419200](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39073419200).
+
+El score aumenta de 71 a **72/100** por la propiedad de causalidad cubierta por estas dos regresiones. No se considera el test una prueba exhaustiva de todos los outputs y artefactos del estudio anual; esa verificación sigue pendiente, junto a captura prospectiva íntegra de 24 h y edge neto independiente. `NO_TRADE` se mantiene.
