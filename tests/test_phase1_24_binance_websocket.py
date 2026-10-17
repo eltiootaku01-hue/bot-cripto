@@ -203,7 +203,7 @@ def test_valid_open_event_produces_canonical_market_data():
     assert item.payload.volume == Decimal("0.0100")
     assert item.payload.candle_state is CandleState.OPEN
     assert item.payload.completeness is DataCompleteness.PARTIAL
-    assert item.payload.finality is CandleFinality.UNKNOWN
+    assert item.payload.finality is CandleFinality.NOT_FINAL
     assert item.quality is DataQuality.VALID
     assert item.completeness is DataCompleteness.UNKNOWN
     assert item.source_sequence is None
@@ -216,7 +216,7 @@ def test_valid_open_event_produces_canonical_market_data():
     assert connection.closed
 
 
-def test_valid_closed_event_maps_closed_and_complete_but_not_final():
+def test_explicit_closed_flag_maps_to_finality_final():
     connection = FakeConnection(
         [kline_message(event_time=EVENT_MS_2, closed=True)]
     )
@@ -225,7 +225,7 @@ def test_valid_closed_event_maps_closed_and_complete_but_not_final():
 
     assert item.payload.candle_state is CandleState.CLOSED
     assert item.payload.completeness is DataCompleteness.COMPLETE
-    assert item.payload.finality is CandleFinality.UNKNOWN
+    assert item.payload.finality is CandleFinality.FINAL
 
 
 def test_event_time_is_observed_at_and_receive_clock_is_received_at():
