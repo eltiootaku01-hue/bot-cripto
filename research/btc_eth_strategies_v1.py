@@ -324,7 +324,7 @@ for scope_name,st,en in scopes:
 summary=[]
 for r in results:
     summary.append({k:r[k] for k in ('scope','cost','strategy','asset','start','end_exclusive','final_usdt','return_pct','max_drawdown_pct','fills','buys','sells','fees_usdt')})
-# Checks: validation all before evaluation; no strategy gets evaluation bars in any validation slice.
+# checks: validation all before evaluation; no strategy gets evaluation bars in any validation slice.
 assert max(end for _,_,end in folds) == eval_start
 assert all('2026-04' not in r['start'] for r in results if r['scope'].startswith('VALIDATION'))
 
