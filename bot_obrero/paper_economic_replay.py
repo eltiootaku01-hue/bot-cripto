@@ -14,6 +14,12 @@ import hashlib
 import re
 from typing import Any, Mapping, Sequence
 
+from .paper_quote_evidence import (
+    PaperQuoteEvidenceError,
+    canonical_json,
+    validate_paper_quote_evidence,
+)
+
 
 class PaperEconomicReplayStatus(str, Enum):
     REPLAYED = "REPLAYED"
@@ -178,7 +184,7 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
                 (f"{label}:PERSISTED_INTENT_PAYLOAD_MISSING",),
             )
         try:
-            computed_intent_hash = hashlib.sha256(_canonical(intent_payload)).hexdigest()
+            computed_intent_hash = hashlib.sha256(canonical_json(intent_payload).encode("utf-8")).hexdigest()
         except (TypeError, ValueError):
             errors.append(f"{label}:PERSISTED_INTENT_PAYLOAD_INVALID")
             continue
@@ -186,8 +192,6 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
             errors.append(f"{label}:PERSISTED_INTENT_HASH_MISMATCH")
             continue
         try:
-            from .paper_quote_evidence import PaperQuoteEvidenceError, validate_paper_quote_evidence
-
             quote_evidence = intent_payload.get("paper_quote_evidence")
             decision_at = _read_timestamp(intent_payload.get("decision_timestamp"), f"{label}.decision_timestamp")
             validated_quote = validate_paper_quote_evidence(
@@ -198,11 +202,7 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
                 now=filled_at,
                 max_age=max_age_delta,
             )
-        except (KeyError, TypeError, ValueError) as exc:
-            errors.append(f"{label}:PERSISTED_QUOTE_EVIDENCE_INVALID:{type(exc).__name__}")
-            continue
-        except Exception as exc:
-            # Keep malformed persisted evidence fail-closed without exposing parser internals.
+        except (KeyError, TypeError, ValueError, PaperQuoteEvidenceError) as exc:
             errors.append(f"{label}:PERSISTED_QUOTE_EVIDENCE_INVALID:{type(exc).__name__}")
             continue
 
