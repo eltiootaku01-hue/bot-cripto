@@ -250,3 +250,28 @@ def test_run_capture_accepts_only_after_both_streams_supply_a_complete_utc_day(t
     assert manifest["acceptance"]["symbols"]["BTCUSDT"]["complete_utc_days"] == ["2025-01-01"]
     assert manifest["acceptance"]["symbols"]["ETHUSDT"]["complete_utc_days"] == ["2025-01-01"]
     assert validate_manifest(tmp_path / manifest["run_id"] / "manifest.json")["status"] == "VALID"
+
+
+
+def test_duplicate_final_hour_is_flagged_and_blocks_capture_acceptance(tmp_path):
+    journal = ProspectiveCaptureJournal(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        max_inter_event_gap_seconds=3600,
+        now=lambda: START,
+        run_id="capture-test-duplicate-final",
+    )
+    journal.start(START)
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        for index in range(24):
+            journal.accept(_item(symbol, index))
+        journal.accept(_item(symbol, 23))
+    manifest = journal.finalize(
+        status="COMPLETED",
+        ended_at=START + timedelta(hours=24, seconds=3),
+        elapsed_seconds=86403,
+    )
+    assert manifest["status"] == "BLOCKED"
+    assert manifest["acceptance"]["symbols"]["BTCUSDT"]["duplicate_final_candles"] == 1
+    with pytest.raises(ProspectiveCaptureError, match="STATUS_NOT_COMPLETED"):
+        validate_manifest(journal.manifest_path)
