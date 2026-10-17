@@ -39,3 +39,8 @@ Los comentarios de cada referencia guardan el nombre legible de la versión y pe
 ## Mantenimiento
 
 Cuando una acción publique una actualización, comprobar la release y el commit en el repositorio oficial, leer las notas de cambios, revisar los permisos/diff pertinentes y actualizar la referencia pinneada mediante PR con CI. No volver a `@v7` por comodidad sin decisión explícita y documentada.
+
+
+## Resultado verificado en main
+
+La PR #83 quedó fusionada: https://github.com/eltiootaku01-hue/bot-cripto/pull/83. Main actual `a07b8aac15970f3349f9de54f021cfbeb71e4e20`; el CI exacto [39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856) terminó `success`, con 1598 pruebas en 11.22 s. Los E2E de SMA, indicadores y backtest público también terminaron `success` en la punta de PR #83.
