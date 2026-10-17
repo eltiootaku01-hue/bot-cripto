@@ -46,7 +46,7 @@ for symbol in ('BTCUSDT','ETHUSDT'):
     frames[symbol] = f
 assert frames['BTCUSDT'].timestamp.equals(frames['ETHUSDT'].timestamp)
 
-# Chronology is fixed before result inspection; validation folds precede evaluation.
+# chronology is fixed before result inspection; validate folds precede the held-out eval.
 folds = []
 start_validation = WARMUP
 for n in range(1,4):
