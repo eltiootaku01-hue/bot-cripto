@@ -852,7 +852,7 @@ def test_zero_market_lot_fields_fall_back_only_to_valid_lot_size_constraints():
         market_max_qty=Decimal("0"), market_lot_size_present=True,
     )
     assert effective_market_lot_rules(filters) == (
-        Decimal("0.001"), Decimal("0.001"), Decimal("1000")
+        None, Decimal("0.001"), Decimal("1000")
     )
 
 

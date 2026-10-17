@@ -127,7 +127,7 @@ def parse_filters(raw: Any) -> InstrumentFilters:
     )
 
 
-def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal, Decimal, Decimal]:
+def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal | None, Decimal, Decimal]:
     """Resolve effective market-order quantity bounds without accepting zero steps.
 
     A zero MARKET_LOT_SIZE field falls back to the corresponding ordinary LOT_SIZE
@@ -147,13 +147,16 @@ def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal, Dec
         return value if value > ZERO else None
 
     if filters.market_lot_size_present is True:
-        market_min = positive(filters.market_min_qty, "market_min_qty")
+        raw_market_min = filters.market_min_qty
+        market_min = positive(raw_market_min, "market_min_qty")
         market_step = positive(filters.market_step_size, "market_step_size")
         market_max = positive(filters.market_max_qty, "market_max_qty")
         lot_min = positive(filters.min_qty, "min_qty")
         lot_step = positive(filters.step_size, "step_size")
         lot_max = positive(filters.max_qty, "max_qty")
-        minimum = market_min if market_min is not None else lot_min
+        # Binance defines MARKET_LOT_SIZE.minQty=0 as "no market lower bound".
+        # Do not accidentally re-introduce the normal LOT_SIZE lower bound.
+        minimum = None if raw_market_min == ZERO else market_min if market_min is not None else lot_min
         step = market_step if market_step is not None else lot_step
         maximum = market_max if market_max is not None else lot_max
     else:
@@ -164,9 +167,9 @@ def effective_market_lot_rules(filters: InstrumentFilters) -> tuple[Decimal, Dec
         step = positive(filters.step_size, "step_size")
         maximum = positive(filters.max_qty, "max_qty")
 
-    if minimum is None or step is None or maximum is None:
+    if step is None or maximum is None:
         raise ProductV2Error("MARKET_LOT_SIZE_INVALID_OR_INCOMPLETE")
-    if minimum > maximum:
+    if minimum is not None and minimum > maximum:
         raise ProductV2Error("MARKET_LOT_SIZE_MIN_EXCEEDS_MAX")
     return minimum, step, maximum
 
