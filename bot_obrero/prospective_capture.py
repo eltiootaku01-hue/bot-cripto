@@ -707,6 +707,13 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
         or configuration.get("target_duration_seconds") != manifest.get("target_duration_seconds")
     ):
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_CONTRACT_INVALID")
+    try:
+        capture_start = _aware_utc(datetime.fromisoformat(str(manifest["capture_started_at"])), "capture_started_at")
+        capture_end = _aware_utc(datetime.fromisoformat(str(manifest["capture_ended_at"])), "capture_ended_at")
+        elapsed_seconds = float(manifest["actual_elapsed_seconds"])
+        target_seconds = int(manifest["target_duration_seconds"])
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ProspectiveCaptureError("CAPTURE_TIMESTAMPS_OR_DURATION_INVALID") from exc
     scheduled_raw = manifest.get("scheduled_capture_start_at")
     if scheduled_raw is not None:
         scheduled_start = _aware_utc(datetime.fromisoformat(str(scheduled_raw)), "scheduled_capture_start_at")
@@ -726,13 +733,6 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
     ):
         raise ProspectiveCaptureError("CAPTURE_INTER_EVENT_GAP_POLICY_INVALID")
 
-    try:
-        capture_start = _aware_utc(datetime.fromisoformat(str(manifest["capture_started_at"])), "capture_started_at")
-        capture_end = _aware_utc(datetime.fromisoformat(str(manifest["capture_ended_at"])), "capture_ended_at")
-        elapsed_seconds = float(manifest["actual_elapsed_seconds"])
-        target_seconds = int(manifest["target_duration_seconds"])
-    except (KeyError, TypeError, ValueError, OverflowError) as exc:
-        raise ProspectiveCaptureError("CAPTURE_TIMESTAMPS_OR_DURATION_INVALID") from exc
     if not math.isfinite(elapsed_seconds) or elapsed_seconds < target_seconds or target_seconds < DEFAULT_DURATION_SECONDS:
         raise ProspectiveCaptureError("CAPTURE_ELAPSED_DURATION_NOT_MET")
     wall_elapsed = (capture_end - capture_start).total_seconds()
