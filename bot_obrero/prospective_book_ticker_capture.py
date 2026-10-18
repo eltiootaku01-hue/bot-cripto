@@ -581,7 +581,14 @@ def validate_manifest(path: Path) -> dict[str, Any]:
         raise ProspectiveBookTickerCaptureError("TARGET_DURATION_INVALID")
     if type(capture_grace) is not int or isinstance(capture_grace, bool) or capture_grace < 0:
         raise ProspectiveBookTickerCaptureError("CAPTURE_GRACE_INVALID")
-    if config.get("target_duration_seconds") != target_duration or config.get("capture_grace_seconds") != capture_grace:
+    configured_target_duration = config.get("target_duration_seconds")
+    configured_capture_grace = config.get("capture_grace_seconds")
+    if (
+        type(configured_target_duration) is not int
+        or type(configured_capture_grace) is not int
+        or configured_target_duration != target_duration
+        or configured_capture_grace != capture_grace
+    ):
         raise ProspectiveBookTickerCaptureError("CAPTURE_DURATION_CONFIGURATION_MISMATCH")
     if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)) or not math.isfinite(elapsed) or elapsed < target_duration + capture_grace:
         raise ProspectiveBookTickerCaptureError("ELAPSED_DURATION_INVALID")
@@ -721,6 +728,12 @@ def validate_manifest(path: Path) -> dict[str, Any]:
         saved = summaries.get(symbol)
         if not isinstance(saved, Mapping):
             raise ProspectiveBookTickerCaptureError("SYMBOL_SUMMARY_MISSING")
+        for key in (
+            "records", "duplicate_update_ids", "out_of_order_update_ids",
+            "inter_event_gap_count", "clock_regressions",
+        ):
+            if type(saved.get(key)) is not int:
+                raise ProspectiveBookTickerCaptureError("SYMBOL_SUMMARY_INTEGER_TYPE_INVALID")
         for key in (
             "records", "duplicate_update_ids", "out_of_order_update_ids",
             "inter_event_gap_count", "maximum_inter_event_gap_seconds",
