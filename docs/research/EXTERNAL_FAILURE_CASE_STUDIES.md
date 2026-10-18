@@ -284,7 +284,7 @@ Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y 
 
 **Hallazgo local reproducible:** el validador comparaba `schema_version` y `sequence` por igualdad simple. Por eso JSON `true` podía pasar como versión `1` o como secuencia de evento 1. La misma regla se aplicó al manifiesto, su configuración y cada envelope de registro. El hash de un registro no cubre los campos externos del envelope, por lo que los tests de regresión reconstruyen los hashes exteriores para probar directamente el contrato.
 
-**Mitigación aplicada en main:** [PR #93](https://github.com/eltiootaku01-hue/bot-cripto/pull/93), merge `8c325d9899ae4a15b06240012b05473f2cd34824), introduce comprobación de tipo entero exacto y cuatro regresiones: manifiesto, configuración, versión de envelope y secuencia booleana. La suite de la punta [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937) pasó 1608 pruebas; post-merge main [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) pasó 1608 en 15.66 s. CodeQL [39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) y pip-audit [39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) finalizaron `success`.
+**Mitigación aplicada en main:** [PR #93](https://github.com/eltiootaku01-hue/bot-cripto/pull/93), merge `8c325d9899ae4a15b06240012b05473f2cd34824`, introduce comprobación de tipo entero exacto y cuatro regresiones: manifiesto, configuración, versión de envelope y secuencia booleana. La suite de la punta [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937) pasó 1608 pruebas; post-merge main [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) pasó 1608 en 15.66 s. CodeQL [39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) y pip-audit [39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) finalizaron `success`.
 
 **Límite:** esto demuestra rechazo de este defecto de tipado y su regresión; no demuestra que la captura real de 24 h haya ocurrido ni que una estrategia tenga edge económico.
 
@@ -295,3 +295,14 @@ Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y 
 **Revisión local:** `BinanceSpotInstrumentMetadata` mantiene el estado como texto, sin enum cerrado que provoque un error de parsing por un valor nuevo. `resolve_active` exige que el estado sea exactamente `TRADING` y que `isSpotTradingAllowed` sea verdadero, por lo que `CANCEL_ONLY` se rechaza como inactivo. Además, `tests/test_phase1_16_binance_instruments.py` ya incluye `CANCEL_ONLY` en el test parametrizado de estados inactivos. La revisión no halló una corrección de código adicional necesaria para ese cambio de API.
 
 **Límite:** el bloqueo sirve para la resolución de instrumento que usa la integración de metadatos. La captura prospectiva usa el WebSocket público exclusivamente para recopilar datos y no coloca órdenes. No se habilita ejecución real.
+
+
+## 18. websocket-client 1.9.2: carrera en el cierre de WebSocketApp
+
+**Fuente primaria del mantenedor:** el changelog oficial de `websocket-client` para la versión 1.9.2 registra una corrección de carrera en `WebSocketApp.close()` cuando el hilo `run_forever()` borra el socket durante el handshake de cierre; el arreglo se vincula a #1057 y resuelve #1055/#1056: https://github.com/websocket-client/websocket-client/blob/master/ChangeLog. PyPI registra la publicación de la versión 1.9.2 el 31 de agosto de 2026: https://pypi.org/project/websocket-client/.
+
+**Estado de la dependencia local:** `pyproject.toml` fija `websocket-client==1.9.2`, así que el proyecto no queda flotando en una versión anterior sin revisión. La integración de BOT-CRIPTO actual usa `websocket.create_connection()` de forma síncrona en `bot_obrero/binance_websocket.py`; no utiliza `WebSocketApp` ni `run_forever()`. Por lo tanto, el bug puntual publicado por el mantenedor no coincide directamente con la ruta activa auditada y no justifica un cambio de código preventivo sin un caso reproducible local.
+
+**Medida local vigente:** las pruebas del adaptador verifican límites por conexión, errores de transporte, clasificación de `serverShutdown`, y cierre/reconexión coordinados por el colector prospectivo. Mantener la dependencia fijada y reevaluar sus changelogs antes de actualizarla o migrar a `WebSocketApp`/ejecución en segundo plano.
+
+**Límite:** la versión corregida y una suite verde reducen un riesgo concreto, pero no reemplazan la captura real de 24 h, el seguimiento de errores durante la operación sostenida ni la evaluación económica independiente.
