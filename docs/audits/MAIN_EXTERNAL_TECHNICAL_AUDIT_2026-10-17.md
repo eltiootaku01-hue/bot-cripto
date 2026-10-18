@@ -245,3 +245,11 @@ El arreglo es de auditabilidad/recovery PAPER; no modifica el motor de fills, no
 - **TESTED:** SHA `6f2512f9dc6d0e00b202291606258c6894e84420`: 1.678 tests, CodeQL y pip-audit en verde; E2E SMA e indicadores pasaron también en la punta de PR.
 - **UNKNOWN/BLOCKED:** no existe evidencia de que la captura real de 24 h se haya ejecutado. Issue #98 abierta. Ningún T0; no-LIVE, no fondos reales; decisión económica `NO_TRADE`.
 - **Referencias generales relacionadas:** el modelo de tipos de Python explica el solapamiento `bool`/int que exige validación explícita de tipos ([docs oficiales](https://docs.python.org/3/reference/datamodel.html#the-standard-type-hierarchy)); Freqtrade describe los riesgos de look-ahead y las limitaciones de lo que su análisis consigue verificar ([documentación](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/)). Estas referencias motivan controles estrictos, pero el hallazgo concreto descrito arriba es reproducido en BOT-CRIPTO.
+
+
+## Hallazgo adicional — manifiesto Kline incompleto/malformado (PR #105, 2026-10-18)
+
+- **OBSERVED:** `configuration.symbols` aceptaba un cast potencialmente no iterable; `fatal_errors` ausente o `null` era interpretado como lista vacía; metadatos de archivo `bytes` y `records` aceptaban float con el mismo valor numérico; `instrument.symbol` podía desencadenar una excepción de atributo.
+- **FIXED:** exige configuración de símbolos como lista de strings, `fatal_errors` explícito y vacío, tipos enteros exactos para tamaños/conteos y un símbolo textual antes de ejecutar operaciones de cadena. Se incluyen nueve regresiones.
+- **TESTED:** punta de PR `bac39ce6f6949a92181302b50dff48ae5ed2f97c`: 1.687 tests y CodeQL/pip-audit/E2E en verde. Main merge SHA `2bf52675d7a8c26943a469f13dc2adbc7947bb77`: tests [39141289873](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289873), CodeQL [39141289875](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289875), pip-audit [39141289897](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289897), todos success.
+- **UNKNOWN/BLOCKED:** todavía no existe una captura prospectiva real de 24 horas validada. Issue #98 abierta; ninguna T0 ni promoción de estrategia; `NO_TRADE` sigue vigente.
