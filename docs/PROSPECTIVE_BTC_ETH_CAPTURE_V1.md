@@ -69,7 +69,7 @@ Large JSONL datasets should not be committed as source code or used to inflate c
 
 ## Strict schema typing (PR #93)
 
-The validator requires `schema_version` to be the exact JSON integer `1` in the manifest, configuration and each JSONL event envelope. Each envelope `sequence` must be an exact integer starting at 1; JSON booleans such as `true` are rejected even though Python compares `True == 1`. This check is covered by regression tests. Main code SHA: `8c325d9899ae4a15b06240012b05473f2cd34824`.
+The validator requires `schema_version` to be the exact JSON integer `1` in the manifest, configuration and each JSONL event envelope. Each envelope `sequence` must be an exact integer starting at 1; JSON booleans such as `true` are rejected even though Python compares `True == 1`. This check is covered by regression tests. Capture-validator fix SHA from PR #93: `8c325d9899ae4a15b06240012b05473f2cd34824`.
 
 CI evidence for that change: pre-merge suite [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937) passed 1608 tests, and post-merge main suite [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) passed 1608 tests. A passing suite validates this software contract; it does not mean the real 24-hour capture has been completed.
 
