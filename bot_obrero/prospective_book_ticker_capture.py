@@ -209,8 +209,15 @@ class ProspectiveBookTickerJournal:
         run_id: str | None = None,
         now=_now,
     ) -> None:
-        normalized = tuple(symbols)
-        if len(normalized) != 2 or set(normalized) != set(APPROVED_SYMBOLS):
+        try:
+            normalized = tuple(symbols)
+        except TypeError as exc:
+            raise ProspectiveBookTickerCaptureError("CAPTURE_REQUIRES_EXACT_PAIR_BTCUSDT_ETHUSDT") from exc
+        if (
+            len(normalized) != 2
+            or any(type(symbol) is not str for symbol in normalized)
+            or set(normalized) != set(APPROVED_SYMBOLS)
+        ):
             raise ProspectiveBookTickerCaptureError("CAPTURE_REQUIRES_EXACT_PAIR_BTCUSDT_ETHUSDT")
         if isinstance(duration_seconds, bool) or type(duration_seconds) is not int or duration_seconds < DEFAULT_DURATION_SECONDS:
             raise ProspectiveBookTickerCaptureError("CAPTURE_DURATION_MUST_BE_AT_LEAST_24_HOURS")
