@@ -130,9 +130,15 @@ Si ninguna estrategia cumple todo, el resultado es `NO_ROBUST_EDGE_FOUND / NO_TR
 
 ## 10. Estado actual
 
-`DESIGNED / NOT RUN`. No hay T0 fijado: tanto el colector prospectivo de klines como el de bookTicker y sus validadores están implementados y cuentan con pruebas sintéticas, pero todavía no se han ejecutado/aceptado las capturas reales de 24 h en una ventana común. No se adquirió ni se puntuó ningún dato V2, no se modificaron estrategias operativas y no se habilitaron órdenes.
+`DESIGNED / NOT RUN`. No hay T0 fijado: tanto el colector prospectivo de klines como el de bookTicker, los validadores individuales y el comando `validate-pair` están implementados y cuentan con pruebas sintéticas, pero todavía no se han ejecutado/aceptado las capturas reales de 24 h en una ventana común. No se adquirió ni se puntuó ningún dato V2, no se modificaron estrategias operativas y no se habilitaron órdenes.
 
-La siguiente etapa técnica es ejecutar las dos capturas reales en paralelo, validar ambos manifiestos, comprobar sus intervalos de cobertura y guardar los hashes. Después congelar código/configuración, fijar T0 mediante un commit de preregistro y comenzar solo el periodo prospectivo definido. No comenzar el año de evaluación hasta que los artefactos reales estén aceptados.
+La siguiente etapa técnica es ejecutar las dos capturas reales en paralelo desde una máquina persistente y validar cada manifiesto por separado. Después ejecutar el validador de solapamiento:
+
+```powershell
+python -m bot_obrero.prospective_book_ticker_capture validate-pair --kline-manifest evidence/prospective-btc-eth/<kline-run-id>/manifest.json --bookticker-manifest evidence/prospective-btc-eth-bookticker/<bookticker-run-id>/manifest.json
+```
+
+Aceptar solo si la salida es `status: VALID`, el solapamiento real es ≥86.400 s, existe al menos un día UTC completo común, y ambos manifiestos, hashes y universos de símbolos son válidos. Conservar los dos manifests y el resultado del emparejamiento como evidencia inmutable. Después congelar código/configuración y fijar T0 mediante un commit de preregistro; no comenzar el año de evaluación hasta aceptar las capturas reales.
 
 ---
 
