@@ -1,0 +1,319 @@
+"""One-command orchestration for paired prospective BTC/ETH public data capture.
+
+This coordinates the existing Kline and bookTicker collectors. It uses public
+market data only, launches both collectors against a shared UTC-midnight target,
+stops the remaining process if either collector fails, and accepts the pair only
+when the existing independent validators pass. It never creates or submits orders.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable, Mapping, Sequence
+
+from .prospective_book_ticker_capture import (
+    DEFAULT_CAPTURE_GRACE_SECONDS,
+    DEFAULT_DURATION_SECONDS as BOOK_TICKER_DURATION_SECONDS,
+    validate_paired_manifests,
+)
+from .prospective_capture import (
+    DEFAULT_DURATION_SECONDS as KLINE_DURATION_SECONDS,
+    DEFAULT_GRACE_SECONDS as KLINE_GRACE_SECONDS,
+)
+
+SCHEMA_VERSION = 1
+DEFAULT_OUTPUT_DIR = Path("evidence/prospective-btc-eth-pair")
+DEFAULT_MONITOR_INTERVAL_SECONDS = 1.0
+UTC_START_TOLERANCE_SECONDS = 10.0
+
+Clock = Callable[[], datetime]
+Sleep = Callable[[float], None]
+PopenFactory = Callable[..., Any]
+
+
+class _CapturePairBlocked(RuntimeError):
+    """Expected fail-closed outcome before a paired capture can be accepted."""
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _aware_utc(value: datetime, field: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field} must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
+def _next_utc_start(value: datetime, *, immediate_tolerance_seconds: float = 5.0) -> datetime:
+    """Use this midnight only when we're already within five seconds of it."""
+    stamp = _aware_utc(value, "current_time")
+    midnight = stamp.replace(hour=0, minute=0, second=0, microsecond=0)
+    elapsed = (stamp - midnight).total_seconds()
+    if elapsed <= immediate_tolerance_seconds:
+        return midnight
+    return midnight + timedelta(days=1)
+
+
+def _canonical_json(value: Mapping[str, Any]) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("x", encoding="utf-8", newline="\n") as stream:
+        json.dump(value, stream, sort_keys=True, indent=2, ensure_ascii=False)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+
+
+def _build_commands(run_dir: Path, python_executable: str = sys.executable) -> dict[str, list[str]]:
+    """Build fixed, public-data-only commands for the canonical BTC/ETH pair."""
+    root = Path(run_dir).resolve()
+    kline_dir = root / "kline"
+    quote_dir = root / "bookticker"
+    kline = [
+        python_executable, "-m", "bot_obrero.prospective_capture", "capture",
+        "--output-dir", str(kline_dir),
+        "--symbols", "BTCUSDT", "ETHUSDT",
+        "--interval", "1h",
+        "--duration-seconds", str(KLINE_DURATION_SECONDS),
+        "--grace-seconds", str(KLINE_GRACE_SECONDS),
+        "--no-align-next-utc-midnight",
+    ]
+    bookticker = [
+        python_executable, "-m", "bot_obrero.prospective_book_ticker_capture", "capture",
+        "--output-dir", str(quote_dir),
+        "--symbols", "BTCUSDT", "ETHUSDT",
+        "--duration-seconds", str(BOOK_TICKER_DURATION_SECONDS),
+        "--grace-seconds", str(DEFAULT_CAPTURE_GRACE_SECONDS),
+        "--no-align-next-utc-midnight",
+    ]
+    return {"kline": kline, "bookticker": bookticker}
+
+
+def _stop_processes(processes: Mapping[str, Any]) -> None:
+    active = [process for process in processes.values() if process.poll() is None]
+    for process in active:
+        try:
+            process.terminate()
+        except (OSError, ProcessLookupError):
+            pass
+    for process in active:
+        try:
+            process.wait(timeout=10)
+        except (subprocess.TimeoutExpired, TimeoutError):
+            try:
+                process.kill()
+            except (OSError, ProcessLookupError):
+                pass
+            try:
+                process.wait(timeout=10)
+            except (subprocess.TimeoutExpired, TimeoutError):
+                pass
+
+
+def run_capture_pair(
+    *,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    python_executable: str = sys.executable,
+    monitor_interval_seconds: float = DEFAULT_MONITOR_INTERVAL_SECONDS,
+    align_to_utc_midnight: bool = True,
+    popen_factory: PopenFactory = subprocess.Popen,
+    clock: Clock = _now,
+    sleep: Sleep = time.sleep,
+) -> dict[str, Any]:
+    """Run both collectors and return a durable pair manifest and validation result."""
+    if type(python_executable) is not str or not python_executable.strip():
+        raise ValueError("PYTHON_EXECUTABLE_INVALID")
+    if not isinstance(monitor_interval_seconds, (int, float)) or isinstance(monitor_interval_seconds, bool):
+        raise ValueError("MONITOR_INTERVAL_INVALID")
+    if not 0 < monitor_interval_seconds <= 30:
+        raise ValueError("MONITOR_INTERVAL_OUT_OF_RANGE")
+
+    now = _aware_utc(clock(), "current_time")
+    run_id = "btceth-pair-" + now.strftime("%Y%m%dT%H%M%S%fZ")
+    run_dir = Path(output_dir).resolve() / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    logs_dir = run_dir / "logs"
+    logs_dir.mkdir()
+    pair_manifest_path = run_dir / "pair-manifest.json"
+
+    commands = _build_commands(run_dir, python_executable)
+    configuration = {
+        "schema_version": SCHEMA_VERSION,
+        "capture_kind": "PROSPECTIVE_BINANCE_SPOT_KLINE_AND_BOOK_TICKER_PAIR",
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "interval": "1h",
+        "target_duration_seconds": KLINE_DURATION_SECONDS,
+        "kline_grace_seconds": KLINE_GRACE_SECONDS,
+        "bookticker_grace_seconds": DEFAULT_CAPTURE_GRACE_SECONDS,
+        "minimum_overlap_seconds": BOOK_TICKER_DURATION_SECONDS,
+        "source": "binance-public:spot-websocket",
+        "trading_enabled": False,
+    }
+    scheduled_start = _next_utc_start(now) if align_to_utc_midnight else now
+    summary: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "status": "WAITING_FOR_UTC_MIDNIGHT" if align_to_utc_midnight else "STARTING",
+        "created_at": now.isoformat(),
+        "scheduled_start_at": scheduled_start.isoformat(),
+        "configuration": configuration,
+        "configuration_sha256": hashlib.sha256(_canonical_json(configuration)).hexdigest(),
+        "logs": {"kline": "logs/kline.log", "bookticker": "logs/bookticker.log"},
+        "kline_manifest": None,
+        "bookticker_manifest": None,
+        "validation": None,
+        "child_exit_codes": {},
+        "reason": None,
+    }
+    _atomic_write_json(pair_manifest_path, summary)
+
+    processes: dict[str, Any] = {}
+    handles: dict[str, Any] = {}
+    exit_code = 2
+    try:
+        while align_to_utc_midnight:
+            remaining = (scheduled_start - _aware_utc(clock(), "current_time")).total_seconds()
+            if remaining <= 0:
+                break
+            sleep(min(1.0, max(0.05, remaining)))
+
+        start_observed_at = _aware_utc(clock(), "current_time")
+        start_lateness = (start_observed_at - scheduled_start).total_seconds()
+        if align_to_utc_midnight and (
+            start_lateness < -0.25 or start_lateness > UTC_START_TOLERANCE_SECONDS
+        ):
+            summary["status"] = "BLOCKED"
+            summary["reason"] = "UTC_START_WINDOW_MISSED"
+            summary["actual_start_at"] = start_observed_at.isoformat()
+            summary["start_lateness_seconds"] = round(start_lateness, 3)
+            raise _CapturePairBlocked("UTC_START_WINDOW_MISSED")
+
+        summary["status"] = "RUNNING"
+        summary["actual_start_at"] = start_observed_at.isoformat()
+        summary["start_lateness_seconds"] = round(start_lateness, 3)
+        _atomic_write_json(pair_manifest_path, summary)
+
+        for name in ("kline", "bookticker"):
+            handles[name] = (logs_dir / f"{name}.log").open("x", encoding="utf-8", newline="\n")
+            processes[name] = popen_factory(
+                commands[name],
+                cwd=str(Path.cwd()),
+                stdout=handles[name],
+                stderr=subprocess.STDOUT,
+                shell=False,
+            )
+
+        # Child startup/imports must not move the capture start outside the day boundary.
+        launch_finished_at = _aware_utc(clock(), "current_time")
+        launch_lateness = (launch_finished_at - scheduled_start).total_seconds()
+        if align_to_utc_midnight and launch_lateness > UTC_START_TOLERANCE_SECONDS:
+            _stop_processes(processes)
+            summary["status"] = "BLOCKED"
+            summary["reason"] = "UTC_START_WINDOW_MISSED_DURING_LAUNCH"
+            summary["launch_lateness_seconds"] = round(launch_lateness, 3)
+            summary["child_exit_codes"] = {name: process.poll() for name, process in processes.items()}
+            raise _CapturePairBlocked("UTC_START_WINDOW_MISSED_DURING_LAUNCH")
+
+        while True:
+            codes = {name: process.poll() for name, process in processes.items()}
+            failed = {name: code for name, code in codes.items() if code is not None and code != 0}
+            if failed:
+                _stop_processes(processes)
+                summary["status"] = "BLOCKED"
+                summary["reason"] = "CHILD_CAPTURE_FAILED"
+                summary["failed_children"] = failed
+                break
+            if len(codes) == 2 and all(code == 0 for code in codes.values()):
+                summary["child_exit_codes"] = codes
+                manifests = {
+                    "kline": list((run_dir / "kline").glob("*/manifest.json")),
+                    "bookticker": list((run_dir / "bookticker").glob("*/manifest.json")),
+                }
+                if any(len(paths) != 1 for paths in manifests.values()):
+                    raise RuntimeError("EXPECTED_EXACTLY_ONE_MANIFEST_PER_CAPTURE")
+                summary["kline_manifest"] = str(manifests["kline"][0].relative_to(run_dir))
+                summary["bookticker_manifest"] = str(manifests["bookticker"][0].relative_to(run_dir))
+                validation = validate_paired_manifests(
+                    kline_manifest_path=manifests["kline"][0],
+                    bookticker_manifest_path=manifests["bookticker"][0],
+                    minimum_overlap_seconds=BOOK_TICKER_DURATION_SECONDS,
+                )
+                if validation.get("status") != "VALID":
+                    raise RuntimeError("PAIRED_CAPTURE_VALIDATION_NOT_VALID")
+                summary["status"] = "VALID"
+                summary["validation"] = validation
+                summary["reason"] = None
+                exit_code = 0
+                break
+            sleep(float(monitor_interval_seconds))
+    except _CapturePairBlocked as exc:
+        summary["status"] = "BLOCKED"
+        summary["reason"] = str(exc)
+    except KeyboardInterrupt:
+        _stop_processes(processes)
+        summary["status"] = "BLOCKED"
+        summary["reason"] = "INTERRUPTED_BY_OPERATOR"
+        exit_code = 130
+    except Exception as exc:
+        _stop_processes(processes)
+        summary["status"] = "BLOCKED"
+        summary["reason"] = f"{type(exc).__name__}:{exc}"
+    finally:
+        summary["finished_at"] = _aware_utc(clock(), "current_time").isoformat()
+        summary["child_exit_codes"] = {name: process.poll() for name, process in processes.items()}
+        for handle in handles.values():
+            try:
+                handle.flush()
+                os.fsync(handle.fileno())
+            finally:
+                handle.close()
+        # Replace the existing RUNNING summary atomically.
+        temporary = pair_manifest_path.with_name(pair_manifest_path.name + ".tmp")
+        with temporary.open("x", encoding="utf-8", newline="\n") as stream:
+            json.dump(summary, stream, sort_keys=True, indent=2, ensure_ascii=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, pair_manifest_path)
+    summary["pair_manifest_path"] = str(pair_manifest_path)
+    summary["exit_code"] = exit_code
+    return summary
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Run paired prospective Binance Spot Kline + bookTicker capture; no trading."
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    capture = subparsers.add_parser("capture", help="wait for UTC midnight, capture 24h+grace, then validate both datasets")
+    capture.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    capture.add_argument("--monitor-interval-seconds", type=float, default=DEFAULT_MONITOR_INTERVAL_SECONDS)
+    args = parser.parse_args(argv)
+    try:
+        result = run_capture_pair(
+            output_dir=args.output_dir,
+            monitor_interval_seconds=args.monitor_interval_seconds,
+        )
+    except (OSError, ValueError) as exc:
+        print(json.dumps({"status": "BLOCKED", "reason": f"{type(exc).__name__}:{exc}"}, sort_keys=True))
+        return 2
+    print(json.dumps(result, sort_keys=True, indent=2))
+    if result.get("status") == "VALID":
+        return 0
+    return 130 if result.get("reason") == "INTERRUPTED_BY_OPERATOR" else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
