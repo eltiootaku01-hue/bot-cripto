@@ -48,7 +48,7 @@ def _capture_source_provenance(
     *,
     run_command: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
-    """Bind capture evidence to a Git revision and reject modified source files."""
+    """Bind capture evidence to a clean revision and the live remote main SHA."""
     execute = subprocess.run if run_command is None else run_command
     working_directory = Path(cwd).resolve()
     try:
@@ -68,6 +68,10 @@ def _capture_source_provenance(
             ["git", "rev-parse", "refs/remotes/origin/main"],
             cwd=str(working_directory), capture_output=True, text=True, check=False,
         )
+        live_main_result = execute(
+            ["git", "ls-remote", "--exit-code", "origin", "refs/heads/main"],
+            cwd=str(working_directory), capture_output=True, text=True, check=False,
+        )
         status_result = execute(
             ["git", "status", "--porcelain=v1", "--untracked-files=all", "--",
              "bot_obrero/", "pyproject.toml"],
@@ -82,7 +86,7 @@ def _capture_source_provenance(
             "source_status_entries": [],
         }
 
-    results = (top_result, head_result, branch_result, origin_main_result, status_result)
+    results = (top_result, head_result, branch_result, origin_main_result, live_main_result, status_result)
     if any(getattr(result, "returncode", 1) != 0 for result in results):
         return {
             "status": "UNKNOWN",
@@ -96,6 +100,11 @@ def _capture_source_provenance(
     head_sha = str(getattr(head_result, "stdout", "")).strip().lower()
     branch = str(getattr(branch_result, "stdout", "")).strip() or None
     origin_main_sha = str(getattr(origin_main_result, "stdout", "")).strip().lower()
+    live_main_lines = str(getattr(live_main_result, "stdout", "")).strip().splitlines()
+    live_main_parts = live_main_lines[0].split() if len(live_main_lines) == 1 else []
+    live_main_sha = live_main_parts[0].lower() if (
+        len(live_main_parts) == 2 and live_main_parts[1] == "refs/heads/main"
+    ) else ""
     status_text = str(getattr(status_result, "stdout", "")).rstrip()
     status_entries = status_text.splitlines() if status_text else []
 
@@ -124,12 +133,33 @@ def _capture_source_provenance(
             "branch": branch,
             "source_status_entries": status_entries,
         }
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", live_main_sha):
+        return {
+            "status": "UNKNOWN",
+            "reason": "GIT_LIVE_ORIGIN_MAIN_SHA_INVALID",
+            "git_head_sha": head_sha,
+            "origin_main_sha": origin_main_sha,
+            "live_main_sha": None,
+            "branch": branch,
+            "source_status_entries": status_entries,
+        }
     if branch != "main":
         return {
             "status": "BLOCKED",
             "reason": "CAPTURE_REQUIRES_MAIN_BRANCH",
             "git_head_sha": head_sha,
             "origin_main_sha": origin_main_sha,
+            "live_main_sha": live_main_sha,
+            "branch": branch,
+            "source_status_entries": status_entries,
+        }
+    if origin_main_sha != live_main_sha:
+        return {
+            "status": "BLOCKED",
+            "reason": "CAPTURE_ORIGIN_MAIN_TRACKING_STALE",
+            "git_head_sha": head_sha,
+            "origin_main_sha": origin_main_sha,
+            "live_main_sha": live_main_sha,
             "branch": branch,
             "source_status_entries": status_entries,
         }
@@ -139,6 +169,7 @@ def _capture_source_provenance(
             "reason": "CAPTURE_MAIN_NOT_UP_TO_DATE",
             "git_head_sha": head_sha,
             "origin_main_sha": origin_main_sha,
+            "live_main_sha": live_main_sha,
             "branch": branch,
             "source_status_entries": status_entries,
         }
@@ -148,6 +179,7 @@ def _capture_source_provenance(
             "reason": "CAPTURE_SOURCE_WORKTREE_DIRTY",
             "git_head_sha": head_sha,
             "origin_main_sha": origin_main_sha,
+            "live_main_sha": live_main_sha,
             "branch": branch,
             "source_status_entries": status_entries,
         }
@@ -156,6 +188,7 @@ def _capture_source_provenance(
         "reason": None,
         "git_head_sha": head_sha,
         "origin_main_sha": origin_main_sha,
+        "live_main_sha": live_main_sha,
         "branch": branch,
         "source_status_entries": [],
     }
@@ -165,7 +198,7 @@ def _same_source_revision(
     expected: Mapping[str, Any],
     observed: Mapping[str, Any],
 ) -> bool:
-    """Require the same clean main revision and fetched origin/main at each boundary."""
+    """Require stable clean HEAD, local tracking ref, and live origin/main at each boundary."""
     if expected.get("status") != "VALID" or observed.get("status") != "VALID":
         return False
     if expected.get("branch") != "main" or observed.get("branch") != "main":
@@ -173,6 +206,10 @@ def _same_source_revision(
     if expected.get("git_head_sha") != observed.get("git_head_sha"):
         return False
     if expected.get("origin_main_sha") != observed.get("origin_main_sha"):
+        return False
+    if expected.get("live_main_sha") != observed.get("live_main_sha"):
+        return False
+    if observed.get("origin_main_sha") != observed.get("live_main_sha"):
         return False
     if observed.get("git_head_sha") != observed.get("origin_main_sha"):
         return False
