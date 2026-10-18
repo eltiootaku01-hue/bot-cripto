@@ -58,14 +58,14 @@ Un incidente upstream demuestra que un tipo de fallo existe; no demuestra por s�
 4. **Recuperación operativa observable:** probar el reinicio y las transiciones entre PAPER, reserva, execution binding y ledger en condiciones de error. Los archivos SQLite independientes no tienen una única transacción distribuida; un estado parcial debe permanecer `UNKNOWN/BLOCKED` hasta conciliarse.
 5. **Revalidar HEAD exacto:** tests, E2E relevantes, CodeQL y pip-audit deben estar terminados y en éxito para el commit al que se atribuyen. No trasladar checks de un SHA padre a sus descendientes.
 
-## 6. PR abiertas: disposición segura
+## 6. Estado de PR y pendientes (verificación vigente)
 
-- **#88 y #89 (pytest/setuptools):** sus cambios se aplicaron en `pyproject.toml` de `main`. Cerrar como supersedidas después de verificar los checks del HEAD con ambas versiones combinadas.
-- **#90 y #91 (CodeQL):** el cambio combinado se aplicó en `main`; cerrar como supersedidas solo cuando CodeQL esté verde en el SHA actual.
-- **#69 (estrategias BTC/ETH V1) y #70 (protocolo V2):** mantener en draft hasta que la evidencia del protocolo permita una decisión. V1 registró `NO_ROBUST_EDGE_FOUND / NO_TRADE`; V2 está `DESIGNED / NOT RUN`.
-- **#66 (universo BTC/altcoins):** no fusionar sin fuente primaria que pruebe el universo canónico exacto; la recuperación histórica sigue bloqueada.
-- **#67 (contrato de investigación BTC/ETH):** revisar frente a los informes V1/V2 más nuevos antes de integrar para no duplicar ni contradecir el protocolo vigente.
-- **#65 (handoff ETH), #62 (nota de continuidad) y #53 (estado HUESO 05-C):** son documentos históricos de ramas anteriores. No fusionarlos encima del estado actual sin revisar diferencias; el contenido de continuidad de #53 en particular podría reemplazar un archivo de estado mucho más reciente.
+**La lista de PR que sigue describe una fotografía histórica intermedia y ya no representa el estado vivo.** En el HEAD verificado de este informe no hay PR abiertas.
+
+- **PR #88, #89, #90 y #91:** sus cambios de mantenimiento se integraron directamente en `main`; quedaron cerradas como supersedidas. La corrección de CodeQL debe seguir comprobándose siempre sobre el SHA exacto del workflow.
+- **PR #65–#70, #46, #53 y #62:** quedaron cerradas como supersedidas/integradas y su material histórico relevante se preservó en informes de continuidad. El cierre de las PR no convierte en resuelto el bloqueo del universo canónico de altcoins: no se deben inferir símbolos sin una fuente primaria verificable.
+- **Issue #98:** permanece abierta y bloqueante hasta que una máquina persistente produzca una captura real de 24 h aceptada por ambos validadores. La suite sintética no sustituye esa evidencia.
+- No reabrir PR históricas por inercia. Cualquier nueva implementación debe partir del HEAD actual, tener un diff nuevo justificado y pasar los checks de su propio SHA.
 
 ## 7. Actualización de construcción — captura de quotes y estudios en main
 
@@ -101,3 +101,10 @@ No declarar 100% hasta que cada gate aplicable tenga evidencia verificable. No d
 El colector de quotes tiene `--grace-seconds 300` por defecto. Para un target de 86.400 segundos captura un total de al menos 86.700 segundos; este margen permite que dos procesos lanzados separadamente no pierdan el criterio de solapamiento por unos segundos de desfase de salida. El validador mantiene el requisito de al menos 86.400 segundos efectivos de solapamiento y de un día UTC común; la gracia nunca sustituye la validación conjunta.
 
 Los tests de la regresión de gracia validan el escenario sintético 24 h exactas (rechazado si la gracia es 300) y target+gracia (válido si las demás condiciones se cumplen). En el SHA `375009b96278b6ad44240ae7359f3c483958895b`, tests [39105870878](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105870878) pasaron 1.650 pruebas, pip-audit [39105870782](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105870782) pasó y CodeQL [39105870780](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105870780) terminó `success`.
+
+
+## Snapshot de verificación exacta — 2026-10-18
+
+- `main` verificado en `5c058db7c96c09d6df36c29087c0f9b5991bf558`.
+- En ese SHA terminaron en `success` los tests [run 39106093676](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093676), CodeQL [run 39106093663](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093663) y la auditoría de dependencias [run 39106093739](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093739).
+- No hay PR abiertas. El único bloqueo de entrega externa observado es [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98): faltan los manifiestos reales, validados e inmutables de la captura Kline + bookTicker. La preparación permanece en **76/100**, la estrategia en `NO_TRADE`, y no se habilita LIVE.
