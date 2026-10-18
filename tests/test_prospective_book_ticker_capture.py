@@ -63,6 +63,17 @@ def test_reconnect_counter_tracks_new_connection_attempts_not_transport_errors(t
     assert result["status"] == "BLOCKED"
 
 
+def test_journal_rejects_non_string_symbol_sequence_without_type_error(tmp_path):
+    with pytest.raises(ProspectiveBookTickerCaptureError, match="EXACT_PAIR_BTCUSDT_ETHUSDT"):
+        ProspectiveBookTickerJournal(
+            output_dir=tmp_path,
+            symbols=[[], {}],
+            duration_seconds=86400,
+            now=lambda: START,
+            run_id="bookticker-bad-symbol-types",
+        )
+
+
 def test_journal_writes_hash_bound_quote_envelopes_and_rejects_unapproved_symbol(tmp_path):
     journal = ProspectiveBookTickerJournal(
         output_dir=tmp_path,
