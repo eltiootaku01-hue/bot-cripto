@@ -7,7 +7,7 @@ ledger; those remain a distinct B1-R boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 import hashlib
@@ -113,7 +113,36 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
     if any(value < 0 for value in replayed.values()):
         return _result(PaperEconomicReplayStatus.MISMATCH, len(fills), replayed, ("NEGATIVE_INITIAL_BALANCE",))
 
-    if fills != tuple(sorted(fills, key=lambda f: (f.get("filled_at", ""), f.get("client_order_id", "")) if isinstance(f, Mapping) else ("", ""))):
+    fill_order_keys: list[tuple[datetime, str]] = []
+    for index, fill in enumerate(fills, start=1):
+        if not isinstance(fill, Mapping):
+            return _result(
+                PaperEconomicReplayStatus.MISMATCH,
+                len(fills),
+                replayed,
+                (f"FILL_{index}_NOT_MAPPING",),
+            )
+        filled_at_raw = fill.get("filled_at")
+        client_order_id = fill.get("client_order_id")
+        if type(filled_at_raw) is not str or not filled_at_raw or type(client_order_id) is not str or not client_order_id:
+            return _result(
+                PaperEconomicReplayStatus.UNKNOWN,
+                len(fills),
+                replayed,
+                (f"FILL_{index}_ORDER_KEY_INVALID",),
+            )
+        try:
+            filled_at = _read_timestamp(filled_at_raw, f"fill[{index}].filled_at")
+        except ValueError:
+            return _result(
+                PaperEconomicReplayStatus.UNKNOWN,
+                len(fills),
+                replayed,
+                (f"FILL_{index}_ORDER_TIMESTAMP_INVALID",),
+            )
+        # Compare instants, not raw ISO-8601 text: valid offsets can sort differently lexicographically.
+        fill_order_keys.append((filled_at.astimezone(timezone.utc), client_order_id))
+    if fill_order_keys != sorted(fill_order_keys):
         return _result(PaperEconomicReplayStatus.MISMATCH, len(fills), replayed, ("FILL_ORDER_NOT_DETERMINISTIC",))
 
     ids: set[str] = set()

@@ -640,6 +640,39 @@ def test_paper_economic_replay_rejects_quote_fields_that_disagree_with_hashed_in
         adapter.close()
 
 
+@pytest.mark.parametrize(
+    ("field", "malformed"),
+    [
+        ("filled_at", ["not-a-timestamp"]),
+        ("client_order_id", ["not-an-id"]),
+    ],
+)
+def test_paper_economic_replay_fails_closed_for_malformed_fill_order_keys(tmp_path, field, malformed):
+    from copy import deepcopy
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
+
+    adapter = make_adapter(tmp_path / f"malformed-order-key-{field}.sqlite3")
+    try:
+        adapter._submit(make_order())
+        snapshot = deepcopy(adapter.snapshot())
+        snapshot["fills"] = list(snapshot["fills"])
+        # Two entries make the previous equality-based sort compare mixed JSON types,
+        # which raised TypeError before replay could return a fail-closed result.
+        second = deepcopy(snapshot["fills"][0])
+        second["client_order_id"] = "paper-order-2"
+        snapshot["fills"].append(second)
+        snapshot["fill_count"] = 2
+        snapshot["state_version"] = 2
+        snapshot["fills"][0][field] = malformed
+
+        result = replay_paper_economics(snapshot)
+
+        assert result.status is PaperEconomicReplayStatus.UNKNOWN
+        assert result.discrepancies == ("FILL_1_ORDER_KEY_INVALID",)
+    finally:
+        adapter.close()
+
+
 def test_paper_economic_replay_rejects_boolean_fill_count_for_single_fill(tmp_path):
     from copy import deepcopy
     from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
