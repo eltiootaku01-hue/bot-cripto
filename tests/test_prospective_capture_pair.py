@@ -48,8 +48,11 @@ def test_pair_commands_are_public_only_and_share_canonical_symbols_and_duration(
         assert "--api-key" not in command
         assert "--secret" not in command
         assert "--live" not in command
+    # The child processes start sequentially; Kline includes a 60-second
+    # guard so the common accepted window can still cover a full 86,400 seconds.
+    assert commands["kline"][commands["kline"].index("--duration-seconds") + 1] == "86460"
+    assert commands["bookticker"][commands["bookticker"].index("--duration-seconds") + 1] == "86400"
     for command in commands.values():
-        assert command[command.index("--duration-seconds") + 1] == "86400"
         assert command[command.index("--grace-seconds") + 1] == "300"
 
 
@@ -119,6 +122,12 @@ def test_failed_child_stops_the_other_capture_and_persists_blocked_pair_manifest
     assert persisted["status"] == "BLOCKED"
     assert persisted["child_exit_codes"]["kline"] == 2
     assert persisted["child_exit_codes"]["bookticker"] == -15
+    config = persisted["configuration"]
+    assert config["target_duration_seconds"] == 86400
+    assert config["minimum_overlap_seconds"] == 86400
+    assert config["kline_duration_seconds"] == 86460
+    assert config["bookticker_duration_seconds"] == 86400
+    assert config["pair_overlap_guard_seconds"] == 60
 
 
 def test_invalid_monitor_interval_is_rejected(tmp_path):
