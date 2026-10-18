@@ -224,3 +224,14 @@ Exact post-merge `main` verification: [tests — 1,676 passed in 14.86 s](https:
 **Cambio en main:** el manifiesto y la configuración deben declarar un objetivo de duración con tipo entero exacto y valor mínimo de 86.400 s; el tiempo transcurrido debe ser un número JSON, finito y no booleano. Nuevas regresiones ejercitan ambas vías manipuladas sin depender de un hash exterior desactualizado.
 
 **Evidencia:** SHA `6f2512f9dc6d0e00b202291606258c6894e84420`; 1.678 pruebas ([39140269519](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269519)), CodeQL ([39140269490](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269490)) y pip-audit ([39140269472](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269472)) en verde. La corrección de tipo refuerza el contrato de integridad pero no sustituye la captura de mercado ni demuestra rentabilidad; #98 sigue abierta y `NO_TRADE` se mantiene.
+
+
+## 9. Validación estructural fail-closed del manifiesto Kline — PR #105 (2026-10-18)
+
+**Hallazgos observados:** (1) `configuration.symbols` se convertía a tuple antes de validar el tipo, por lo que `null` o un entero provocaban un `TypeError` sin código de diagnóstico; (2) `fatal_errors` ausente/null se interpretaba mediante truthiness como si no existiesen errores; (3) los campos `bytes` y `records` podían aceptar floats numéricamente equivalentes a enteros; (4) un `instrument.symbol` no textual podía provocar `AttributeError` en `.replace()`.
+
+**Corrección:** lista de símbolos con strings exactos, `fatal_errors` obligatorio/lista vacía, tipos enteros exactos para metadata y verificación de tipo antes de operar sobre el símbolo. Nueve regresiones verifican esos límites.
+
+**Evidencia:** PR head `bac39ce6f6949a92181302b50dff48ae5ed2f97c`: 1.687 pruebas, CodeQL, pip-audit y E2E SMA/indicadores aprobados. Main merge SHA `2bf52675d7a8c26943a469f13dc2adbc7947bb77`: tests run [39141289873](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289873), CodeQL [39141289875](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289875) y pip-audit [39141289897](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289897) en verde.
+
+**Límites:** no cambia la adquisición ni acepta evidencia de mercado que no existe. La issue #98 permanece abierta hasta la aceptación de la captura real Kline + bookTicker. La preparación sigue 77/100, `NO_TRADE`, sin T0 ni LIVE.
