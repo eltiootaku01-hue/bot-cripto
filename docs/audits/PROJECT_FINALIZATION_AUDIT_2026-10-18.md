@@ -7,11 +7,11 @@
 
 ## 1. Dictamen de cierre
 
-**Preparación publicada: 73/100. Objetivo >90: NO ALCANZADO.**
+**Preparación publicada revisada: 75/100. Objetivo >90: NO ALCANZADO.**
 
 No se sube la puntuación por documentar una idea, añadir herramientas o lograr que compile el código. El informe de preparación vigente asigna 5/20 al área de evidencia económica. Con las otras seis áreas en su máximo, esa categoría limita el total a 85/100. Superar 90 requiere nueva evidencia económica que permita puntuar esa categoría al menos en 11/20, además de cerrar los gates técnicos pertinentes.
 
-La evidencia disponible no demuestra un edge neto robusto y repetible: los resultados documentados para EMA/RSI y BTC-gated contienen pérdidas netas o ventanas de validación inconsistentes. Por eso, **no es seguro forzar el objetivo de puntuación eliminando `NO_TRADE` ni seleccionando retrospectivamente otra estrategia**.
+La evidencia disponible no demuestra un edge neto robusto y repetible: el replay V1 integrado en `main` preserva `NO_ROBUST_EDGE_FOUND / NO_TRADE`; ETH TSMOM 168h es positivo en BASE y STRESS_1, pero pierde 26,37 % en STRESS_2 y no pasa todos los folds. Los datos históricos conservan `available_at/finality` desconocidos, así que el replay no sustituye evidencia prospectiva. Por eso, **no es seguro forzar el objetivo de puntuación eliminando `NO_TRADE` ni seleccionando retrospectivamente otra estrategia**.
 
 ## 2. Cambios aplicados directamente en `main`
 
@@ -67,7 +67,20 @@ Un incidente upstream demuestra que un tipo de fallo existe; no demuestra por s�
 - **#67 (contrato de investigación BTC/ETH):** revisar frente a los informes V1/V2 más nuevos antes de integrar para no duplicar ni contradecir el protocolo vigente.
 - **#65 (handoff ETH), #62 (nota de continuidad) y #53 (estado HUESO 05-C):** son documentos históricos de ramas anteriores. No fusionarlos encima del estado actual sin revisar diferencias; el contenido de continuidad de #53 en particular podría reemplazar un archivo de estado mucho más reciente.
 
-## 7. Criterio de cierre
+## 7. Actualización de construcción — captura de quotes y estudios en main
+
+Desde la primera versión de esta auditoría se integraron directamente en `main` las siguientes piezas adicionales:
+
+1. **BookTicker público:** `bot_obrero/binance_book_ticker.py` valida la pareja autorizada BTCUSDT/ETHUSDT, update ID, bid/ask y cantidades en Decimal, mercado cruzado y clocks de recepción/disponibilidad; solo usa el tiempo de evento del proveedor si está presente.
+2. **Captura durable de quotes:** `bot_obrero/prospective_book_ticker_capture.py` conserva JSONL por símbolo, fsync, manifiesto y hashes, reconexión y validador independiente; su suite contiene un replay sintético completo de 24 h y pruebas negativas para IDs duplicados/desordenados, gaps y manipulación del archivo. No se trata de una captura de mercado real.
+3. **Pruebas del colector:** el test de rechazo de símbolos falló primero porque intentaba rechazar `ETHUSDT`, que sí está permitido. El fixture se corrigió para usar `DOGEUSDT` como símbolo no autorizado. La suite volvió a pasar **1628 pruebas** en [run 39104242145](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242145), CodeQL [39104242189](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242189) y pip-audit [39104242200](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242200) están en `success` para el SHA `e476ea38ca7a0655b8127f31ff2de77ca5debe56`.
+4. **Investigación versionada:** el código, dependencias, reporte y workflow de BTC/ETH V1 se copiaron a rutas de investigación de `main`; el replay de siete estrategias y los controles anti-lookahead pasó [run 39103827728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103827728) y conserva `NO_ROBUST_EDGE_FOUND / NO_TRADE`. Los dos informes históricos de recuperación del universo de altcoins, el contrato de investigación V1 y su auditoría de adquisición también se preservaron en `main` con avisos de su antigüedad.
+5. **Cierre documental de PR:** #65–#70 se cerraron como supersedidas/integradas con comentarios que explican qué material se preservó en `main`, y que los bloqueos científicos siguen vigentes. #46, #53, #62 y #88–#91 ya habían sido cerradas por continuidad antigua o cambios de mantenimiento integrados.
+6. **Puntuación:** la matriz se actualizó de 73 a **75/100**: +1 en adquisición temporal y +1 en infraestructura de captura por el software de quotes y su validador sintético. La categoría económica sigue en 5/20; el máximo de la matriz continúa en 85/100 mientras no se demuestre evidencia económica nueva.
+
+**Importante:** el protocolo V2 en main sigue `DESIGNED / NOT RUN`. No existe todavía una captura real Kline+bookTicker de al menos 24 h, aceptada y solapada. No se ha fijado T0 del período nuevo ni se ha demostrado un edge en un holdout futuro. El siguiente paso necesita ejecutar ambos comandos de captura desde una máquina persistente, validar los dos manifiestos y conservar hashes; tras eso habrá que fijar el T0 en un commit de preregistro y observar el año prospectivo sin modificar reglas/costes.
+
+## 8. Criterio de cierre
 
 Este informe, los cambios de mantenimiento descritos y el catálogo de casos externos están en GitHub. Eso **no** convierte la captura real, el holdout prospectivo ni la supervisión sostenida en hechos realizados.
 
