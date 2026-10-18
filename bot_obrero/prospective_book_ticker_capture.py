@@ -528,7 +528,12 @@ def validate_manifest(path: Path) -> dict[str, Any]:
     if manifest.get("status") != "COMPLETED":
         raise ProspectiveBookTickerCaptureError("STATUS_NOT_COMPLETED")
     symbols = manifest.get("symbols")
-    if not isinstance(symbols, list) or len(symbols) != 2 or set(symbols) != set(APPROVED_SYMBOLS):
+    if (
+        not isinstance(symbols, list)
+        or len(symbols) != 2
+        or any(type(symbol) is not str for symbol in symbols)
+        or set(symbols) != set(APPROVED_SYMBOLS)
+    ):
         raise ProspectiveBookTickerCaptureError("MANIFEST_SYMBOL_SET_INVALID")
     config = manifest.get("configuration")
     if not isinstance(config, Mapping) or type(config.get("schema_version")) is not int or config.get("schema_version") != SCHEMA_VERSION:
@@ -806,7 +811,16 @@ def validate_paired_manifests(
         raise ProspectiveBookTickerCaptureError("KLINE_CAPTURE_NOT_COMPLETED")
     if not isinstance(quote_manifest, Mapping) or quote_manifest.get("status") != "COMPLETED":
         raise ProspectiveBookTickerCaptureError("BOOKTICKER_CAPTURE_NOT_COMPLETED")
-    if set(kline_manifest.get("symbols", [])) != set(symbols) or set(quote_manifest.get("symbols", [])) != set(symbols):
+    kline_symbols = kline_manifest.get("symbols")
+    quote_symbols = quote_manifest.get("symbols")
+    for raw_symbols in (kline_symbols, quote_symbols):
+        if (
+            not isinstance(raw_symbols, list)
+            or len(raw_symbols) != len(symbols)
+            or any(type(symbol) is not str for symbol in raw_symbols)
+        ):
+            raise ProspectiveBookTickerCaptureError("PAIRED_CAPTURE_SYMBOL_SET_INVALID")
+    if set(kline_symbols) != set(symbols) or set(quote_symbols) != set(symbols):
         raise ProspectiveBookTickerCaptureError("PAIRED_CAPTURE_SYMBOLS_DIFFER")
 
     start_kline = _timestamp(kline_result.get("capture_started_at"), "kline_capture_started_at")
