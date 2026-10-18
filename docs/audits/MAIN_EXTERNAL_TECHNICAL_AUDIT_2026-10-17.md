@@ -253,3 +253,11 @@ El arreglo es de auditabilidad/recovery PAPER; no modifica el motor de fills, no
 - **FIXED:** exige configuración de símbolos como lista de strings, `fatal_errors` explícito y vacío, tipos enteros exactos para tamaños/conteos y un símbolo textual antes de ejecutar operaciones de cadena. Se incluyen nueve regresiones.
 - **TESTED:** punta de PR `bac39ce6f6949a92181302b50dff48ae5ed2f97c`: 1.687 tests y CodeQL/pip-audit/E2E en verde. Main merge SHA `2bf52675d7a8c26943a469f13dc2adbc7947bb77`: tests [39141289873](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289873), CodeQL [39141289875](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289875), pip-audit [39141289897](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289897), todos success.
 - **UNKNOWN/BLOCKED:** todavía no existe una captura prospectiva real de 24 horas validada. Issue #98 abierta; ninguna T0 ni promoción de estrategia; `NO_TRADE` sigue vigente.
+
+
+## Hallazgo de consistencia de tipos en bookTicker — PR #107 (2026-10-18)
+
+- **OBSERVED:** las duraciones top-level del manifiesto bookTicker tenían tipo entero exacto, pero los mismos campos en la configuración solo se comparaban por igualdad; un float como `86400.0` podía igualar a `86400`. De forma paralela, contadores del resumen por símbolo permitían floats equivalentes a enteros.
+- **FIXED:** se exige entero exacto en los campos de configuración de duración/gracia y en los contadores `records`, duplicados, IDs fuera de orden, gaps y regresiones de reloj.
+- **TESTED:** PR head `63b88c5e56368355b731536e858ba266dfe79243` y main post-merge `47a16b80c9c75804479dbb506693ee328792f907` pasaron 1.694 tests; CodeQL, pip-audit y los E2E públicos SMA/indicadores también finalizaron success.
+- **UNKNOWN/BLOCKED:** todavía no existe captura real Kline + bookTicker aceptada. Issue #98 abierta; no T0 ni promoción de estrategia; `NO_TRADE` sigue vigente.

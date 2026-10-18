@@ -461,3 +461,16 @@ La primera versión del orquestador Kline + bookTicker guardaba los hashes del d
 **Contexto upstream:** Python detalla que `bool` es subtipo de `int`, lo que hace importante distinguir tipos JSON cuando el contrato lo exige ([documentación oficial](https://docs.python.org/es/3.12/reference/datamodel.html)). Binance documenta que los streams Spot WebSocket desconectan al cumplir 24 h y emiten `serverShutdown`, así que el recolector debe validar reconexión/continuidad ([documentación oficial](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md?plain=1)). Freqtrade advierte que el análisis de lookahead solo puede verificar señales/trades que calculó, por lo que cobertura insuficiente no equivale a ausencia de sesgo ([lookahead analysis](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/)).
 
 **Límite:** no existe evidencia de captura de mercado real; la issue #98 se mantiene abierta y `NO_TRADE` permanece.
+
+
+## 20. BOT-CRIPTO — duraciones y contadores no canónicos en bookTicker (18-10-2026)
+
+**Hallazgo local:** el validador de bookTicker comparaba la duración/gracia de la configuración con el manifiesto top-level mediante igualdad de valores, que trata `86400.0` igual que `86400`. Del mismo modo, algunos contadores de resumen guardados como `0.0` o `2.0` igualan numéricamente a los enteros recomputados aunque no sean tipos enteros JSON.
+
+**Mitigación de PR #107:** exigir enteros exactos para los campos de duración/gracia en configuración y para los contadores de registros, duplicados, desordenados, gaps y regresiones. Se añadieron siete regresiones; los casos de configuración recalculan el hash del objeto para probar explícitamente el contrato de tipo.
+
+**Evidencia:** PR head `63b88c5e56368355b731536e858ba266dfe79243` pasó 1.694 tests, CodeQL, pip-audit y E2E SMA/indicadores. Main `47a16b80c9c75804479dbb506693ee328792f907` pasó tests ([39142025428](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025428)), CodeQL ([39142025458](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025458)) y pip-audit ([39142025430](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025430)).
+
+**Contexto upstream:** Python documenta que `bool` es subtipo de `int`, motivo por el que algunos contratos exigen comprobación explícita del tipo además del valor ([documentación oficial](https://docs.python.org/es/3.12/reference/datamodel.html)). Binance documenta la desconexión obligatoria de la conexión Spot WebSocket tras 24 horas y el evento `serverShutdown` ([documentación oficial](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md?plain=1)).
+
+**Límite:** ninguna de estas regresiones equivale a una captura de mercado real. La issue #98 sigue abierta y `NO_TRADE` permanece.

@@ -235,3 +235,14 @@ Exact post-merge `main` verification: [tests — 1,676 passed in 14.86 s](https:
 **Evidencia:** PR head `bac39ce6f6949a92181302b50dff48ae5ed2f97c`: 1.687 pruebas, CodeQL, pip-audit y E2E SMA/indicadores aprobados. Main merge SHA `2bf52675d7a8c26943a469f13dc2adbc7947bb77`: tests run [39141289873](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289873), CodeQL [39141289875](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289875) y pip-audit [39141289897](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141289897) en verde.
 
 **Límites:** no cambia la adquisición ni acepta evidencia de mercado que no existe. La issue #98 permanece abierta hasta la aceptación de la captura real Kline + bookTicker. La preparación sigue 77/100, `NO_TRADE`, sin T0 ni LIVE.
+
+
+## 10. Validación de tipos enteros del manifiesto bookTicker — PR #107 (2026-10-18)
+
+**Hallazgo observado:** el validador ya requería duraciones top-level como enteros exactos, pero en la configuración comparaba solo igualdad numérica. Así, `86400.0 == 86400` podía ocultar un tipo JSON no canónico con un hash de configuración recalculado. Los contadores de `symbols_summary` tenían una brecha equivalente porque la igualdad entre `0.0` y `0` es verdadera.
+
+**Corrección:** `configuration.target_duration_seconds` y `configuration.capture_grace_seconds` exigen ahora `type(value) is int`; los contadores enteros de `symbols_summary` exigen también enteros JSON exactos. Siete regresiones emplean un manifiesto sintético autoconsistente para probar las validaciones.
+
+**Evidencia:** PR head `63b88c5e56368355b731536e858ba266dfe79243`: 1.694 pruebas, CodeQL, pip-audit y E2E aprobados. Main merge SHA `47a16b80c9c75804479dbb506693ee328792f907`: tests [39142025428](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025428), CodeQL [39142025458](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025458), pip-audit [39142025430](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025430) success.
+
+**Límites:** la corrección no genera evidencia de mercado ni cambia umbrales. La captura de issue #98 sigue sin realizarse/aceptarse; no se fija T0; preparación 77/100 y `NO_TRADE`.
