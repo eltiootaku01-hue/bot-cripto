@@ -315,3 +315,24 @@ Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y 
 **Mitigación en main:** [PR #96](https://github.com/eltiootaku01-hue/bot-cripto/pull/96) valida las estructuras, exige claves strings no vacías y fechas aware válidas, normaliza a UTC y ordena usando el instante más el ID. Dos regresiones verifican que claves malformadas devuelvan `UNKNOWN`, y no una excepción. Suite final de main: [1610 tests, success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101); CodeQL [success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) y pip-audit [success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092).
 
 **Límite:** no demuestra que una captura de 24 h se haya ejecutado ni aporta por sí solo evidencia de edge económico. `NO_TRADE` permanece.
+
+
+## 10. GitHub CodeQL: no mezclar versiones de init y analyze en un mismo workflow
+
+**Tipo de hallazgo:** fallo de configuración local reproducido en GitHub Actions; no es evidencia de un defecto interno en el analizador CodeQL.
+
+**Fuentes upstream:** [release oficial CodeQL Action v4.39.0](https://github.com/github/codeql-action/releases/tag/v4.39.0), [documentación del mantenedor](https://github.com/github/codeql-action) y [opciones de agrupación de Dependabot](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file).
+
+**Observación local del 18-10-2026:**
+- PR #90 actualizaba el paso `init` por separado. El log [run 39081560283](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081560283) informa que se cargó configuración de `4.39.0` mientras se ejecutaba `4.38.2`.
+- PR #91 actualizaba `analyze` por separado. El log [run 39081616377](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081616377) informa el caso inverso: configuración de `4.38.2` con ejecución `4.39.0`.
+- Tests, E2E y pip-audit de ambas ramas habían pasado; el bloqueo era el desajuste de versión entre pasos que colaboran en el mismo análisis.
+
+**Corrección aplicada en main:**
+1. Actualizar juntos `github/codeql-action/init` y `github/codeql-action/analyze` al SHA inmutable `6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee`, verificado contra el tag oficial `v4.39.0`.
+2. Añadir el grupo `codeql-action` a la configuración del ecosistema `github-actions` de Dependabot para evitar propuestas separadas de esos pasos.
+3. Aplicar y validar el conjunto de cambios con el commit `fdb90440a89e4284ba425689c1c2ec177902a0cf`.
+
+**Evidencia de validación sobre el mismo SHA:** tests [39103016285](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285), CodeQL [39103016289](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) y pip-audit [39103016266](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266) terminaron `success`. Los PR #90 y #91 se cerraron como supersedidos porque el cambio verificado ya está en `main`.
+
+**Límite:** este arreglo demuestra que el workflow volvió a terminar correctamente en el SHA citado. No equivale a afirmar que CodeQL detecta toda vulnerabilidad ni sustituye la inspección futura de las alertas.
