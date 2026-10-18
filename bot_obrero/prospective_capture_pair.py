@@ -91,7 +91,7 @@ def _capture_source_provenance(
     repo_root_text = str(getattr(top_result, "stdout", "")).strip()
     head_sha = str(getattr(head_result, "stdout", "")).strip().lower()
     branch = str(getattr(branch_result, "stdout", "")).strip() or None
-    status_text = str(getattr(status_result, "stdout", "")).strip()
+    status_text = str(getattr(status_result, "stdout", "")).rstrip()
     status_entries = status_text.splitlines() if status_text else []
 
     if not repo_root_text or Path(repo_root_text).resolve() != working_directory:
