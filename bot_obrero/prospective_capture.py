@@ -720,9 +720,12 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_HASH_MISMATCH")
     configured_target_seconds = configuration.get("target_duration_seconds")
     manifest_target_seconds = manifest.get("target_duration_seconds")
+    configured_symbols = configuration.get("symbols")
     if (
         configuration.get("interval") != DEFAULT_INTERVAL
-        or tuple(configuration.get("symbols", ())) != symbols
+        or not isinstance(configured_symbols, list)
+        or any(type(item) is not str for item in configured_symbols)
+        or tuple(configured_symbols) != symbols
         or type(configured_target_seconds) is not int
         or type(manifest_target_seconds) is not int
         or configured_target_seconds != manifest_target_seconds
@@ -767,6 +770,10 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
     if wall_elapsed < 0 or abs(wall_elapsed - elapsed_seconds) > 120.0:
         raise ProspectiveCaptureError("CAPTURE_WALL_CLOCK_MONOTONIC_MISMATCH")
 
+    fatal_errors = manifest.get("fatal_errors")
+    if not isinstance(fatal_errors, list) or fatal_errors:
+        raise ProspectiveCaptureError("CAPTURE_FATAL_ERRORS_INVALID")
+
     files = manifest.get("files")
     expected_files = {f"{symbol}.jsonl" for symbol in symbols}
     if not isinstance(files, Mapping) or set(files) != expected_files:
@@ -779,7 +786,12 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
         data_path = path.parent / filename
         if not data_path.is_file() or not isinstance(details, Mapping):
             raise ProspectiveCaptureError(f"CAPTURE_FILE_MISSING:{filename}")
-        if data_path.stat().st_size != details.get("bytes") or _file_hash(data_path) != details.get("sha256"):
+        declared_bytes = details.get("bytes")
+        if (
+            type(declared_bytes) is not int
+            or declared_bytes != data_path.stat().st_size
+            or _file_hash(data_path) != details.get("sha256")
+        ):
             raise ProspectiveCaptureError(f"CAPTURE_FILE_HASH_MISMATCH:{filename}")
 
         count = 0
@@ -813,8 +825,10 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
                     candle = record["candle"]
                     if not all(isinstance(component, Mapping) for component in (instrument, source, candle)):
                         raise ValueError("record instrument/source/candle must be objects")
+                    instrument_symbol = instrument.get("symbol")
                     if (
-                        instrument.get("symbol", "").replace("/", "") != symbol
+                        type(instrument_symbol) is not str
+                        or instrument_symbol.replace("/", "") != symbol
                         or instrument.get("market") != "SPOT"
                         or source.get("source_id") != "binance-spot-websocket"
                         or source.get("provider") != "binance"
@@ -879,7 +893,8 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
                     raise
                 except (ValueError, KeyError, TypeError, OverflowError) as exc:
                     raise ProspectiveCaptureError(f"CAPTURE_JSONL_INVALID:{filename}:{line_no}:{exc}") from exc
-        if count != details.get("records"):
+        declared_records = details.get("records")
+        if type(declared_records) is not int or count != declared_records:
             raise ProspectiveCaptureError(f"CAPTURE_RECORD_COUNT_MISMATCH:{filename}")
 
         days = _complete_utc_days(final_starts)
