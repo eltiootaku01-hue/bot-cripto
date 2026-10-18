@@ -322,3 +322,13 @@ Se integró [PR #101](https://github.com/eltiootaku01-hue/bot-cripto/pull/101) e
 - **Workflow de pruebas:** ahora ejerce la matriz Python 3.11–3.14 porque `pyproject.toml` declara `requires-python >=3.11`; el test workflow conserva las Actions first-party fijadas por SHA.
 - **Estado que no cambia:** preparación demostrada **77/100**, evidencia económica 5/20; issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) abierta sin pareja de manifiestos reales aceptada; V2 `DESIGNED / NOT RUN`, sin T0, sin holdout de 365 días, decisión `NO_TRADE`. El CI verde demuestra pruebas de software y auditoría de dependencias, no captura real ni edge económico.
 - **Próximo bloqueo externo:** ejecutar el colector emparejado en una máquina persistente; aceptar únicamente `pair-manifest.json` con `status: VALID`, solapamiento real ≥86.400 s, día UTC común de 24 velas finales por activo y hashes verificados. Hasta entonces no cerrar la issue, no afirmar 100%, no declarar ganador ni habilitar LIVE.
+
+
+## Herramienta de entrega de evidencia — commit ba9641c — 2026-10-18
+
+- **Herramienta funcional añadida:** [commit `ba9641c`](https://github.com/eltiootaku01-hue/bot-cripto/commit/ba9641c463d9699015deab85c14781031f388575) añade `bot_obrero/prospective_capture_bundle.py` y `tests/test_prospective_capture_bundle.py`.
+- **Objetivo:** convertir una corrida de captura ya aceptada en un ZIP con SHA-256 sidecar para transferencia; antes de empaquetar, revalidar la captura, hashes, solapamiento y día UTC común; rechazar status distinto de `VALID`, rutas inseguras, archivos `.tmp`, provenance cambiada y overwrite.
+- **CI en el SHA funcional exacto:** 1.703 pruebas aprobadas en Python 3.11, 3.12, 3.13 y 3.14; `pip-audit` success. CodeQL seguía en curso cuando se registró la instantánea inicial; consultar siempre el check del SHA exacto.
+- **Uso tras una captura real aceptada:** `python -m bot_obrero.prospective_capture_bundle create --run-dir evidence/prospective-btc-eth-pair/<pair-run-id>`. El resultado entrega ruta del ZIP y sidecar. La guía está en `docs/PROSPECTIVE_BTC_ETH_CAPTURE_V1.md`.
+- **No confundir:** las nuevas pruebas sintéticas validan el empaquetador, no la autenticidad de datos de mercado. La [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue abierta y bloqueada hasta que los manifiestos y datos de una captura real se reciban y acepten.
+- **Estado económico inalterado:** 77/100, evidencia económica 5/20, V2 `DESIGNED / NOT RUN`, sin T0 ni holdout, `NO_TRADE`, sin LIVE ni fondos reales.

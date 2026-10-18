@@ -293,3 +293,12 @@ La auditoría del validador halló que `symbols_summary[*].maximum_inter_event_g
 También se amplió `.github/workflows/tests.yml` para ejecutar la suite completa en Python 3.11, 3.12, 3.13 y 3.14, alineando las pruebas con `requires-python >=3.11` y las versiones soportadas por las dependencias de test y WebSocket. En el SHA funcional `85e0aaf8080345630b35d7c6e1d4db0ed85291b0`, todos los cuatro jobs de pytest terminaron `success` y `pip-audit` terminó `success`; CodeQL estaba todavía en curso al tomar la instantánea. Las pruebas cruzadas mejoran confianza técnica, pero no aumentan la puntuación económica.
 
 **Estado sin cambios:** preparación **77/100**; evidencia económica 5/20; captura prospectiva real de la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sin aceptar; BTC_ETH_STRATEGIES_V2 `DESIGNED / NOT RUN`, sin T0 ni holdout anual; decisión `NO_TRADE`. No se declara edge ganador ni se habilita LIVE.
+
+
+## Actualización — herramienta de empaquetado de evidencia prospectiva — 2026-10-18
+
+El commit funcional [`ba9641c463d9699015deab85c14781031f388575`](https://github.com/eltiootaku01-hue/bot-cripto/commit/ba9641c463d9699015deab85c14781031f388575) incorporó `bot_obrero/prospective_capture_bundle.py` y siete pruebas nuevas. En ese SHA, la suite completa terminó con **1.703 pruebas aprobadas en cada versión Python 3.11, 3.12, 3.13 y 3.14**, y `pip-audit` finalizó `success`; el registro de CodeQL aún estaba en curso al tomar esta instantánea, por lo que no se afirma el resultado final de ese control en esta nota.
+
+La herramienta solo empaqueta si el manifiesto de pareja ya es `VALID`, verifica la coherencia de configuración/procedencia, vuelve a ejecutar el validador independiente, rechaza rutas inseguras/archivos temporales y genera un ZIP más un SHA-256 sidecar. Las pruebas usan fixtures sintéticos; no aportan puntuación de adquisición ni rendimiento.
+
+La preparación permanece en **77/100** y la evidencia económica en 5/20. La captura real de la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue pendiente; V2 permanece `DESIGNED / NOT RUN`, sin T0 ni evaluación independiente de 365 días. No promover táctica y mantener `NO_TRADE`.

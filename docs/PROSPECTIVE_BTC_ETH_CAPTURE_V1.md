@@ -184,3 +184,27 @@ git ls-remote --exit-code origin refs/heads/main
 It records `live_main_sha` in source provenance and requires the remote SHA, local tracking SHA and `HEAD` to agree at initial validation, after the UTC-midnight wait immediately before launch, and after both collectors finish before accepting the manifests. If `origin/main` is stale relative to the live remote, the run becomes `BLOCKED` with `CAPTURE_ORIGIN_MAIN_TRACKING_STALE`. If the remote cannot be queried or the ref cannot be parsed, the provenance gate fails closed; the runner does not accept the datasets. Refresh the local tracking ref before starting as instructed above, and do not edit a blocked manifest to make it pass.
 
 Regression test: `tests/test_prospective_capture_pair.py::test_source_provenance_blocks_stale_local_origin_main_when_remote_advances`. CI for code/test SHA `2cd9709095167fb58aff27dfc6fc8eecedf8b05e`: 1,676 tests, CodeQL and pip-audit all `success`. This verifies the provenance guard, not a real market capture. Issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) remains open until the real paired manifests pass the independent validators.
+
+
+## Empaquetar la evidencia aceptada para revisión independiente
+
+Después de que `prospective_capture_pair capture` finalice con código 0 y `status: VALID`, se puede empaquetar esa corrida para entregarla a un revisor. La herramienta vuelve a comprobar la pareja con los validadores independientes y rechaza manifiestos no válidos, hashes incoherentes, rutas que salgan de la carpeta de la corrida, enlaces simbólicos, archivos temporales, cambios de procedencia y cualquier intento de sobrescribir un ZIP anterior. **No transforma una captura sintética en evidencia real**; solo empaqueta una captura real previamente aceptada.
+
+Desde PowerShell, en la raíz de un clon limpio y actualizado de `main`:
+
+```powershell
+$pairRoot = ".\evidence\prospective-btc-eth-pair"
+$run = Get-ChildItem $pairRoot -Directory |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+if ($null -eq $run) { throw "BLOCKED: no existe carpeta de corrida" }
+
+& .\.venv\Scripts\python.exe -m bot_obrero.prospective_capture_bundle create --run-dir $run.FullName
+if ($LASTEXITCODE -ne 0) {
+  throw "BLOCKED: la herramienta rechazó el empaquetado; conservar el directorio y diagnosticar"
+}
+```
+
+El resultado devuelve la ruta del ZIP, la del archivo de suma `.sha256`, el SHA-256, el tamaño y el solapamiento recalculado. El ZIP y su archivo `.sha256` quedan junto a la carpeta de la corrida, no dentro de ella. Adjuntar ambos al informe de revisión y conservar también la carpeta original sin modificar. Se puede comparar el hash reportado con `Get-FileHash <ruta-del-ZIP> -Algorithm SHA256`.
+
+La revisión debe comprobar que la corrida es el resultado real de este colector y que sus datos originales están incluidos. Un ZIP con estructura válida o una prueba unitaria de la herramienta no satisface la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sin datos reales Kline + bookTicker con ≥86.400 segundos de solapamiento y un día UTC común completo.
