@@ -336,3 +336,17 @@ Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y 
 **Evidencia de validación sobre el mismo SHA:** tests [39103016285](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285), CodeQL [39103016289](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) y pip-audit [39103016266](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266) terminaron `success`. Los PR #90 y #91 se cerraron como supersedidos porque el cambio verificado ya está en `main`.
 
 **Límite:** este arreglo demuestra que el workflow volvió a terminar correctamente en el SHA citado. No equivale a afirmar que CodeQL detecta toda vulnerabilidad ni sustituye la inspección futura de las alertas.
+
+
+## 11. pytest 9.1.1: corregir regresiones de parametrización y fixtures
+
+**Fuente primaria:** [pytest releases — 9.1.1 (19-06-2026)](https://github.com/pytest-dev/pytest/releases/tag/9.1.1).
+
+El mantenedor registró varias correcciones en la versión 9.1.1, entre ellas:
+- una regresión de pytest 9.1.0 que hacía fallar la sobrescritura de un fixture parametrizado mediante `@pytest.mark.parametrize(..., indirect=True)`, con el error de parametrización duplicada;
+- un defecto lógico en el mensaje de `pytest.RaisesGroup`;
+- un problema al cargar `conftest.py` como conftest inicial cuando no se pasaban argumentos y el archivo estaba en una ruta que empezaba por `test*`.
+
+**Aplicación local:** BOT-CRIPTO actualizó en `main` el rango de desarrollo a `pytest>=9.1.1,<9.2` y validó ese cambio en la suite principal. La ejecución aprobada verifica que la actualización no rompe la suite actualmente cubierta; no afirma que el proyecto activara todos los casos upstream ni que todos los fallos de pytest estén presentes en BOT-CRIPTO.
+
+**Control de versión:** Dependabot puede proponer revisiones futuras, pero el rango no se amplía automáticamente más allá de `<9.2` sin revisar resultados del mantenedor y ejecutar la CI sobre el SHA exacto.
