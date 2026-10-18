@@ -117,7 +117,7 @@ def parse_binance_book_ticker_event(
     if event.get("e") == "serverShutdown":
         raise BinanceWebSocketServerShutdown("Binance sent serverShutdown; reconnect is required")
     event_type = event.get("e")
-    if "e" in event and event_type is not None and event_type != "bookTicker":
+    if "e" in event and event_type != "bookTicker":
         raise BinanceWebSocketProtocolError("unexpected Binance WebSocket event type")
     symbol = event.get("s")
     if type(symbol) is not str or symbol != requested_symbol:
