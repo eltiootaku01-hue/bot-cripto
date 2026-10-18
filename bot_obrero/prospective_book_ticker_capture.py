@@ -30,6 +30,10 @@ from .binance_websocket import (
     BinanceWebSocketServerShutdown,
     BinanceWebSocketTransportError,
 )
+from .prospective_capture import (
+    ProspectiveCaptureError as KlineProspectiveCaptureError,
+    validate_manifest as validate_kline_manifest,
+)
 
 SCHEMA_VERSION = 1
 DEFAULT_DURATION_SECONDS = 24 * 60 * 60
@@ -715,6 +719,142 @@ def validate_manifest(path: Path) -> dict[str, Any]:
     return {"status": "VALID", "run_id": manifest["run_id"], "symbols": symbols, "acceptance": recomputed}
 
 
+def _assess_common_capture_window(
+    *,
+    kline_start: datetime,
+    kline_end: datetime,
+    bookticker_start: datetime,
+    bookticker_end: datetime,
+    common_complete_utc_days: Sequence[str],
+    minimum_overlap_seconds: int = DEFAULT_DURATION_SECONDS,
+    boundary_tolerance_seconds: float = DEFAULT_MAX_INTER_EVENT_GAP_SECONDS,
+) -> dict[str, Any]:
+    """Require a full common day and at least 24 hours of overlapping accepted runs."""
+    kline_start = _aware_utc(kline_start, "kline_capture_started_at")
+    kline_end = _aware_utc(kline_end, "kline_capture_ended_at")
+    bookticker_start = _aware_utc(bookticker_start, "bookticker_capture_started_at")
+    bookticker_end = _aware_utc(bookticker_end, "bookticker_capture_ended_at")
+    if (
+        isinstance(minimum_overlap_seconds, bool)
+        or type(minimum_overlap_seconds) is not int
+        or minimum_overlap_seconds < DEFAULT_DURATION_SECONDS
+    ):
+        raise ProspectiveBookTickerCaptureError("MINIMUM_COMMON_OVERLAP_MUST_BE_AT_LEAST_24_HOURS")
+    if (
+        not math.isfinite(boundary_tolerance_seconds)
+        or boundary_tolerance_seconds < 0
+    ):
+        raise ProspectiveBookTickerCaptureError("COMMON_DAY_BOUNDARY_TOLERANCE_INVALID")
+    if kline_end <= kline_start or bookticker_end <= bookticker_start:
+        raise ProspectiveBookTickerCaptureError("CAPTURE_WINDOW_INVALID")
+
+    overlap_start = max(kline_start, bookticker_start)
+    overlap_end = min(kline_end, bookticker_end)
+    overlap_seconds = (overlap_end - overlap_start).total_seconds()
+    if overlap_seconds < minimum_overlap_seconds:
+        raise ProspectiveBookTickerCaptureError("COMMON_CAPTURE_OVERLAP_TOO_SHORT")
+
+    accepted_days: list[str] = []
+    for raw_day in common_complete_utc_days:
+        if type(raw_day) is not str:
+            continue
+        try:
+            day_start = datetime.fromisoformat(raw_day).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if day_start.strftime("%Y-%m-%d") != raw_day:
+            continue
+        day_end = day_start + timedelta(days=1)
+        start_delta = abs((day_start - overlap_start).total_seconds())
+        if start_delta <= boundary_tolerance_seconds and day_end <= overlap_end:
+            accepted_days.append(raw_day)
+    if not accepted_days:
+        raise ProspectiveBookTickerCaptureError("NO_COMMON_COMPLETE_UTC_DAY_IN_OVERLAP")
+
+    return {
+        "status": "VALID",
+        "overlap_started_at": overlap_start.isoformat(),
+        "overlap_ended_at": overlap_end.isoformat(),
+        "overlap_seconds": round(overlap_seconds, 3),
+        "minimum_overlap_seconds": minimum_overlap_seconds,
+        "boundary_tolerance_seconds": boundary_tolerance_seconds,
+        "common_complete_utc_days": sorted(set(accepted_days)),
+    }
+
+
+def validate_paired_manifests(
+    *,
+    kline_manifest_path: Path,
+    bookticker_manifest_path: Path,
+    minimum_overlap_seconds: int = DEFAULT_DURATION_SECONDS,
+) -> dict[str, Any]:
+    """Validate each capture independently, then prove a common full UTC day/24h window."""
+    try:
+        kline_result = validate_kline_manifest(Path(kline_manifest_path))
+    except KlineProspectiveCaptureError as exc:
+        raise ProspectiveBookTickerCaptureError(f"KLINE_CAPTURE_VALIDATION_FAILED:{exc}") from exc
+    quote_result = validate_manifest(Path(bookticker_manifest_path))
+
+    try:
+        kline_manifest = json.loads(Path(kline_manifest_path).read_text(encoding="utf-8"))
+        quote_manifest = json.loads(Path(bookticker_manifest_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProspectiveBookTickerCaptureError("PAIRED_MANIFEST_UNREADABLE") from exc
+
+    symbols = list(APPROVED_SYMBOLS)
+    if not isinstance(kline_manifest, Mapping) or kline_manifest.get("status") != "COMPLETED":
+        raise ProspectiveBookTickerCaptureError("KLINE_CAPTURE_NOT_COMPLETED")
+    if not isinstance(quote_manifest, Mapping) or quote_manifest.get("status") != "COMPLETED":
+        raise ProspectiveBookTickerCaptureError("BOOKTICKER_CAPTURE_NOT_COMPLETED")
+    if set(kline_manifest.get("symbols", [])) != set(symbols) or set(quote_manifest.get("symbols", [])) != set(symbols):
+        raise ProspectiveBookTickerCaptureError("PAIRED_CAPTURE_SYMBOLS_DIFFER")
+
+    start_kline = _timestamp(kline_result.get("capture_started_at"), "kline_capture_started_at")
+    end_kline = _timestamp(kline_result.get("capture_ended_at"), "kline_capture_ended_at")
+    start_quote = _timestamp(quote_manifest.get("capture_started_at"), "bookticker_capture_started_at")
+    end_quote = _timestamp(quote_manifest.get("capture_ended_at"), "bookticker_capture_ended_at")
+
+    symbol_acceptance = kline_result.get("acceptance", {}).get("symbols", {})
+    if not isinstance(symbol_acceptance, Mapping) or not all(
+        isinstance(symbol_acceptance.get(symbol), Mapping) for symbol in symbols
+    ):
+        raise ProspectiveBookTickerCaptureError("KLINE_SYMBOL_ACCEPTANCE_SUMMARY_MISSING")
+    day_sets = []
+    for symbol in symbols:
+        days = symbol_acceptance[symbol].get("complete_utc_days")
+        if not isinstance(days, list):
+            raise ProspectiveBookTickerCaptureError("KLINE_COMPLETE_DAY_LIST_INVALID")
+        day_sets.append(set(days))
+    common_days = sorted(set.intersection(*day_sets)) if day_sets else []
+
+    overlap = _assess_common_capture_window(
+        kline_start=start_kline,
+        kline_end=end_kline,
+        bookticker_start=start_quote,
+        bookticker_end=end_quote,
+        common_complete_utc_days=common_days,
+        minimum_overlap_seconds=minimum_overlap_seconds,
+    )
+    return {
+        **overlap,
+        "kline": {
+            "run_id": kline_result.get("run_id"),
+            "manifest_path": str(Path(kline_manifest_path)),
+            "dataset_sha256": kline_result.get("dataset_sha256", {}),
+        },
+        "bookticker": {
+            "run_id": quote_result.get("run_id"),
+            "manifest_path": str(Path(bookticker_manifest_path)),
+            "dataset_sha256": {
+                filename: details.get("sha256")
+                for filename, details in quote_manifest.get("files", {}).items()
+                if isinstance(details, Mapping)
+            },
+        },
+        "symbols": symbols,
+    }
+
+
 def capture(
     *,
     output_dir: Path,
@@ -818,6 +958,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_parser.add_argument("--no-align-next-utc-midnight", action="store_true")
     validate_parser = sub.add_parser("validate", help="independently validate a completed manifest")
     validate_parser.add_argument("manifest", type=Path)
+    pair_parser = sub.add_parser("validate-pair", help="validate accepted Kline and bookTicker captures overlap")
+    pair_parser.add_argument("--kline-manifest", type=Path, required=True)
+    pair_parser.add_argument("--bookticker-manifest", type=Path, required=True)
+    pair_parser.add_argument("--minimum-overlap-seconds", type=int, default=DEFAULT_DURATION_SECONDS)
     args = parser.parse_args(argv)
     if args.command == "capture":
         manifest = capture(
@@ -831,7 +975,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps({"status": manifest["status"], "manifest": str(Path(args.output_dir) / manifest["run_id"] / "manifest.json"), "acceptance": manifest.get("acceptance")}, sort_keys=True))
         return 0 if manifest["status"] == "COMPLETED" else 2
-    result = validate_manifest(args.manifest)
+    if args.command == "validate":
+        result = validate_manifest(args.manifest)
+    else:
+        result = validate_paired_manifests(
+            kline_manifest_path=args.kline_manifest,
+            bookticker_manifest_path=args.bookticker_manifest,
+            minimum_overlap_seconds=args.minimum_overlap_seconds,
+        )
     print(json.dumps(result, sort_keys=True))
     return 0
 
@@ -846,4 +997,5 @@ __all__ = [
     "capture",
     "main",
     "validate_manifest",
+    "validate_paired_manifests",
 ]
