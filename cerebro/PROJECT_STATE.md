@@ -2,7 +2,7 @@
 
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA con cambios de código/workflows verificado:** `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b` (PR #96 endurece replay económico PAPER; PR #93 endurece tipos JSON en la captura). CI post-merge: [1610 tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) `success`; la captura real de 24 h sigue pendiente.
+**Último SHA con cambios de código/workflows verificado:** `fdb90440a89e4284ba425689c1c2ec177902a0cf` (incluye PR #96/#93 y el mantenimiento del 18-10: CodeQL `init`/`analyze` fijados juntos a v4.39.0, agrupación Dependabot y actualizaciones de pytest/setuptools). Checks del SHA exacto: [tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266) `success`; la captura real de 24 h y el holdout prospectivo siguen pendientes.
 
 ## 1. Estado operativo actual
 
@@ -159,3 +159,11 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - PR #96: [1610 pruebas antes del merge](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821969), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821961), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821964), [SMA E2E](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821960) e [indicadores E2E](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821955): todos `success`.
 - Main post-merge exacto: [1610 pruebas en 11.67 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074): todos `success`.
 - La puntuación permanece **73/100**. El arreglo aumenta resiliencia, pero no acredita captura real de 24 h ni edge independiente; `NO_TRADE` sigue vigente.
+
+
+## Actualización de mantenimiento y cierre — 2026-10-18
+
+- **Cambios de mantenimiento ya en main:** commit funcional `fdb90440a89e4284ba425689c1c2ec177902a0cf`. CodeQL `init` y `analyze` usan el mismo SHA oficial de v4.39.0; Dependabot agrupa esas actualizaciones; `pyproject.toml` incorpora pytest 9.1.1 y setuptools 84.0.0.
+- **CI exacto en ese SHA:** tests [39103016285](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285), CodeQL [39103016289](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) y pip-audit [39103016266](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266) terminaron `success`. Los PR #88, #89, #90 y #91 se cerraron como supersedidos tras dejar sus cambios en main; los comentarios de cierre conservan la evidencia y la causa de los fallos de CodeQL.
+- **Dictamen económico:** se mantiene `73/100` y `NO_TRADE`. La matriz vigente solo asigna 5/20 a evidencia económica; su máximo aritmético actual es 85/100 mientras esa categoría no mejore. No declarar >90 o 100% hasta aceptar la captura prospectiva real y la evaluación independiente preregistrada, y demostrar las demás condiciones operativas requeridas.
+- **Auditoría consolidada:** [PROJECT_FINALIZATION_AUDIT_2026-10-18.md](../docs/audits/PROJECT_FINALIZATION_AUDIT_2026-10-18.md), con incidentes públicos, cambios aplicados, CI por SHA, disposición de PR y gates de salida.
