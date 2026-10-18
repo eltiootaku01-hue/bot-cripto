@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -35,6 +36,41 @@ def make_quote(symbol: str, update_id: int, received_at: datetime) -> BinanceBoo
         received_at=received_at,
         available_at=received_at,
     )
+
+
+def _finalized_sparse_valid_journal(tmp_path):
+    journal = ProspectiveBookTickerJournal(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        capture_grace_seconds=0,
+        max_inter_event_gap_seconds=86400,
+        fsync_every_records=100,
+        now=lambda: START,
+        run_id="bookticker-strict-validator-test",
+    )
+    journal.start(START)
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        journal.accept(make_quote(symbol, 1, START))
+        journal.accept(make_quote(symbol, 2, START + timedelta(seconds=86400)))
+    result = journal.finalize(
+        status="COMPLETED",
+        ended_at=START + timedelta(seconds=86400),
+        elapsed_seconds=86400,
+    )
+    assert result["status"] == "COMPLETED", result
+    assert result["acceptance"]["accepted"] is True, result
+    assert validate_manifest(journal.manifest_path)["status"] == "VALID"
+    return journal
+
+
+def _rehash_bookticker_configuration(manifest):
+    canonical = json.dumps(
+        manifest["configuration"],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    manifest["configuration_sha256"] = hashlib.sha256(canonical).hexdigest()
 
 
 def test_reconnect_counter_tracks_new_connection_attempts_not_transport_errors(tmp_path):
@@ -128,6 +164,51 @@ def test_journal_rejects_an_item_whose_evidence_hash_was_changed(tmp_path):
     )
     assert result["status"] == "BLOCKED"
     assert result["symbols_summary"]["BTCUSDT"]["records"] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("target_duration_seconds", 86400.0),
+        ("capture_grace_seconds", 0.0),
+    ],
+)
+def test_validator_rejects_float_encoded_duration_configuration(tmp_path, field, value):
+    journal = _finalized_sparse_valid_journal(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    manifest["configuration"][field] = value
+    _rehash_bookticker_configuration(manifest)
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProspectiveBookTickerCaptureError, match="CAPTURE_DURATION_CONFIGURATION_MISMATCH"):
+        validate_manifest(journal.manifest_path)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "records",
+        "duplicate_update_ids",
+        "out_of_order_update_ids",
+        "inter_event_gap_count",
+        "clock_regressions",
+    ],
+)
+def test_validator_rejects_float_encoded_integer_summary_fields(tmp_path, field):
+    journal = _finalized_sparse_valid_journal(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    summary = manifest["symbols_summary"]["BTCUSDT"]
+    summary[field] = float(summary[field])
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProspectiveBookTickerCaptureError, match="SYMBOL_SUMMARY_INTEGER_TYPE_INVALID"):
+        validate_manifest(journal.manifest_path)
 
 
 def test_validator_rejects_unhashable_manifest_symbols_without_type_error(tmp_path):
