@@ -390,13 +390,13 @@ class ProspectiveBookTickerJournal:
             envelope["sequence"] = sequence
             handle = self._handles[item.symbol]
             handle.write(json.dumps(envelope, sort_keys=True, ensure_ascii=False) + "\n")
-            handle.flush()
             state["line_count_since_fsync"] += 1
             now_monotonic = time.monotonic()
             if (
                 state["line_count_since_fsync"] >= self.fsync_every_records
                 or now_monotonic - state["last_fsync_monotonic"] >= self.fsync_interval_seconds
             ):
+                handle.flush()
                 os.fsync(handle.fileno())
                 state["line_count_since_fsync"] = 0
                 state["last_fsync_monotonic"] = now_monotonic
