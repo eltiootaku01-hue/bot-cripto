@@ -158,6 +158,51 @@ def test_validate_paired_manifests_composes_independent_validators(tmp_path, mon
     assert result["bookticker"]["dataset_sha256"]["BTCUSDT-bookTicker.jsonl"] == "a" * 64
 
 
+def test_validate_paired_manifests_rejects_unhashable_raw_symbols_without_type_error(tmp_path, monkeypatch):
+    import json
+
+    from bot_obrero import prospective_book_ticker_capture as module
+
+    kline_path = tmp_path / "kline-manifest.json"
+    quote_path = tmp_path / "quote-manifest.json"
+    start = DAY
+    end = DAY + timedelta(days=1)
+    kline_path.write_text(json.dumps({
+        "status": "COMPLETED",
+        "run_id": "kline-run",
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "capture_started_at": start.isoformat(),
+        "capture_ended_at": end.isoformat(),
+    }), encoding="utf-8")
+    quote_path.write_text(json.dumps({
+        "status": "COMPLETED",
+        "run_id": "quote-run",
+        "symbols": [[], {}],
+        "capture_started_at": start.isoformat(),
+        "capture_ended_at": end.isoformat(),
+        "files": {},
+    }), encoding="utf-8")
+    monkeypatch.setattr(module, "validate_kline_manifest", lambda _path: {
+        "status": "VALID",
+        "run_id": "kline-run",
+        "capture_started_at": start.isoformat(),
+        "capture_ended_at": end.isoformat(),
+        "dataset_sha256": {},
+        "acceptance": {"symbols": {
+            "BTCUSDT": {"complete_utc_days": ["2026-10-18"]},
+            "ETHUSDT": {"complete_utc_days": ["2026-10-18"]},
+        }},
+    })
+    monkeypatch.setattr(module, "validate_manifest", lambda _path: {
+        "status": "VALID", "run_id": "quote-run"
+    })
+    with pytest.raises(ProspectiveBookTickerCaptureError, match="PAIRED_CAPTURE_SYMBOL_SET_INVALID"):
+        module.validate_paired_manifests(
+            kline_manifest_path=kline_path,
+            bookticker_manifest_path=quote_path,
+        )
+
+
 def test_validate_paired_manifests_rejects_symbol_universe_mismatch(tmp_path, monkeypatch):
     import json
 
