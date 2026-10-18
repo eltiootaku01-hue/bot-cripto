@@ -350,3 +350,21 @@ El mantenedor registró varias correcciones en la versión 9.1.1, entre ellas:
 **Aplicación local:** BOT-CRIPTO actualizó en `main` el rango de desarrollo a `pytest>=9.1.1,<9.2` y validó ese cambio en la suite principal. La ejecución aprobada verifica que la actualización no rompe la suite actualmente cubierta; no afirma que el proyecto activara todos los casos upstream ni que todos los fallos de pytest estén presentes en BOT-CRIPTO.
 
 **Control de versión:** Dependabot puede proponer revisiones futuras, pero el rango no se amplía automáticamente más allá de `<9.2` sin revisar resultados del mantenedor y ejecutar la CI sobre el SHA exacto.
+
+
+## 12. Captura de bookTicker: limitar memoria, reconexiones y fsync
+
+**Fuente primaria para el formato del proveedor:** [Binance Spot WebSocket Streams — Individual Symbol Book Ticker](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md). El payload documentado contiene `u,s,b,B,a,A` (update ID, símbolo, bid/ask y cantidades), pero no incluye normalmente un timestamp de evento de exchange.
+
+**Hallazgo local en revisión de diseño (sin captura real de 24 h):** el primer borrador del colector durable de quotes retenía una copia en memoria de todos los resultados de `listen()`, guardaba un conjunto de todos los IDs observados y hacía `fsync` por registro y reescritura del manifiesto cada 25 updates. Con una fuente de mercado de alta frecuencia, esos patrones podían aumentar memoria de forma proporcional a los eventos, provocar reconexiones frecuentes y añadir I/O innecesario; esto podía convertir una captura prevista de 24 h en una corrida con gaps. No significa que se haya perdido un dataset real: aún no se ha ejecutado la captura prospectiva aceptada.
+
+**Corrección aplicada en main:**
+- `BinanceSpotBookTickerWebSocketAdapter.listen(..., retain_results=False)` transmite al sink durable sin conservar un segundo lote de eventos en RAM.
+- El colector deja abierta la conexión durante la captura, con un límite defensivo de mensajes muy alto; las desconexiones reales, `serverShutdown`, errores y el límite de tiempo disparan la reconexión/terminación, no cada 1.000 mensajes.
+- La detección de update ID usa el máximo/último ID y contadores de duplicados/desorden en memoria constante, en vez de una colección creciente que guarda cada ID único.
+- El diario hace flush de cada línea al sistema operativo, `fsync` cada 1.000 registros o al cumplir 1 segundo, y actualiza el manifiesto como máximo una vez por segundo (además de anomalías o umbrales de lote). El manifiesto declara la política de fsync aplicada.
+- Se corrigió también el contador de reconexiones: cuenta nuevos intentos de conexión después del primero; el evento de error se mide aparte, sin sumar dos veces la misma reconexión.
+
+**Regresiones asociadas:** `tests/test_binance_book_ticker.py` verifica que el sink streaming no retenga la lista de resultados; `tests/test_prospective_book_ticker_capture.py` verifica que no exista un set acumulativo de IDs, y ejercita duplicados, gaps, hashes y validación sintética de 24 h.
+
+**Validación:** el fix del contador tuvo tests/CodeQL/pip-audit en verde en el SHA `a60eba151260e1cd17bab7bde708489701ae350c`. La suite del siguiente SHA con el diario de memoria acotada está en ejecución en este momento; no registrar su resultado hasta que GitHub Actions lo complete. Para aceptar la captura real se exige aún ejecutar y validar los manifiestos Kline+bookTicker en una misma ventana de al menos 24 h, preservando `NO_TRADE`.
