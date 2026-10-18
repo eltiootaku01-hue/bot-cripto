@@ -2,7 +2,7 @@
 
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA funcional con checks exactos en verde:** cec4e8e6dd58871a04dd1f1171eb985a6926ea37. Tests: 1661 passed (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376) terminaron success. Incluye captura bookTicker durable, validador conjunto, gracia de 300 s, orquestador y bloqueo de captura si el checkout no corresponde a un main limpio/actual. La captura real Kline+bookTicker y el holdout prospectivo siguen pendientes.
+**Último SHA funcional con tests y auditorías automatizadas:** 76e770cf86f02359a7bbd1353d1c5aea0094eeec. Tests: 1663 passed (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053). Incluye captura bookTicker durable, validador conjunto, gracia de 300 s, orquestador, vínculo a origin/main y revalidación de procedencia al inicio y final. La captura real Kline+bookTicker y el holdout prospectivo siguen pendientes.
 
 ## 1. Estado operativo actual
 
@@ -210,3 +210,10 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - **Commit funcional:** cec4e8e6dd58871a04dd1f1171eb985a6926ea37; tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), 1661 pruebas; CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231); pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376), los tres success.
 - El orquestador vincula el hash de configuración a HEAD y origin/main, la rama y la comprobación de fuente. Exige estar en la raíz del repo, en rama main, con HEAD == origin/main y sin archivos modificados/untracked en bot_obrero/ y pyproject.toml. La salida bloqueada persiste la causa y no abre sockets.
 - **Puntuación sin cambio: 77/100.** Esta defensa mejora reproducibilidad y evita capturas con código local ambiguo, pero no añade evidencia económica o datos reales. Issue #98 permanece abierta hasta ejecutar la captura real Kline+bookTicker durante al menos 24 h aceptadas. NO_TRADE y la prohibición de LIVE se mantienen.
+
+
+## Revalidación de procedencia de captura — 18-10-2026
+
+En SHA 76e770cf86f02359a7bbd1353d1c5aea0094eeec, tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114) pasaron 1663 casos; CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053) deben quedar en success en ese mismo SHA antes de finalizar.
+
+El supervisor vuelve a comparar HEAD, origin/main, rama y source status inmediatamente antes de lanzar los sockets y cuando las capturas finalizan. Un cambio durante la espera UTC o durante la corrida impide aceptar la pareja. No hubo incremento de puntuación: permanece 77/100, porque este control no sustituye la captura real ni la validación económica prospectiva.

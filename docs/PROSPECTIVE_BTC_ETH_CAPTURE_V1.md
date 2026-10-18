@@ -139,3 +139,8 @@ Keep the two manifests, dataset SHA-256 values, configuration hashes, run identi
 The paired capture runner records and hash-binds the code revision used for data acquisition. It fails closed unless the current directory is the Git repository root, the current branch is main, HEAD exactly equals the locally fetched origin/main ref, the source status for bot_obrero/ and pyproject.toml is empty, and all required Git metadata commands succeed. A blocked run persists the reason in pair-manifest.json and never starts the two collectors.
 
 Run git fetch origin main before capture so the remote-tracking ref is refreshed; the runner deliberately does not fetch or alter branches itself. This does not prove market data was captured: it makes any future evidence traceable to an exact clean source revision.
+
+
+## Revalidación de procedencia antes y después de la captura (18-10-2026)
+
+El control Git no se ejecuta una sola vez: comprueba la fuente al preparar la corrida, vuelve a compararla justo después de la espera a medianoche y antes de abrir los WebSockets, y vuelve a comprobarla cuando ambos colectores terminan y antes de validar la pareja. Si cambia HEAD, origin/main, rama o estado del código durante la espera/captura, la corrida termina BLOCKED y no puede usarse como evidencia aceptada.

@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Evaluación de preparación técnica y ruta hacia >90%
 
 **Evaluación:** 2026-10-18  
-**Últimos cambios de construcción:** el orquestador de captura conjunta liga el dataset al SHA de HEAD/origin/main, exige rama main, raíz del repo y código fuente limpio, y bloquea si hay estado Git desconocido o desfasado. La revisión funcional cec4e8e6dd58871a04dd1f1171eb985a6926ea37 pasó 1661 pruebas (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376).
+**Últimos cambios de construcción:** el orquestador de captura conjunta liga los datos al SHA de HEAD/origin/main y revalida la procedencia antes de lanzar los colectores y antes de aceptar el resultado. La revisión funcional 76e770cf86f02359a7bbd1353d1c5aea0094eeec pasó 1663 pruebas (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053).
 **Actualización de puntuación:** 2026-10-18. La matriz pasa de **76 a 77/100** por el orquestador `bot_obrero/prospective_capture_pair.py`, que coordina las dos capturas, cancela el proceso compañero si una falla, conserva logs y manifiesto de pareja y ejecuta la validación conjunta automáticamente. La suite añade cinco regresiones de coordinación y pasó 1655 pruebas. Es una mejora verificable de supervisión local, no evidencia de captura real ni de edge económico; los dos siguen pendientes.
 **Propósito del porcentaje:** preparación demostrada para un bot de investigación y PAPER; no es porcentaje de líneas de código, probabilidad de beneficio ni autorización para operar con dinero real.
 
@@ -210,3 +210,10 @@ La nueva capa de procedencia rechaza capturas desde fuera de la raíz Git, ramas
 En SHA cec4e8e6dd58871a04dd1f1171eb985a6926ea37, tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250) pasaron 1661 pruebas, CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376) terminaron success.
 
 **Puntuación se mantiene 77/100.** Este endurecimiento reduce la ambigüedad de procedencia; no equivale a captura real de mercado ni a edge económico. La captura prospectiva y el holdout independiente siguen pendientes; NO_TRADE se mantiene.
+
+
+## Revalidación de procedencia en los límites de captura — 18-10-2026
+
+Se añadió una segunda y tercera comprobación de Git: después de la espera UTC justo antes de abrir las conexiones y al concluir los dos colectores antes de aceptar los manifiestos. Una alteración de HEAD, origin/main, rama o fuente limpia bloquea la pareja. Las regresiones incluyen la fuente alterada entre el inicio y el lanzamiento. En SHA 76e770cf86f02359a7bbd1353d1c5aea0094eeec, tests [39109859114](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114) pasaron 1663 casos; CodeQL [39109859051](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051) y pip-audit [39109859053](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053) deben pasar sobre ese mismo SHA.
+
+**La puntuación permanece 77/100.** La nueva defensa vincula la evidencia a una revisión estable, pero no demuestra que haya ocurrido la captura real ni que exista ventaja económica.

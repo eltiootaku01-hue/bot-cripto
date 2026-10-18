@@ -128,3 +128,10 @@ El orquestador bot_obrero/prospective_capture_pair.py valida que se ejecute desd
 Se revalidaron avisos oficiales de SQLite 3.53.4 y el WAL-reset bug (https://sqlite.org/releaselog/current.html), pytest 9.1.1 (https://pytest.org/en/latest/changelog.html), retirada de Node 20 de GitHub Actions (https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/) y límites WebSocket de Binance (https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md). El detalle del hallazgo local, mitigaciones y límites se añadió también a docs/research/EXTERNAL_FAILURE_CASE_STUDIES.md.
 
 La puntuación se mantiene en **77/100**. La captura de mercado real no se ha ejecutado ni aceptado, por lo que la issue #98 permanece abierta; la investigación V2 y el holdout económico siguen bloqueados. NO_TRADE continúa y no se habilita LIVE.
+
+
+## 11. Revalidación de procedencia al inicio y al cierre — 18-10-2026
+
+La espera por medianoche UTC puede durar casi 24 horas, por lo que una comprobación Git al invocar el comando no bastaba. El supervisor ahora revalida HEAD, origin/main, rama y estado fuente después de la espera e inmediatamente antes de iniciar los colectores, y vuelve a comprobarlo cuando terminan, antes de validar/aceptar los datos. Si no coincide con la revisión limpia original, la corrida queda BLOCKED y no puede usarse para el preregistro.
+
+SHA funcional 76e770cf86f02359a7bbd1353d1c5aea0094eeec: 1663 tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051), pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053). La puntuación conserva 77/100. La captura real permanece pendiente en issue #98; NO_TRADE no cambia.

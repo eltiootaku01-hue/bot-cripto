@@ -401,3 +401,12 @@ La primera versión del orquestador Kline + bookTicker guardaba los hashes del d
 - **Binance Spot WebSocket:** la documentación oficial de streams (https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md) confirma límite de 24 h por conexión, evento serverShutdown, ping cada 20 s y desconexión si no recibe pong dentro de un minuto. El colector trata cortes/reconexiones como eventos de continuidad; solo la captura y validación reales pueden demostrar una ventana aceptada.
 
 **CI del commit de procedencia:** cec4e8e6dd58871a04dd1f1171eb985a6926ea37 pasó 1661 tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376), todos success. Estos checks prueban el software; no equivalen a captura real ni edge económico.
+
+
+## 15. Revalidar la procedencia en los límites de una corrida larga — 18-10-2026
+
+**Hallazgo local adicional:** el control inicial de Git podía validar una versión y después esperar hasta la próxima medianoche UTC. Esa pausa podía durar casi un día; si la rama o el código cambiaban durante la espera, el manifiesto podría reflejar la revisión anterior aunque la captura se iniciara luego.
+
+**Corrección:** el orquestador ejecuta la comprobación de procedencia antes de esperar, inmediatamente antes de lanzar los dos procesos, y después de que ambos finalizan pero antes de validar y aceptar los datasets. Exige el mismo HEAD, el mismo origin/main, rama main y estado limpio. Si la identidad cambia en cualquiera de esas fronteras, guarda BLOCKED y no admite la pareja. Se añadieron pruebas para cambios de SHA, cambios de ref remoto, fuente sucia y alteración de procedencia entre la espera y el inicio.
+
+**Validación:** SHA funcional 76e770cf86f02359a7bbd1353d1c5aea0094eeec; 1663 tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053). Se requieren los tres checks en success para considerar ese SHA verificado. Esto prueba el contrato del supervisor, no una captura real de 24 h.
