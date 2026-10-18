@@ -14,6 +14,57 @@ UTC = timezone.utc
 DAY = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
 
 
+def test_quote_capture_grace_requires_target_plus_grace_duration():
+    from bot_obrero.prospective_book_ticker_capture import _evaluate
+
+    start = DAY
+    target_elapsed = 86400
+    summary = {
+        symbol: {
+            "records": 2,
+            "first_received_at": start.isoformat(),
+            "latest_received_at": (start + timedelta(seconds=target_elapsed)).isoformat(),
+            "duplicate_update_ids": 0,
+            "out_of_order_update_ids": 0,
+            "inter_event_gap_count": 0,
+            "clock_regressions": 0,
+            "maximum_inter_event_gap_seconds": 1.0,
+        }
+        for symbol in ("BTCUSDT", "ETHUSDT")
+    }
+    target_only = _evaluate(
+        symbols=("BTCUSDT", "ETHUSDT"),
+        summary=summary,
+        start_at=start,
+        end_at=start + timedelta(seconds=target_elapsed),
+        elapsed_seconds=target_elapsed,
+        target_duration_seconds=target_elapsed,
+        max_inter_event_gap_seconds=10.0,
+        fatal_errors=(),
+        capture_grace_seconds=300,
+    )
+    assert target_only["elapsed_duration_met"] is False
+    assert target_only["minimum_elapsed_seconds"] == 86700
+    assert target_only["accepted"] is False
+
+    complete_elapsed = target_elapsed + 300
+    for symbol in summary:
+        summary[symbol]["latest_received_at"] = (start + timedelta(seconds=complete_elapsed)).isoformat()
+    completed = _evaluate(
+        symbols=("BTCUSDT", "ETHUSDT"),
+        summary=summary,
+        start_at=start,
+        end_at=start + timedelta(seconds=complete_elapsed),
+        elapsed_seconds=complete_elapsed,
+        target_duration_seconds=target_elapsed,
+        max_inter_event_gap_seconds=10.0,
+        fatal_errors=(),
+        capture_grace_seconds=300,
+    )
+    assert completed["elapsed_duration_met"] is True
+    assert completed["accepted"] is True
+
+
 def test_pair_window_accepts_full_overlap_with_one_common_complete_utc_day():
     result = _assess_common_capture_window(
         kline_start=DAY,
