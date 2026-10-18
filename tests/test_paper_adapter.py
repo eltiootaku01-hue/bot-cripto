@@ -655,6 +655,7 @@ def test_paper_economic_replay_fails_closed_for_malformed_fill_order_keys(tmp_pa
     try:
         adapter._submit(make_order())
         snapshot = deepcopy(adapter.snapshot())
+        snapshot["fills"] = list(snapshot["fills"])
         # Two entries make the previous equality-based sort compare mixed JSON types,
         # which raised TypeError before replay could return a fail-closed result.
         second = deepcopy(snapshot["fills"][0])
