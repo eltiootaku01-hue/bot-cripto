@@ -173,3 +173,4 @@ def test_journal_does_not_accept_large_gap_or_duplicate_updates(tmp_path):
     assert result["acceptance"]["accepted"] is False
     assert result["symbols_summary"]["BTCUSDT"]["duplicate_update_ids"] == 1
     assert result["symbols_summary"]["BTCUSDT"]["inter_event_gap_count"] == 1
+    assert "seen_update_ids" not in journal._state["BTCUSDT"]
