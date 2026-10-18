@@ -35,7 +35,20 @@ INSTRUMENT = InstrumentIdentity(
     "binance:SPOT:BTCUSDT", "BTC/USDT", "SPOT",
     base_asset="BTC", quote_asset="USDT",
 )
-NOW = datetime.now(timezone.utc).replace(microsecond=0)
+def _synthetic_decision_time() -> datetime:
+    """Use a stable point after the last 4h candle's synthetic handoff."""
+    current = datetime.now(timezone.utc)
+    current_bar_start = (
+        current.replace(minute=0, second=0, microsecond=0)
+        - timedelta(hours=current.hour % 4)
+    )
+    # build_market_data marks the previous closed bar available 2 seconds
+    # after its close. Placing decisions 5 minutes after the boundary avoids
+    # a wall-clock race when tests run immediately after a 4h boundary.
+    return current_bar_start + timedelta(minutes=5)
+
+
+NOW = _synthetic_decision_time()
 
 
 def build_market_data(closes, *, now=NOW, finality_override=None, availability=True, timeframe="4h"):
@@ -103,7 +116,7 @@ def config():
 def test_closed_final_candles_produce_canonical_up_signal_and_explicit_paper_proposal():
     # Strong final reversal makes the fast EMA cross above the slow EMA on the
     # latest candle; all evidence is synthetic and this is not an edge claim.
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = _synthetic_decision_time()
     items = build_market_data(
         [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
         now=now,
@@ -138,6 +151,12 @@ def test_closed_final_candles_produce_canonical_up_signal_and_explicit_paper_pro
     assert result.trade_proposal.signal_id == result.signal.signal_id
     assert result.trade_proposal.strategy_identity == STRATEGY_IDENTITY
     assert result.reason == "PAPER_TRADE_PROPOSAL_BUILT_NOT_SUBMITTED"
+
+
+def test_synthetic_fixture_availability_precedes_decision_time():
+    items = build_market_data([30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19])
+    assert all(item.available_at is not None for item in items)
+    assert all(item.available_at <= NOW for item in items)
 
 
 def test_no_crossover_returns_no_trade_without_proposal():
@@ -281,7 +300,7 @@ def test_unmapped_or_mismatched_policy_cannot_create_a_proposal():
 
 
 def test_latest_rest_finality_records_local_time_derivation_explicitly():
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = _synthetic_decision_time()
     items = build_market_data(
         [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
         now=now,
@@ -361,7 +380,7 @@ def open_trailing_candle(now):
 
 
 def test_rest_adapter_pipeline_excludes_only_the_incomplete_trailing_candle():
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = _synthetic_decision_time()
     closed = build_market_data(
         [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
         now=now,
@@ -382,7 +401,7 @@ def test_rest_adapter_pipeline_excludes_only_the_incomplete_trailing_candle():
 
 
 def test_rest_adapter_pipeline_preserves_unknown_availability_as_blocked():
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = _synthetic_decision_time()
     closed = build_market_data(
         [30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 11, 10, 11, 12, 100],
         now=now,
