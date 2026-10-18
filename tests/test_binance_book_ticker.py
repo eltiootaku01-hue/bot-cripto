@@ -163,6 +163,37 @@ def test_adapter_delivers_each_quote_with_separate_receive_and_handoff_times():
     assert connection.closed
 
 
+def test_adapter_streaming_sink_does_not_retain_all_quote_results():
+    connection = FakeConnection([
+        json.dumps(payload(u=200)),
+        json.dumps(payload(u=201)),
+        json.dumps(payload(u=202)),
+    ])
+    now_values = iter([START, START + timedelta(milliseconds=2), START + timedelta(milliseconds=4)])
+    handoff_values = iter([
+        START + timedelta(milliseconds=1),
+        START + timedelta(milliseconds=3),
+        START + timedelta(milliseconds=5),
+    ])
+    adapter = BinanceSpotBookTickerWebSocketAdapter(
+        connection_factory=lambda _url, _timeout: connection,
+        clock=lambda: next(now_values),
+        consumer_handoff_clock=lambda: next(handoff_values),
+        timeout_seconds=1,
+    )
+    stored = []
+    result = adapter.listen(
+        symbol="BTCUSDT",
+        max_messages=3,
+        on_item=stored.append,
+        retain_results=False,
+    )
+
+    assert result == []
+    assert [item.update_id for item in stored] == [200, 201, 202]
+    assert connection.closed
+
+
 def test_adapter_closes_connection_when_durable_consumer_fails():
     connection = FakeConnection([json.dumps(payload())])
     adapter = BinanceSpotBookTickerWebSocketAdapter(
