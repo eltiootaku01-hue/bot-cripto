@@ -72,3 +72,8 @@ Large JSONL datasets should not be committed as source code or used to inflate c
 The validator requires `schema_version` to be the exact JSON integer `1` in the manifest, configuration and each JSONL event envelope. Each envelope `sequence` must be an exact integer starting at 1; JSON booleans such as `true` are rejected even though Python compares `True == 1`. This check is covered by regression tests. Main code SHA: `8c325d9899ae4a15b06240012b05473f2cd34824`.
 
 CI evidence for that change: pre-merge suite [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937) passed 1608 tests, and post-merge main suite [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) passed 1608 tests. A passing suite validates this software contract; it does not mean the real 24-hour capture has been completed.
+
+
+## Current main continuity (18 October 2026)
+
+The capture schema validation change from PR #93 remains in main. PR #96 separately hardens the PAPER economic replay's handling of malformed fill ordering; it does not change the capture collector or its acceptance criteria. Latest functional main SHA: `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b`. Post-merge main suite [39101918101](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101) passed 1610 tests; [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) and [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) passed. These tests still do not substitute for a real accepted 24-hour capture.
