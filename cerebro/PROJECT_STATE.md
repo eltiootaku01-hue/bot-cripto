@@ -2,23 +2,24 @@
 
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA con cambios de código/workflows verificado:** `fdb90440a89e4284ba425689c1c2ec177902a0cf` (incluye PR #96/#93 y el mantenimiento del 18-10: CodeQL `init`/`analyze` fijados juntos a v4.39.0, agrupación Dependabot y actualizaciones de pytest/setuptools). Checks del SHA exacto: [tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266) `success`; la captura real de 24 h y el holdout prospectivo siguen pendientes.
+**Último SHA con código, pruebas y workflow verificados en verde:** `e476ea38ca7a0655b8127f31ff2de77ca5debe56`. El HEAD incluye el adaptador/capturador bookTicker, su validador y pruebas, además de investigación V1/V2 integrada en rutas de investigación. Checks del SHA exacto: [tests: 1628 aprobadas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242145), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242189) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242200), todos `success`. Ediciones documentales posteriores disparan nueva CI y se verifican en el HEAD vivo; la captura real Kline+bookTicker de 24 h y el holdout prospectivo siguen pendientes.
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
-- **Evaluación ponderada actual:** **73/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
+- **Evaluación ponderada actual:** **75/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
 - **CI actual de main tras PR #87:** [run 39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044), `success`, **1604 pruebas aprobadas en 14.62 s**, SHA `43d2cd70b2a350cf2987210166df7711d932e41b`. CodeQL [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033) y `pip-audit` [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) también son `success` en el SHA exacto. Los E2E de SMA/indicadores pasaron en la punta de PR #87.
 - **Próximos gates de mayor prioridad:** ejecutar y validar una captura real continua de al menos 24 horas; extender la invariancia anti-lookahead a los artefactos del estudio anual BTC→ETH; y demostrar edge neto en un holdout independiente. La herramienta de captura ya está integrada, pero no cuenta como evidencia de haberla ejecutado. `NO_TRADE` se mantiene.
 
 - **Decisión económica vigente:** `NO_TRADE`. La investigación disponible no acredita una ventaja neta robusta y repetible.
+- **PR #67 — contrato de investigación BTC/ETH:** cerrado; el contrato y su auditoría de adquisición se preservaron en `docs/research/` como históricos. **PR #65** se cerró porque su handoff ETH describía un estado anterior y podía inducir a usar instrucciones obsoletas.
 - **LIVE:** no implementado/habilitado. No usar dinero real, claves privadas ni endpoints privados.
 - **Product V2:** el cambio de PR #63 está fusionado en main (merge commit histórico `8bbd9fc9511690db171c163b4a978a07e8aeb222`). El escáner/backtest sigue siendo investigación; no convierte sus resultados en señales de ejecución.
 - **PR #64 — PAPER runtime:** cerrada como supersedida; el runtime PAPER y la reconciliación se integraron por PR #71 (`fd51e0dd1ff3f710680a98b685a6b9369c74a600`).
-- **PR #69 — investigación BTC/ETH V1:** abierta, draft, sin fusionar. Dictamen declarado: `NO_ROBUST_EDGE_FOUND / NO_TRADE`; el propio informe mantiene desconocida la temporalidad/finality de las observaciones y documenta solapamiento parcial con estudios anteriores.
-- **PR #70 — BTC_ETH_STRATEGIES_V2:** abierta, draft, sin fusionar. Estado `DESIGNED / NOT RUN`. No asignar T0 ni iniciar evaluación hasta congelar código/configuración y superar 24 horas de captura continua validada.
-- **PR #66 — recuperación del universo BTC/altcoins:** abierta, sin fusionar. Se mantiene bloqueada la reconstrucción de la lista histórica canónica mientras falte una fuente primaria que confirme exactamente el universo aprobado.
+- **PR #69 — BTC/ETH V1:** cerrada como supersedida; código, reporte y workflow de replay están en `main`. El replay anual pasó en [run 39103827728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103827728), pero conserva `NO_ROBUST_EDGE_FOUND / NO_TRADE`; `available_at/finality` históricos siguen UNKNOWN.
+- **PR #70 — BTC_ETH_STRATEGIES_V2:** cerrada como supersedida; el protocolo vigente está integrado en `docs/research/BTC_ETH_STRATEGIES_V2_PROTOCOL.md`, estado `DESIGNED / NOT RUN`. No fijar T0 hasta aceptar ambas capturas reales Kline+bookTicker de 24 h.
+- **PR #66 — universo BTC/altcoins:** cerrada como supersedida después de preservar R1/R2 en `docs/audits/`; el universo canónico sigue `BLOCKED_UNIVERSE_DEFINITION` a falta de fuente primaria.
 
 ## 2. Bloqueos que gobiernan el siguiente paso
 
@@ -167,3 +168,15 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - **CI exacto en ese SHA:** tests [39103016285](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285), CodeQL [39103016289](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) y pip-audit [39103016266](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266) terminaron `success`. Los PR #88, #89, #90 y #91 se cerraron como supersedidos tras dejar sus cambios en main; los comentarios de cierre conservan la evidencia y la causa de los fallos de CodeQL.
 - **Dictamen económico:** se mantiene `73/100` y `NO_TRADE`. La matriz vigente solo asigna 5/20 a evidencia económica; su máximo aritmético actual es 85/100 mientras esa categoría no mejore. No declarar >90 o 100% hasta aceptar la captura prospectiva real y la evaluación independiente preregistrada, y demostrar las demás condiciones operativas requeridas.
 - **Auditoría consolidada:** [PROJECT_FINALIZATION_AUDIT_2026-10-18.md](../docs/audits/PROJECT_FINALIZATION_AUDIT_2026-10-18.md), con incidentes públicos, cambios aplicados, CI por SHA, disposición de PR y gates de salida.
+
+
+## Estado de construcción actualizado — 2026-10-18
+
+- **Preparación documentada revisada:** 75/100 (+2 frente a 73): +1 en adquisición temporal y +1 en infraestructura prospectiva por colector bookTicker con hash/timestamp, JSONL durable, manifiesto/validador y pruebas sintéticas. No se asignan puntos económicos.
+- **Último SHA completo verde para código y tests:** `e476ea38ca7a0655b8127f31ff2de77ca5debe56`; tests [39104242145](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242145) pasaron 1628 en 15.53s; CodeQL [39104242189](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242189) y pip-audit [39104242200](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242200) finalizaron success. Los commits de documentación posteriores generan sus propios checks; confirmar el SHA actual antes de declarar todo el HEAD en verde.
+- **V1:** replay histórico reproducible integrado en main; resultado `NO_ROBUST_EDGE_FOUND / NO_TRADE`. No convertir el resultado de backtest en estrategia operable.
+- **V2:** protocolo preregistrado en main; `DESIGNED / NOT RUN`. Los colectores Kline y bookTicker existen y pasan pruebas sintéticas, pero falta ejecutar y aceptar una captura real de ≥24 h que se solape y luego fijar T0 sin mirar resultados.
+- **Universo original BTC/altcoins:** R1/R2 integrados como informes, definición canónica bloqueada. No inferir símbolos faltantes.
+- **Incidentes y mitigaciones:** el catálogo `docs/research/EXTERNAL_FAILURE_CASE_STUDIES.md` documenta SQLite/WAL, Binance LOT_SIZE/MARKET_LOT_SIZE, lookahead, GitHub Actions Node 24, CodeQL desincronizado y regresiones upstream de pytest/websocket-client/pip-audit.
+- **Preparación >90/100:** la categoría económica sigue 5/20; el máximo aritmético bajo esta rúbrica es 85/100 mientras esa categoría no se mejore mediante evidencia neta independiente. `NO_TRADE` sigue correcto. No habilitar LIVE ni usar dinero real.
+- **Auditoría de cierre:** `docs/audits/PROJECT_FINALIZATION_AUDIT_2026-10-18.md`.
