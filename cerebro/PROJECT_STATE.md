@@ -1,8 +1,8 @@
 # BOT-CRIPTO — ESTADO VERIFICADO DE CONTINUIDAD
 
-**Actualizado:** 2026-10-17  
+**Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA con cambios de código/workflows verificado:** `43d2cd70b2a350cf2987210166df7711d932e41b` (PR #87: CodeQL, `pip-audit`, Dependabot y pytest parcheado; incorpora PR #86 anti-lookahead anual). El CI post-merge exacto de main [39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044) terminó `success`, 1604 pruebas en 14.62 s; CodeQL [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033) y auditoría de dependencias [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) también finalizaron `success`. Este archivo es una instantánea de continuidad: antes de modificar código, verificar el HEAD vivo de `main`. La ejecución real de 24 h sigue pendiente.
+**Último SHA con cambios de código/workflows verificado:** `8c325d9899ae4a15b06240012b05473f2cd34824` (merge squash PR #93: validador de captura con tipos JSON estrictos). La punta pre-merge `65ad1a1179c26feae2377761ab0e928e301f8713` pasó 1608 pruebas en [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937), `pip-audit` [39100827924](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827924) y CodeQL [39100827934](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827934) finalizaron `success`; E2E SMA [39100827989](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827989) e indicadores [39100827964](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827964) también aprobaron. CI post-merge de main exacto [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) pasó 1608 pruebas en 15.66 s; `pip-audit` [39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) y CodeQL [39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) finalizaron `success`. Este archivo sigue siendo una síntesis de continuidad; verificar siempre el HEAD vivo de `main`. La captura real de 24 h sigue pendiente.
 
 ## 1. Estado operativo actual
 
@@ -140,3 +140,12 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - **Hallazgo de seguridad tratado:** la primera ejecución de `pip-audit` encontró `PYSEC-2026-1845` en pytest 8.4.2; el mantenedor corrige CVE-2025-71176 en pytest 9.0.3. Tras actualizar, la auditoría declara `No known vulnerabilities found` para las dependencias auditables. El paquete local `bot-obrero` no está en PyPI y `pip-audit` lo identifica como no auditable en ese índice; su código propio se cubre con tests y CodeQL, sin que eso garantice ausencia de todos los defectos.
 - **Preparación:** permanece en 73/100. La extensión anti-lookahead es sintética por ventana y no sustituye el dataset prospectivo ni la validación económica; CodeQL y el auditor de dependencias refuerzan el proceso, no la rentabilidad.
 - **Gates que siguen abiertos:** captura real y validada de BTC/ETH durante 24 h; prueba de edge neto prospectivo en holdout independiente; operación/supervisión sostenida; revisar la atomicidad entre los archivos SQLite independientes. Mantener `NO_TRADE`, sin LIVE, endpoints privados, claves privadas ni dinero real.
+
+
+## Actualización de continuidad — PR #93 (2026-10-18)
+
+- **Main de código:** `8c325d9899ae4a15b06240012b05473f2cd34824`; PR [#93](https://github.com/eltiootaku01-hue/bot-cripto/pull/93) fusionada.
+- **Hallazgo corregido:** `bool` es subtipo de `int` en Python; por tanto JSON `true` podía compararse igual a versión de esquema `1` o a la primera secuencia. El validador ahora exige tipo entero exacto para la versión del manifiesto, configuración, envelope por registro y secuencia.
+- **Regresiones:** 4 tests que alteran los valores JSON y, en las pruebas de JSONL, recalculan hashes exteriores para asegurarse de que se ejercita la validación de contrato.
+- **CI post-merge:** [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) `success`, 1608 pruebas en 15.66 s; [CodeQL 39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) y [pip-audit 39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) `success`. CI y E2E exactos de la punta pre-merge también pasaron.
+- La puntuación ponderada sigue **73/100**: integridad del formato mejorada no equivale a captura real ni a edge rentable. `NO_TRADE` se mantiene.

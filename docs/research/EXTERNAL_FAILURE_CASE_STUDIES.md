@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
-**Fecha de revisión:** 17 de octubre de 2026  
-**Base de código revisada:** `main` incluye PR #86 (anti-lookahead por ventana) y PR #87 (CodeQL, pip-audit, Dependabot y pytest corregido), HEAD `43d2cd70b2a350cf2987210166df7711d932e41b`. CI exacto [39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044) success, 1604 pruebas; CodeQL [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033) y pip-audit [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) también success.  
+**Fecha de revisión:** 18 de octubre de 2026  
+**Base de código revisada:** `main` ahora incluye PR #93 en `8c325d9899ae4a15b06240012b05473f2cd34824`, además de PR #86 (anti-lookahead) y PR #87 (CodeQL, pip-audit, Dependabot y pytest corregido). CI post-merge exacto [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) success, 1608 pruebas; CodeQL [39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) y pip-audit [39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) también success.
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -276,3 +276,22 @@ Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y 
 **Mitigación aplicada:** el extra de test cambió de `pytest>=8,<9` a `pytest>=9.0.3,<9.1`, manteniendo el minor de pytest acotado para esta validación. La suite de main pasó 1604 pruebas en run [39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044), y la auditoría en [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) devolvió `No known vulnerabilities found`.
 
 **Limitación:** pip-audit indica que el proyecto editable `bot-obrero 0.1.0` no puede encontrarse en PyPI y no se audita por ese índice. CodeQL finalizó con éxito [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033), pero esto no equivale a una declaración de cero alertas o ausencia total de vulnerabilidades.
+
+
+## 16. Python: confusión entre booleanos e enteros en el contrato JSON (PR #93)
+
+**Fuente oficial del lenguaje:** el modelo de datos Python define `bool` como subtipo de `int`; `True` se comporta como 1 en contextos numéricos: https://docs.python.org/3/reference/datamodel.html#the-standard-type-hierarchy. Es una característica del lenguaje, no un defecto de Python.
+
+**Hallazgo local reproducible:** el validador comparaba `schema_version` y `sequence` por igualdad simple. Por eso JSON `true` podía pasar como versión `1` o como secuencia de evento 1. La misma regla se aplicó al manifiesto, su configuración y cada envelope de registro. El hash de un registro no cubre los campos externos del envelope, por lo que los tests de regresión reconstruyen los hashes exteriores para probar directamente el contrato.
+
+**Mitigación aplicada en main:** [PR #93](https://github.com/eltiootaku01-hue/bot-cripto/pull/93), merge `8c325d9899ae4a15b06240012b05473f2cd34824), introduce comprobación de tipo entero exacto y cuatro regresiones: manifiesto, configuración, versión de envelope y secuencia booleana. La suite de la punta [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937) pasó 1608 pruebas; post-merge main [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) pasó 1608 en 15.66 s. CodeQL [39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) y pip-audit [39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) finalizaron `success`.
+
+**Límite:** esto demuestra rechazo de este defecto de tipado y su regresión; no demuestra que la captura real de 24 h haya ocurrido ni que una estrategia tenga edge económico.
+
+## 17. Binance Spot: el estado de símbolo `CANCEL_ONLY` (anuncio de julio de 2026)
+
+**Fuente primaria del mantenedor:** el changelog oficial de Binance Spot anunció que `CANCEL_ONLY` podía aparecer en `symbolStatus` en Exchange Information desde el despliegue de julio de 2026: https://github.com/binance/binance-spot-api-docs/blob/master/CHANGELOG.md.
+
+**Revisión local:** `BinanceSpotInstrumentMetadata` mantiene el estado como texto, sin enum cerrado que provoque un error de parsing por un valor nuevo. `resolve_active` exige que el estado sea exactamente `TRADING` y que `isSpotTradingAllowed` sea verdadero, por lo que `CANCEL_ONLY` se rechaza como inactivo. Además, `tests/test_phase1_16_binance_instruments.py` ya incluye `CANCEL_ONLY` en el test parametrizado de estados inactivos. La revisión no halló una corrección de código adicional necesaria para ese cambio de API.
+
+**Límite:** el bloqueo sirve para la resolución de instrumento que usa la integración de metadatos. La captura prospectiva usa el WebSocket público exclusivamente para recopilar datos y no coloca órdenes. No se habilita ejecución real.

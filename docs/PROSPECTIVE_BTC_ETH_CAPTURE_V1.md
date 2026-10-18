@@ -1,6 +1,6 @@
 # BTC/ETH prospective public-data capture V1
 
-**Implementation status:** code/tests in progress; a successful 24-hour capture has **not** been recorded by this change.  
+**Implementation status:** capture code and regression tests are merged to `main`; strict JSON schema/sequence validation was hardened by PR #93. A successful real 24-hour capture has **not** yet been recorded or independently accepted.  
 **Target dataset:** Binance Spot, public WebSocket Kline streams, `BTCUSDT` and `ETHUSDT`, 1-hour candles.  
 **Safety boundary:** market data only; no API keys, private endpoints, orders, real money, or LIVE execution.
 
@@ -65,3 +65,10 @@ The validator must print `status: VALID` and returns exit code zero only for an 
 A passing capture verifies a new period of acquisition integrity and delivery timing. It does not establish that a strategy is profitable, that past historical candles were available in real time, or that a market signal should be executed. The annual BTC→ETH strategy must stay `NO_TRADE` until the frozen strategy, costs and benchmarks pass the independent evaluation protocol and any held-out validation. No annual evaluation T0 should be assigned before the capture manifest has been accepted and the dataset/configuration hashes have been recorded in the study evidence.
 
 Large JSONL datasets should not be committed as source code or used to inflate code-completion percentages. Preserve them as immutable GitHub Actions artifacts, a versioned release asset, or another durable evidence store, and record their hashes and location in the project state.
+
+
+## Strict schema typing (PR #93)
+
+The validator requires `schema_version` to be the exact JSON integer `1` in the manifest, configuration and each JSONL event envelope. Each envelope `sequence` must be an exact integer starting at 1; JSON booleans such as `true` are rejected even though Python compares `True == 1`. This check is covered by regression tests. Main code SHA: `8c325d9899ae4a15b06240012b05473f2cd34824`.
+
+CI evidence for that change: pre-merge suite [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937) passed 1608 tests, and post-merge main suite [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) passed 1608 tests. A passing suite validates this software contract; it does not mean the real 24-hour capture has been completed.
