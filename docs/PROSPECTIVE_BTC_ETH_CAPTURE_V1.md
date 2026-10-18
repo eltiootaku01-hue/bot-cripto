@@ -17,6 +17,33 @@ These external reports establish known failure patterns; they do not establish t
 
 ## Run on a persistent machine
 
+### First-time setup on Windows (PowerShell)
+
+The repository has no root-level README, so use these explicit setup steps before the first capture. Install Git for Windows and Python 3.11 or newer first. From the parent folder where you keep projects:
+
+```powershell
+git clone https://github.com/eltiootaku01-hue/bot-cripto.git
+Set-Location bot-cripto
+git fetch origin main
+git switch main
+git pull --ff-only origin main
+py -m venv .venv
+& .\.venv\Scripts\python.exe -m pip install --upgrade pip
+& .\.venv\Scripts\python.exe -m pip install -e .
+```
+
+For later attempts, reuse the same checkout and environment; refresh `main` first, then update the editable install:
+
+```powershell
+git fetch origin main
+git switch main
+git pull --ff-only origin main
+& .\.venv\Scripts\python.exe -m pip install -e .
+git status --short
+```
+
+If Git refuses to switch branches or pull because of local changes, stop and inspect them instead of using `reset --hard` or deleting files. Before capture, the source gate must report a clean `bot_obrero/` and `pyproject.toml`. The checkout must stay on `main`, and the output datasets should not be committed to the source tree.
+
 This command is designed for a persistent terminal such as a local machine or a configured Codespace. A GitHub-hosted CI run only tests the code; it is not evidence that 24 hours of market capture occurred.
 
 From the repository root, the **recommended one-command runner** is:
