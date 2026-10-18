@@ -236,3 +236,12 @@ La [PR #96](https://github.com/eltiootaku01-hue/bot-cripto/pull/96), fusionada e
 - Main post-merge exacto: [1610 pruebas en 11.67 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074): todos `success`.
 
 El arreglo es de auditabilidad/recovery PAPER; no modifica el motor de fills, no permite LIVE y no cambia el resultado económico `NO_TRADE`. El score de preparación permanece 73/100 porque siguen faltando evidencia real de 24 h y edge neto independiente.
+
+
+## Hallazgo 2026-10-18 — tipos canónicos en la duración de captura Kline
+
+- **OBSERVED:** `validate_manifest()` podía aceptar `target_duration_seconds: "86400"` y `actual_elapsed_seconds: "86403.0"` porque los convertía a `int`/`float` antes de exigir el tipo de dato original. El caso puede reproducirse en un manifiesto coherente si también se ajusta la configuración y su hash.
+- **FIXED:** PR #103 exige entero JSON exacto para la duración en configuración y manifiesto y número JSON finito/no booleano para el tiempo transcurrido. Añade dos regresiones parametrizadas y no cambia el colector ni los umbrales de captura.
+- **TESTED:** SHA `6f2512f9dc6d0e00b202291606258c6894e84420`: 1.678 tests, CodeQL y pip-audit en verde; E2E SMA e indicadores pasaron también en la punta de PR.
+- **UNKNOWN/BLOCKED:** no existe evidencia de que la captura real de 24 h se haya ejecutado. Issue #98 abierta. Ningún T0; no-LIVE, no fondos reales; decisión económica `NO_TRADE`.
+- **Referencias generales relacionadas:** el modelo de tipos de Python explica el solapamiento `bool`/int que exige validación explícita de tipos ([docs oficiales](https://docs.python.org/3/reference/datamodel.html#the-standard-type-hierarchy)); Freqtrade describe los riesgos de look-ahead y las limitaciones de lo que su análisis consigue verificar ([documentación](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/)). Estas referencias motivan controles estrictos, pero el hallazgo concreto descrito arriba es reproducido en BOT-CRIPTO.

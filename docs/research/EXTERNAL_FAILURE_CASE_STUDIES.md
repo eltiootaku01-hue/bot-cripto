@@ -436,3 +436,16 @@ La primera versión del orquestador Kline + bookTicker guardaba los hashes del d
 **Interpretación y acción:** la actualización del intérprete es un control de seguridad de la plataforma, no evidencia de que BOT-CRIPTO hubiera explotado estos CVE. No se aplicó un parche especulativo a código de negocio: CI ya ejecutó la versión corregida y pasó. `requires-python >=3.11` no fija parches de seguridad para las instalaciones locales; los despliegues deben usar una distribución de Python mantenida y actualizada. La suite actual valida Python 3.12, pero no demuestra por sí sola compatibilidad con todas las versiones mayores declaradas por el límite abierto del paquete. Una futura ampliación de matriz (por ejemplo, Python 3.13/3.14) debe validarse como cambio separado antes de ampliar las afirmaciones de compatibilidad.
 
 **Límite:** estos resultados no cambian la preparación económica, no cuentan como captura prospectiva y no modifican `NO_TRADE`.
+
+
+## 18. BOT-CRIPTO — conversión permisiva de duración en el validador Kline (18-10-2026)
+
+**Hallazgo local (OBSERVED):** `bot_obrero/prospective_capture.py` convertía `target_duration_seconds` con `int()` y `actual_elapsed_seconds` con `float()` antes de exigir los tipos JSON. En consecuencia, cadenas numéricas como `"86400"` y `"86403.0"` podían pasar la conversión y, con los demás campos coherentes, eludir la intención de un contrato de tipos canónicos.
+
+**Solución incorporada en PR #103:** exigir un entero exacto en la configuración y el manifiesto para duración objetivo, exigir un número JSON finito y no booleano para tiempo transcurrido, y agregar regresiones que mantienen el hash de configuración coherente para que la prueba compruebe el tipo y no el hash exterior.
+
+**Evidencia:** la punta de PR #103 `7f97ef15a8cd48d852ef4476501991c2803e3936` pasó 1.678 tests, CodeQL, pip-audit y los E2E de SMA/indicadores. El SHA de main tras la fusión es `6f2512f9dc6d0e00b202291606258c6894e84420`; sus checks post-merge de tests, CodeQL y pip-audit finalizaron `success` (runs [39140269519](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269519), [39140269490](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269490), [39140269472](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269472)).
+
+**Alcance y límites:** mejora validación fail-closed; no cambia captura en vivo, señales, backtest ni ejecución PAPER. Issue #98 permanece abierta porque todavía se requieren manifiestos de una captura real de al menos 24 h y solapamiento de 86.400 s. `NO_TRADE` permanece.
+
+**Fuentes upstream relacionadas:** Python documenta que `bool` es subtipo de `int` y puede comportarse numéricamente como 0/1 ([modelo de datos](https://docs.python.org/3/reference/datamodel.html#the-standard-type-hierarchy)). Freqtrade explica que un backtest puede estar sesgado por datos futuros y que su análisis no verifica señales que nunca se activan ([lookahead analysis](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/)). Binance documenta que una conexión Spot WebSocket solo es válida por 24 horas y debe recuperarse ante `serverShutdown` ([documentación oficial](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md?plain=1)).
