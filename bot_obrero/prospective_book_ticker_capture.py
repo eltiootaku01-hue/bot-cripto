@@ -34,6 +34,9 @@ from .binance_websocket import (
 SCHEMA_VERSION = 1
 DEFAULT_DURATION_SECONDS = 24 * 60 * 60
 DEFAULT_MAX_MESSAGES_PER_CONNECTION = 2_147_483_647  # hold one connection open until stop/disconnect
+DEFAULT_FSYNC_EVERY_RECORDS = 1000
+DEFAULT_FSYNC_INTERVAL_SECONDS = 1.0
+DEFAULT_MANIFEST_UPDATE_INTERVAL_SECONDS = 1.0
 DEFAULT_MAX_INTER_EVENT_GAP_SECONDS = 10.0
 DEFAULT_RECONNECT_BASE_SECONDS = 1.0
 DEFAULT_RECONNECT_MAX_SECONDS = 60.0
@@ -195,7 +198,9 @@ class ProspectiveBookTickerJournal:
         output_dir: Path,
         symbols: Sequence[str] = APPROVED_SYMBOLS,
         duration_seconds: int = DEFAULT_DURATION_SECONDS,
-        fsync_every_records: int = 1,
+        fsync_every_records: int = DEFAULT_FSYNC_EVERY_RECORDS,
+        fsync_interval_seconds: float = DEFAULT_FSYNC_INTERVAL_SECONDS,
+        manifest_update_interval_seconds: float = DEFAULT_MANIFEST_UPDATE_INTERVAL_SECONDS,
         max_inter_event_gap_seconds: float = DEFAULT_MAX_INTER_EVENT_GAP_SECONDS,
         run_id: str | None = None,
         now=_now,
@@ -207,15 +212,22 @@ class ProspectiveBookTickerJournal:
             raise ProspectiveBookTickerCaptureError("CAPTURE_DURATION_MUST_BE_AT_LEAST_24_HOURS")
         if isinstance(fsync_every_records, bool) or type(fsync_every_records) is not int or fsync_every_records < 1:
             raise ProspectiveBookTickerCaptureError("FSYNC_EVERY_RECORDS_INVALID")
+        if not math.isfinite(fsync_interval_seconds) or fsync_interval_seconds <= 0:
+            raise ProspectiveBookTickerCaptureError("FSYNC_INTERVAL_INVALID")
+        if not math.isfinite(manifest_update_interval_seconds) or manifest_update_interval_seconds <= 0:
+            raise ProspectiveBookTickerCaptureError("MANIFEST_UPDATE_INTERVAL_INVALID")
         if (not math.isfinite(max_inter_event_gap_seconds) or max_inter_event_gap_seconds <= 0):
             raise ProspectiveBookTickerCaptureError("MAX_INTER_EVENT_GAP_INVALID")
 
         self.symbols = normalized
         self.duration_seconds = duration_seconds
         self.fsync_every_records = fsync_every_records
+        self.fsync_interval_seconds = fsync_interval_seconds
+        self.manifest_update_interval_seconds = manifest_update_interval_seconds
         self.max_inter_event_gap_seconds = max_inter_event_gap_seconds
         self._now = now
         self._lock = threading.RLock()
+        self._last_manifest_update_monotonic = time.monotonic()
         self.created_at = _aware_utc(now(), "created_at")
         self.run_id = _safe_run_id(run_id or self.created_at.strftime("bookticker-%Y%m%dT%H%M%S%fZ"))
         root = Path(output_dir)
@@ -238,13 +250,13 @@ class ProspectiveBookTickerJournal:
                 "latest_received_at": None,
                 "last_received_datetime": None,
                 "last_update_id": None,
-                "seen_update_ids": set(),
                 "duplicate_update_ids": 0,
                 "out_of_order_update_ids": 0,
                 "inter_event_gap_count": 0,
                 "maximum_inter_event_gap_seconds": 0.0,
                 "clock_regressions": 0,
                 "line_count_since_fsync": 0,
+                "last_fsync_monotonic": time.monotonic(),
             }
             for symbol in self.symbols
         }
@@ -254,6 +266,9 @@ class ProspectiveBookTickerJournal:
             "symbols": list(self.symbols),
             "target_duration_seconds": duration_seconds,
             "maximum_inter_event_gap_seconds": max_inter_event_gap_seconds,
+            "fsync_every_records": fsync_every_records,
+            "fsync_interval_seconds": fsync_interval_seconds,
+            "manifest_update_interval_seconds": manifest_update_interval_seconds,
             "availability_policy": "LOCAL_RECEIVE_AND_CONSUMER_HANDOFF_CLOCKS; NO_RETROACTIVE_AVAILABILITY",
             "exchange_event_time_policy": "OPTIONAL_ONLY_IF_PRESENT; OTHERWISE_OBSERVED_AT_EQUALS_LOCAL_RECEIVE_TIME",
             "quote_policy": "CANONICAL_DECIMAL_BID_ASK; ASK_MUST_NOT_BE_BELOW_BID",
@@ -373,9 +388,14 @@ class ProspectiveBookTickerJournal:
             handle.write(json.dumps(envelope, sort_keys=True, ensure_ascii=False) + "\n")
             handle.flush()
             state["line_count_since_fsync"] += 1
-            if state["line_count_since_fsync"] >= self.fsync_every_records:
+            now_monotonic = time.monotonic()
+            if (
+                state["line_count_since_fsync"] >= self.fsync_every_records
+                or now_monotonic - state["last_fsync_monotonic"] >= self.fsync_interval_seconds
+            ):
                 os.fsync(handle.fileno())
                 state["line_count_since_fsync"] = 0
+                state["last_fsync_monotonic"] = now_monotonic
 
             previous_received = state["last_received_datetime"]
             if previous_received is not None:
@@ -390,15 +410,20 @@ class ProspectiveBookTickerJournal:
                 state["first_received_at"] = received.isoformat()
             state["latest_received_at"] = received.isoformat()
             state["last_received_datetime"] = received
-            if item.update_id in state["seen_update_ids"]:
-                state["duplicate_update_ids"] += 1
-            if state["last_update_id"] is not None and item.update_id < state["last_update_id"]:
-                state["out_of_order_update_ids"] += 1
-            state["seen_update_ids"].add(item.update_id)
+            if state["last_update_id"] is not None:
+                if item.update_id == state["last_update_id"]:
+                    state["duplicate_update_ids"] += 1
+                elif item.update_id < state["last_update_id"]:
+                    state["out_of_order_update_ids"] += 1
             if state["last_update_id"] is None or item.update_id > state["last_update_id"]:
                 state["last_update_id"] = item.update_id
             state["records"] = sequence
-            if sequence % 25 == 0 or state["duplicate_update_ids"] or state["out_of_order_update_ids"]:
+            if (
+                sequence % 5000 == 0
+                or now_monotonic - self._last_manifest_update_monotonic >= self.manifest_update_interval_seconds
+                or state["duplicate_update_ids"]
+                or state["out_of_order_update_ids"]
+            ):
                 self._refresh_summaries_locked()
                 self._write_manifest_locked()
 
@@ -408,7 +433,7 @@ class ProspectiveBookTickerJournal:
             out[symbol] = {
                 key: (round(value, 3) if key == "maximum_inter_event_gap_seconds" else value)
                 for key, value in state.items()
-                if key not in {"seen_update_ids", "last_received_datetime", "last_update_id", "line_count_since_fsync"}
+                if key not in {"last_received_datetime", "last_update_id", "line_count_since_fsync", "last_fsync_monotonic"}
             }
         return out
 
@@ -423,6 +448,7 @@ class ProspectiveBookTickerJournal:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, self.manifest_path)
+        self._last_manifest_update_monotonic = time.monotonic()
 
     def acceptance(self, elapsed_seconds: float, ended_at: datetime) -> dict[str, Any]:
         summary = self._summary_locked()
@@ -554,8 +580,8 @@ def validate_manifest(path: Path) -> dict[str, Any]:
 
         previous_received: datetime | None = None
         previous_update: int | None = None
-        seen_updates: set[int] = set()
         duplicates = out_of_order = gap_count = clock_regressions = 0
+        highest_update_id: int | None = None
         maximum_gap = 0.0
         first: datetime | None = None
         latest: datetime | None = None
@@ -636,11 +662,15 @@ def validate_manifest(path: Path) -> dict[str, Any]:
                 maximum_gap = max(maximum_gap, gap)
                 if gap > float(config["maximum_inter_event_gap_seconds"]):
                     gap_count += 1
-            if update_id in seen_updates:
-                duplicates += 1
-            if previous_update is not None and update_id < previous_update:
-                out_of_order += 1
-            seen_updates.add(update_id)
+            if highest_update_id is not None:
+                if update_id == highest_update_id:
+                    duplicates += 1
+                elif update_id < highest_update_id:
+                    out_of_order += 1
+                else:
+                    highest_update_id = update_id
+            else:
+                highest_update_id = update_id
             previous_update = update_id
             previous_received = received
             latest = received
