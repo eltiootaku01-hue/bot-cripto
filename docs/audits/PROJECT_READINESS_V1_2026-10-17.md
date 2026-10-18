@@ -284,3 +284,12 @@ La evaluación permanece en **77/100**; la evidencia económica sigue en 5/20, l
 Como restricción de planificación, GitHub documenta un máximo de 6 horas por job en ejecutores hospedados ([límites](https://docs.github.com/en/actions/reference/limits)) y retención predeterminada de 90 días para artefactos ([retención de Actions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)). Por ello, la captura de 24 h y la custodia de los datos de un holdout de 365 días necesitan una máquina persistente y almacenamiento durable; el artefacto temporal de un job hospedado no es sustituto de esa evidencia.
 
 **Dictamen intacto:** no declarar 100 %, no nombrar una estrategia ganadora sin resultados independientes, no iniciar T0 ni habilitar LIVE. Mantener **NO_TRADE**.
+
+
+## Actualización tras el hardening de bookTicker y matriz Python 3.11–3.14 — 2026-10-18
+
+La auditoría del validador halló que `symbols_summary[*].maximum_inter_event_gap_seconds` se comparaba con el número recalculado sin exigir primero un tipo numérico canónico. La corrección en SHA funcional `85e0aaf8080345630b35d7c6e1d4db0ed85291b0` exige un `float` finito no negativo y rechaza valores booleanos; su nueva regresión fuerza `true` en una captura sintética con gap calculado de 1.0 segundo y verifica que no se acepte el manifiesto.
+
+También se amplió `.github/workflows/tests.yml` para ejecutar la suite completa en Python 3.11, 3.12, 3.13 y 3.14, alineando las pruebas con `requires-python >=3.11` y las versiones soportadas por las dependencias de test y WebSocket. En el SHA funcional `85e0aaf8080345630b35d7c6e1d4db0ed85291b0`, todos los cuatro jobs de pytest terminaron `success` y `pip-audit` terminó `success`; CodeQL estaba todavía en curso al tomar la instantánea. Las pruebas cruzadas mejoran confianza técnica, pero no aumentan la puntuación económica.
+
+**Estado sin cambios:** preparación **77/100**; evidencia económica 5/20; captura prospectiva real de la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sin aceptar; BTC_ETH_STRATEGIES_V2 `DESIGNED / NOT RUN`, sin T0 ni holdout anual; decisión `NO_TRADE`. No se declara edge ganador ni se habilita LIVE.
