@@ -14,6 +14,7 @@ from bot_obrero.binance_book_ticker import (
 )
 from bot_obrero.binance_websocket import (
     BinanceWebSocketPayloadError,
+    BinanceWebSocketProtocolError,
     BinanceWebSocketServerShutdown,
 )
 
@@ -99,6 +100,17 @@ def test_parser_fails_closed_on_invalid_quote_contract(event, symbol, received, 
             requested_symbol=symbol,
             received_at=received,
             available_at=available,
+        )
+
+
+@pytest.mark.parametrize("event_type", [[], {}, True, 17])
+def test_parser_rejects_non_string_event_type_without_leaking_type_error(event_type):
+    with pytest.raises(BinanceWebSocketProtocolError, match="unexpected Binance WebSocket event type"):
+        parse_binance_book_ticker_event(
+            payload(e=event_type),
+            requested_symbol="BTCUSDT",
+            received_at=START,
+            available_at=START + timedelta(seconds=1),
         )
 
 
