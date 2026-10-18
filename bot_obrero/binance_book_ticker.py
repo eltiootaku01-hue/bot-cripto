@@ -199,14 +199,21 @@ class BinanceSpotBookTickerWebSocketAdapter:
         max_messages: int = 1,
         on_item: Callable[[BinanceBookTicker], None],
         should_stop: Callable[[], bool] | None = None,
+        retain_results: bool = True,
     ) -> list[BinanceBookTicker]:
-        """Receive a bounded batch and hand each accepted quote to its durable consumer immediately."""
+        """Receive a bounded batch and hand each quote to its sink immediately.
+
+        Set retain_results=False for long-running durable captures so the adapter
+        does not accumulate a second in-memory copy of every streamed quote.
+        """
         if symbol not in APPROVED_SYMBOLS:
             raise ValueError("bookTicker capture requires the approved BTCUSDT/ETHUSDT symbol")
         if isinstance(max_messages, bool) or type(max_messages) is not int or max_messages < 1:
             raise ValueError("max_messages must be an integer >= 1")
         if not callable(on_item):
             raise ValueError("on_item must be callable")
+        if type(retain_results) is not bool:
+            raise ValueError("retain_results must be a boolean")
         if self._consumer_handoff_clock is None:
             raise ValueError("bookTicker capture requires an explicit consumer_handoff_clock")
         if should_stop is not None and not callable(should_stop):
@@ -242,7 +249,8 @@ class BinanceSpotBookTickerWebSocketAdapter:
                 )
                 # Sink exceptions intentionally propagate; a quote must not be acknowledged as stored if persistence failed.
                 on_item(item)
-                results.append(item)
+                if retain_results:
+                    results.append(item)
             return results
         finally:
             try:
