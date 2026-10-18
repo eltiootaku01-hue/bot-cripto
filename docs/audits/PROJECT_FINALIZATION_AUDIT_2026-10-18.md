@@ -7,7 +7,7 @@
 
 ## 1. Dictamen de cierre
 
-**Preparación publicada revisada: 76/100. Objetivo >90: NO ALCANZADO.**
+**Preparación publicada revisada: 77/100. Objetivo >90: NO ALCANZADO.**
 
 No se sube la puntuación por documentar una idea, añadir herramientas o lograr que compile el código. El informe de preparación vigente asigna 5/20 al área de evidencia económica. Con las otras seis áreas en su máximo, esa categoría limita el total a 85/100. Superar 90 requiere nueva evidencia económica que permita puntuar esa categoría al menos en 11/20, además de cerrar los gates técnicos pertinentes.
 
