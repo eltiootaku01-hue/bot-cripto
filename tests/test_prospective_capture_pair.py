@@ -87,10 +87,23 @@ def test_failed_child_stops_the_other_capture_and_persists_blocked_pair_manifest
         return process
 
     fixed_now = datetime(2026, 10, 18, 0, 0, 1, tzinfo=UTC)
+    # This unit test exercises child-process failure handling, not Git provenance.
+    # Keep provenance stable so concurrent pushes to origin/main cannot make this
+    # test fail before the fake child process is inspected.
+    clean_provenance = {
+        "status": "VALID",
+        "reason": None,
+        "git_head_sha": "a" * 40,
+        "origin_main_sha": "a" * 40,
+        "live_main_sha": "a" * 40,
+        "branch": "main",
+        "source_status_entries": [],
+    }
     result = run_capture_pair(
         output_dir=tmp_path,
         python_executable="python",
         align_to_utc_midnight=False,
+        source_provenance_resolver=lambda _cwd: clean_provenance,
         popen_factory=fake_popen,
         clock=lambda: fixed_now,
         sleep=lambda _seconds: None,
