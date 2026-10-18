@@ -108,3 +108,12 @@ Los tests de la regresión de gracia validan el escenario sintético 24 h exacta
 - `main` verificado en `5c058db7c96c09d6df36c29087c0f9b5991bf558`.
 - En ese SHA terminaron en `success` los tests [run 39106093676](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093676), CodeQL [run 39106093663](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093663) y la auditoría de dependencias [run 39106093739](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093739).
 - No hay PR abiertas. El único bloqueo de entrega externa observado es [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98): faltan los manifiestos reales, validados e inmutables de la captura Kline + bookTicker. La preparación permanece en **76/100**, la estrategia en `NO_TRADE`, y no se habilita LIVE.
+
+
+## 9. Actualización funcional — orquestador de captura conjunta (18-10-2026)
+
+Se integró `bot_obrero/prospective_capture_pair.py` directamente en `main` para eliminar el riesgo operacional de coordinar a mano dos terminales: selecciona una ventana de inicio UTC, lanza Kline y bookTicker con argumentos fijos de datos públicos, supervisa ambas ejecuciones, interrumpe el colector compañero cuando uno falla y no declara éxito hasta que el validador conjunto revalida los dos manifiestos. Los logs y `pair-manifest.json` se conservan para diagnóstico y trazabilidad. La guía [PROSPECTIVE_BTC_ETH_CAPTURE_V1.md](../PROSPECTIVE_BTC_ETH_CAPTURE_V1.md) y la [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) se actualizaron para priorizar el comando único.
+
+CI del SHA `b1a21381a54e64db87f89265bd351d9db0370a65`: tests [39108357014](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108357014) = 1655 passed; pip-audit [39108357017](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108357017) = success; CodeQL [39108356962](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108356962) = success. Estos checks prueban el commit indicado; cada commit posterior debe tener sus propios checks.
+
+La rúbrica sube de 76 a **77/100** solo por la nueva supervisión local y su cobertura de regresión. No es captura real ni evidencia de rentabilidad. La issue #98 permanece abierta hasta que el runner complete una captura real de ≥86.400 s de solapamiento, manifiestos válidos, día UTC común y hashes reproducibles. Después todavía hará falta ejecutar el holdout preregistrado; `NO_TRADE` sigue siendo obligatorio.
