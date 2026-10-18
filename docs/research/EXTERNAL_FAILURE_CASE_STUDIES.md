@@ -423,3 +423,16 @@ La primera versión del orquestador Kline + bookTicker guardaba los hashes del d
 **Defensa complementaria:** Freqtrade explica que su análisis anti-lookahead no puede verificar los tipos de señales que nunca se activan, por lo que la cobertura importa: [Freqtrade Lookahead Analysis 2026.5](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/). Binance documenta una vida máxima de 24 h por WebSocket y el evento `serverShutdown`, justificando la captura supervisada que sigue pendiente: [Binance Spot WebSocket Streams](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md).
 
 **Validación exacta del motor:** SHA `939a862e01de598da392d687b790d83017a9321c`; 1675 tests, CodeQL y pip-audit exitosos en el mismo SHA. **Replay V1:** SHA `b1effde0e0f786bc7dde7dd2bb5ec974802c5929`; replay anual completo exitoso. La corrección no cambia los retornos del líder histórico, pero sí hace más comparable su drawdown. `NO_ROBUST_EDGE_FOUND / NO_TRADE` sigue siendo la conclusión.
+
+
+## 17. Python 3.12.15 — revisión de parche de seguridad upstream (18-10-2026)
+
+**Fuente primaria:** [release oficial de Python 3.12.15, 30-09-2026](https://www.python.org/downloads/release/python-31215/).
+
+**Fallo corregido por el mantenedor:** el release de seguridad repara problemas de la biblioteca estándar, entre ellos validación de parámetros SSL, extracción de archivos TAR mediante hardlinks/symlinks y filtros, asignación de memoria en descompresión ZIP, credenciales HTTP reutilizadas entre esquemas y tratamiento de caracteres IDNA/stringprep. La nota oficial enumera, entre otros, CVE-2026-19445, CVE-2026-19553, CVE-2026-82049, CVE-2026-15310, CVE-2026-19672, CVE-2026-15806, CVE-2026-17084 y CVE-2026-87910. El mantenedor también actualizó Expat incluido.
+
+**Contraste local observable:** `.github/workflows/tests.yml` y `.github/workflows/dependency-audit.yml` solicitan Python `3.12`. En el log de tests del SHA `1d444afc2eec32b3b8f0426cdec0cfa63aacb145`, `actions/setup-python` instaló explícitamente **CPython 3.12.15**; la suite terminó con **1675 pruebas aprobadas** ([tests run 39114165153](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114165153)). CodeQL ([run 39114165155](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114165155)) y pip-audit ([run 39114165120](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114165120)) también finalizaron `success` sobre ese mismo SHA.
+
+**Interpretación y acción:** la actualización del intérprete es un control de seguridad de la plataforma, no evidencia de que BOT-CRIPTO hubiera explotado estos CVE. No se aplicó un parche especulativo a código de negocio: CI ya ejecutó la versión corregida y pasó. `requires-python >=3.11` no fija parches de seguridad para las instalaciones locales; los despliegues deben usar una distribución de Python mantenida y actualizada. La suite actual valida Python 3.12, pero no demuestra por sí sola compatibilidad con todas las versiones mayores declaradas por el límite abierto del paquete. Una futura ampliación de matriz (por ejemplo, Python 3.13/3.14) debe validarse como cambio separado antes de ampliar las afirmaciones de compatibilidad.
+
+**Límite:** estos resultados no cambian la preparación económica, no cuentan como captura prospectiva y no modifican `NO_TRADE`.
