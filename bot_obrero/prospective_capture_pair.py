@@ -25,7 +25,7 @@ from .prospective_book_ticker_capture import (
     validate_paired_manifests,
 )
 from .prospective_capture import (
-    DEFAULT_DURATION_SECONDS as KLINE_DURATION_SECONDS,
+    DEFAULT_DURATION_SECONDS as KLINE_BASE_DURATION_SECONDS,
     DEFAULT_GRACE_SECONDS as KLINE_GRACE_SECONDS,
 )
 
@@ -33,6 +33,9 @@ SCHEMA_VERSION = 1
 DEFAULT_OUTPUT_DIR = Path("evidence/prospective-btc-eth-pair")
 DEFAULT_MONITOR_INTERVAL_SECONDS = 1.0
 UTC_START_TOLERANCE_SECONDS = 10.0
+# Keep the pair's common overlap above 24 hours despite sequential child startup.
+PAIR_OVERLAP_GUARD_SECONDS = 60
+KLINE_DURATION_SECONDS = KLINE_BASE_DURATION_SECONDS + PAIR_OVERLAP_GUARD_SECONDS
 
 Clock = Callable[[], datetime]
 Sleep = Callable[[float], None]
@@ -333,7 +336,10 @@ def run_capture_pair(
         "capture_kind": "PROSPECTIVE_BINANCE_SPOT_KLINE_AND_BOOK_TICKER_PAIR",
         "symbols": ["BTCUSDT", "ETHUSDT"],
         "interval": "1h",
-        "target_duration_seconds": KLINE_DURATION_SECONDS,
+        "target_duration_seconds": BOOK_TICKER_DURATION_SECONDS,
+        "kline_duration_seconds": KLINE_DURATION_SECONDS,
+        "bookticker_duration_seconds": BOOK_TICKER_DURATION_SECONDS,
+        "pair_overlap_guard_seconds": PAIR_OVERLAP_GUARD_SECONDS,
         "kline_grace_seconds": KLINE_GRACE_SECONDS,
         "bookticker_grace_seconds": DEFAULT_CAPTURE_GRACE_SECONDS,
         "minimum_overlap_seconds": BOOK_TICKER_DURATION_SECONDS,
@@ -496,7 +502,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Run paired prospective Binance Spot Kline + bookTicker capture; no trading."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    capture = subparsers.add_parser("capture", help="wait for UTC midnight, capture 24h+grace, then validate both datasets")
+    capture = subparsers.add_parser("capture", help="wait for UTC midnight, capture paired datasets with overlap guard, then validate")
     capture.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     capture.add_argument("--monitor-interval-seconds", type=float, default=DEFAULT_MONITOR_INTERVAL_SECONDS)
     args = parser.parse_args(argv)
