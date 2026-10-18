@@ -135,3 +135,13 @@ La puntuación se mantiene en **77/100**. La captura de mercado real no se ha ej
 La espera por medianoche UTC puede durar casi 24 horas, por lo que una comprobación Git al invocar el comando no bastaba. El supervisor ahora revalida HEAD, origin/main, rama y estado fuente después de la espera e inmediatamente antes de iniciar los colectores, y vuelve a comprobarlo cuando terminan, antes de validar/aceptar los datos. Si no coincide con la revisión limpia original, la corrida queda BLOCKED y no puede usarse para el preregistro.
 
 SHA funcional 76e770cf86f02359a7bbd1353d1c5aea0094eeec: 1663 tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051), pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053). La puntuación conserva 77/100. La captura real permanece pendiente en issue #98; NO_TRADE no cambia.
+
+## 12. Regresión de procedencia tras la ejecución de los colectores — 18-10-2026
+
+**Brecha de cobertura revisada:** el orquestador ya comparaba la procedencia antes de validar manifiestos, pero faltaba una regresión que demostrara específicamente el caso en el que ambos hijos terminan con código cero y el SHA cambia durante la corrida.
+
+**Cobertura añadida:** `tests/test_prospective_capture_pair.py::test_pair_capture_blocks_if_source_revision_changes_after_children_finish` crea manifiestos sintéticos, simula la revisión inicial y la revisión distinta al terminar, y exige `BLOCKED`, motivo `CAPTURE_SOURCE_PROVENANCE_CHANGED_DURING_RUN` y ausencia de llamada al validador de aceptación. Los artefactos sintéticos solo prueban la guarda; no se aceptan como evidencia de mercado.
+
+**Verificación exacta del commit funcional:** [tests 39111442312](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442312), **1664 passed in 15.78s**; [CodeQL 39111442302](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442302), success; [pip-audit 39111442300](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442300), success. SHA probado: `33979f0f96afdd54189834cc64996fd2c220fb9a`.
+
+La preparación se mantiene en **77/100**. No se concede puntuación por una prueba de regresión como si fuera captura real; issue #98, preregistro/holdout económico y decisión `NO_TRADE` no cambian.

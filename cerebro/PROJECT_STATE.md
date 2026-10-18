@@ -217,3 +217,10 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 En SHA 76e770cf86f02359a7bbd1353d1c5aea0094eeec, tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859114) pasaron 1663 casos; CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859051) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109859053) deben quedar en success en ese mismo SHA antes de finalizar.
 
 El supervisor vuelve a comparar HEAD, origin/main, rama y source status inmediatamente antes de lanzar los sockets y cuando las capturas finalizan. Un cambio durante la espera UTC o durante la corrida impide aceptar la pareja. No hubo incremento de puntuación: permanece 77/100, porque este control no sustituye la captura real ni la validación económica prospectiva.
+
+## Verificación de procedencia al finalizar la captura — 18-10-2026
+
+- Se añadió en `tests/test_prospective_capture_pair.py` una regresión que simula ambos procesos de captura terminados correctamente, pero cambia el SHA de la fuente antes de aceptar los manifiestos.
+- Resultado esperado y comprobado: la pareja termina `BLOCKED`, conserva el manifiesto, no invoca el validador de aceptación y no permite usar datos recogidos bajo una revisión de código distinta de la revisión inicial.
+- SHA funcional probado: `33979f0f96afdd54189834cc64996fd2c220fb9a`. Tests: [run 39111442312](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442312), **1664 passed in 15.78s**; CodeQL: [run 39111442302](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442302), success; pip-audit: [run 39111442300](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442300), success. Los tres checks corresponden al mismo SHA.
+- **Preparación sin cambio: 77/100.** La prueba cierra una brecha de cobertura de una guarda existente, pero no representa una captura real ni evidencia de edge. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) continúa abierta; `NO_TRADE` sigue vigente y LIVE continúa deshabilitado.
