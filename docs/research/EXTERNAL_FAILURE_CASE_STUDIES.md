@@ -248,3 +248,20 @@ El patrón aplicado sigue una recomendación de defensa en profundidad: un resul
 Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y sus releases publicadas; no se copiaron SHA de forks. Los cambios son de seguridad/reproducibilidad, no de comportamiento financiero. CI completo de PR [39079618993](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079618993) y CI exacto de main tras merge [39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856) pasaron con 1598 pruebas en main. Cualquier actualización posterior exige revisar release/diff y cambiar el SHA intencionalmente.
 
 **Límite:** pinnear una dependencia no demuestra por sí solo que su código esté libre de errores, ni prueba la rentabilidad de BOT-CRIPTO.
+
+
+## 14. Mantenedores de GitHub/PyPA: análisis estático y fallos del propio auditor
+
+**Fuentes oficiales:**
+- GitHub mantiene CodeQL para encontrar vulnerabilidades y errores de código; las reglas estándar y extendidas se actualizan con el proyecto: https://docs.github.com/en/code-security/concepts/code-scanning/codeql/codeql-code-scanning
+- PyPA `pip-audit` compara los paquetes instalados con bases publicadas de vulnerabilidades: https://github.com/pypa/pip-audit
+- El mantenedor de `pip-audit` publicó la versión 2.10.1 después de corregir un `KeyError` al interpretar un registro OSV que omitía el campo opcional `ranges`: https://github.com/pypa/pip-audit/releases/tag/v2.10.1
+- CodeQL Action v4.38.2 se publicó el 24 de septiembre de 2026; el proyecto usa el commit upstream completo `2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2` y no una etiqueta móvil: https://github.com/github/codeql-action/releases/tag/v4.38.2
+
+**Brecha local observada:** el repositorio ya tenía CI unitario/E2E y pinning inmutable para Actions, pero no se había comprobado un workflow CodeQL recurrente ni una auditoría automática de vulnerabilidades Python.
+
+**Mitigación propuesta en la PR de seguridad:** CodeQL `security-extended` para Python y workflow Actions; `pip-audit==2.10.1` en el entorno instalado; Dependabot semanal para el ecosistema `pip` y `github-actions`. El análisis y la auditoría se ejecutan para PRs a main, pushes a main, y de forma semanal/manual. La acción CodeQL y las acciones base van fijadas por SHA.
+
+**Hallazgo corregible obtenido de la primera ejecución de este mismo auditor:** se detectó `PYSEC-2026-1845` en `pytest 8.4.2`, corregido desde la release `9.0.3`. La vulnerabilidad trata el uso de directorios temporales inseguros en Unix; la release del mantenedor documenta la corrección de `CVE-2025-71176`. Fuentes: https://github.com/advisories/GHSA-6w46-j5rx-g56g y https://github.com/pytest-dev/pytest/releases/tag/9.0.3. La PR cambia el extra de test a `pytest>=9.0.3,<9.1` y exige revalidar todas las pruebas más `pip-audit` antes de merge.
+
+**Límites:** los scanners encuentran solo los problemas cubiertos por sus reglas y fuentes; no demuestran ausencia de vulnerabilidades. Si el auditor detecta una vulnerabilidad, la respuesta correcta es revisar y actualizar el paquete (o documentar una mitigación revisada), no ignorar el código de salida. Estas medidas no aportan evidencia de edge económico ni habilitan operaciones LIVE.
