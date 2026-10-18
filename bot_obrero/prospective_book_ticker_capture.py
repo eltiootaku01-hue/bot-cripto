@@ -37,6 +37,7 @@ from .prospective_capture import (
 
 SCHEMA_VERSION = 1
 DEFAULT_DURATION_SECONDS = 24 * 60 * 60
+DEFAULT_CAPTURE_GRACE_SECONDS = 300
 DEFAULT_MAX_MESSAGES_PER_CONNECTION = 2_147_483_647  # hold one connection open until stop/disconnect
 DEFAULT_FSYNC_EVERY_RECORDS = 1000
 DEFAULT_FSYNC_INTERVAL_SECONDS = 1.0
@@ -130,8 +131,10 @@ def _evaluate(
     target_duration_seconds: int,
     max_inter_event_gap_seconds: float,
     fatal_errors: Sequence[Any],
+    capture_grace_seconds: int = 0,
 ) -> dict[str, Any]:
-    elapsed_met = elapsed_seconds >= target_duration_seconds
+    minimum_elapsed_seconds = target_duration_seconds + capture_grace_seconds
+    elapsed_met = elapsed_seconds >= minimum_elapsed_seconds
     no_fatal = not fatal_errors
     wall_elapsed = None
     wall_consistency = False
@@ -184,6 +187,8 @@ def _evaluate(
     return {
         "elapsed_duration_met": elapsed_met,
         "target_duration_seconds": target_duration_seconds,
+        "capture_grace_seconds": capture_grace_seconds,
+        "minimum_elapsed_seconds": minimum_elapsed_seconds,
         "actual_elapsed_seconds": round(elapsed_seconds, 3),
         "wall_clock_elapsed_seconds": None if wall_elapsed is None else round(wall_elapsed, 3),
         "wall_clock_consistency_pass": wall_consistency,
@@ -202,6 +207,7 @@ class ProspectiveBookTickerJournal:
         output_dir: Path,
         symbols: Sequence[str] = APPROVED_SYMBOLS,
         duration_seconds: int = DEFAULT_DURATION_SECONDS,
+        capture_grace_seconds: int = 0,
         fsync_every_records: int = DEFAULT_FSYNC_EVERY_RECORDS,
         fsync_interval_seconds: float = DEFAULT_FSYNC_INTERVAL_SECONDS,
         manifest_update_interval_seconds: float = DEFAULT_MANIFEST_UPDATE_INTERVAL_SECONDS,
@@ -221,6 +227,8 @@ class ProspectiveBookTickerJournal:
             raise ProspectiveBookTickerCaptureError("CAPTURE_REQUIRES_EXACT_PAIR_BTCUSDT_ETHUSDT")
         if isinstance(duration_seconds, bool) or type(duration_seconds) is not int or duration_seconds < DEFAULT_DURATION_SECONDS:
             raise ProspectiveBookTickerCaptureError("CAPTURE_DURATION_MUST_BE_AT_LEAST_24_HOURS")
+        if isinstance(capture_grace_seconds, bool) or type(capture_grace_seconds) is not int or capture_grace_seconds < 0:
+            raise ProspectiveBookTickerCaptureError("CAPTURE_GRACE_SECONDS_INVALID")
         if isinstance(fsync_every_records, bool) or type(fsync_every_records) is not int or fsync_every_records < 1:
             raise ProspectiveBookTickerCaptureError("FSYNC_EVERY_RECORDS_INVALID")
         if not math.isfinite(fsync_interval_seconds) or fsync_interval_seconds <= 0:
@@ -232,6 +240,7 @@ class ProspectiveBookTickerJournal:
 
         self.symbols = normalized
         self.duration_seconds = duration_seconds
+        self.capture_grace_seconds = capture_grace_seconds
         self.fsync_every_records = fsync_every_records
         self.fsync_interval_seconds = fsync_interval_seconds
         self.manifest_update_interval_seconds = manifest_update_interval_seconds
@@ -276,6 +285,7 @@ class ProspectiveBookTickerJournal:
             "capture_kind": "PROSPECTIVE_PUBLIC_BINANCE_SPOT_BOOK_TICKER",
             "symbols": list(self.symbols),
             "target_duration_seconds": duration_seconds,
+            "capture_grace_seconds": capture_grace_seconds,
             "maximum_inter_event_gap_seconds": max_inter_event_gap_seconds,
             "fsync_every_records": fsync_every_records,
             "fsync_interval_seconds": fsync_interval_seconds,
@@ -301,6 +311,7 @@ class ProspectiveBookTickerJournal:
             "capture_started_at": None,
             "capture_ended_at": None,
             "target_duration_seconds": duration_seconds,
+            "capture_grace_seconds": capture_grace_seconds,
             "actual_elapsed_seconds": None,
             "symbols": list(self.symbols),
             "configuration": config,
@@ -475,6 +486,7 @@ class ProspectiveBookTickerJournal:
             target_duration_seconds=self.duration_seconds,
             max_inter_event_gap_seconds=self.max_inter_event_gap_seconds,
             fatal_errors=self._manifest["fatal_errors"],
+            capture_grace_seconds=self.capture_grace_seconds,
         )
 
     def finalize(
@@ -563,10 +575,15 @@ def validate_manifest(path: Path) -> dict[str, Any]:
     if hashlib.sha256(_canonical_json(config)).hexdigest() != manifest.get("configuration_sha256"):
         raise ProspectiveBookTickerCaptureError("CONFIGURATION_HASH_MISMATCH")
     target_duration = manifest.get("target_duration_seconds")
+    capture_grace = manifest.get("capture_grace_seconds")
     elapsed = manifest.get("actual_elapsed_seconds")
     if type(target_duration) is not int or isinstance(target_duration, bool) or target_duration < DEFAULT_DURATION_SECONDS:
         raise ProspectiveBookTickerCaptureError("TARGET_DURATION_INVALID")
-    if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)) or not math.isfinite(elapsed) or elapsed < target_duration:
+    if type(capture_grace) is not int or isinstance(capture_grace, bool) or capture_grace < 0:
+        raise ProspectiveBookTickerCaptureError("CAPTURE_GRACE_INVALID")
+    if config.get("target_duration_seconds") != target_duration or config.get("capture_grace_seconds") != capture_grace:
+        raise ProspectiveBookTickerCaptureError("CAPTURE_DURATION_CONFIGURATION_MISMATCH")
+    if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)) or not math.isfinite(elapsed) or elapsed < target_duration + capture_grace:
         raise ProspectiveBookTickerCaptureError("ELAPSED_DURATION_INVALID")
     start = _timestamp(manifest.get("capture_started_at"), "capture_started_at")
     end = _timestamp(manifest.get("capture_ended_at"), "capture_ended_at")
@@ -725,6 +742,7 @@ def validate_manifest(path: Path) -> dict[str, Any]:
         target_duration_seconds=target_duration,
         max_inter_event_gap_seconds=float(config["maximum_inter_event_gap_seconds"]),
         fatal_errors=manifest.get("fatal_errors", []),
+        capture_grace_seconds=capture_grace,
     )
     if not recomputed["accepted"]:
         raise ProspectiveBookTickerCaptureError("INDEPENDENT_ACCEPTANCE_FAILED")
@@ -881,6 +899,7 @@ def capture(
     output_dir: Path,
     symbols: Sequence[str] = APPROVED_SYMBOLS,
     duration_seconds: int = DEFAULT_DURATION_SECONDS,
+    grace_seconds: int = DEFAULT_CAPTURE_GRACE_SECONDS,
     max_messages_per_connection: int = DEFAULT_MAX_MESSAGES_PER_CONNECTION,
     timeout_seconds: float = 10.0,
     reconnect_base_seconds: float = DEFAULT_RECONNECT_BASE_SECONDS,
@@ -889,6 +908,11 @@ def capture(
     align_next_utc_midnight: bool = True,
 ) -> dict[str, Any]:
     """Capture quote streams for both symbols with fail-closed persistence and bounded reconnects."""
+    if isinstance(duration_seconds, bool) or type(duration_seconds) is not int or duration_seconds < DEFAULT_DURATION_SECONDS:
+        raise ProspectiveBookTickerCaptureError("CAPTURE_DURATION_MUST_BE_AT_LEAST_24_HOURS")
+    if isinstance(grace_seconds, bool) or type(grace_seconds) is not int or grace_seconds < 0:
+        raise ProspectiveBookTickerCaptureError("CAPTURE_GRACE_SECONDS_INVALID")
+    capture_window_seconds = duration_seconds + grace_seconds
     if isinstance(max_messages_per_connection, bool) or type(max_messages_per_connection) is not int or max_messages_per_connection < 1:
         raise ProspectiveBookTickerCaptureError("MAX_MESSAGES_PER_CONNECTION_INVALID")
     if timeout_seconds <= 0 or not math.isfinite(timeout_seconds):
@@ -900,6 +924,7 @@ def capture(
         output_dir=output_dir,
         symbols=symbols,
         duration_seconds=duration_seconds,
+        capture_grace_seconds=grace_seconds,
         max_inter_event_gap_seconds=max_inter_event_gap_seconds,
     )
     stop = threading.Event()
@@ -916,7 +941,7 @@ def capture(
 
     def worker(symbol: str) -> None:
         backoff = reconnect_base_seconds
-        while not stop.is_set() and time.monotonic() - monotonic_start < duration_seconds:
+        while not stop.is_set() and time.monotonic() - monotonic_start < capture_window_seconds:
             journal.note_connection_attempt(symbol)
             adapter = BinanceSpotBookTickerWebSocketAdapter(timeout_seconds=timeout_seconds)
             try:
@@ -948,8 +973,8 @@ def capture(
     threads = [threading.Thread(target=worker, args=(symbol,), name=f"bookticker-{symbol}", daemon=True) for symbol in symbols]
     for thread in threads:
         thread.start()
-    while time.monotonic() - monotonic_start < duration_seconds and not stop.is_set():
-        time.sleep(min(1.0, max(0.05, duration_seconds - (time.monotonic() - monotonic_start))))
+    while time.monotonic() - monotonic_start < capture_window_seconds and not stop.is_set():
+        time.sleep(min(1.0, max(0.05, capture_window_seconds - (time.monotonic() - monotonic_start))))
     elapsed = max(0.0, time.monotonic() - monotonic_start)
     stop.set()
     for thread in threads:
@@ -973,6 +998,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_parser.add_argument("--output-dir", type=Path, required=True)
     run_parser.add_argument("--symbols", nargs=2, default=list(APPROVED_SYMBOLS))
     run_parser.add_argument("--duration-seconds", type=int, default=DEFAULT_DURATION_SECONDS)
+    run_parser.add_argument("--grace-seconds", type=int, default=DEFAULT_CAPTURE_GRACE_SECONDS)
     run_parser.add_argument("--max-messages-per-connection", type=int, default=DEFAULT_MAX_MESSAGES_PER_CONNECTION)
     run_parser.add_argument("--timeout-seconds", type=float, default=10.0)
     run_parser.add_argument("--max-inter-event-gap-seconds", type=float, default=DEFAULT_MAX_INTER_EVENT_GAP_SECONDS)
@@ -989,6 +1015,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             symbols=args.symbols,
             duration_seconds=args.duration_seconds,
+            grace_seconds=args.grace_seconds,
             max_messages_per_connection=args.max_messages_per_connection,
             timeout_seconds=args.timeout_seconds,
             max_inter_event_gap_seconds=args.max_inter_event_gap_seconds,
