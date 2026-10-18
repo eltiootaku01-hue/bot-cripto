@@ -116,7 +116,8 @@ def parse_binance_book_ticker_event(
         raise BinanceWebSocketPayloadError("requested symbol is outside the approved BTC/ETH pair")
     if event.get("e") == "serverShutdown":
         raise BinanceWebSocketServerShutdown("Binance sent serverShutdown; reconnect is required")
-    if "e" in event and event.get("e") not in {"bookTicker", None}:
+    event_type = event.get("e")
+    if "e" in event and event_type is not None and event_type != "bookTicker":
         raise BinanceWebSocketProtocolError("unexpected Binance WebSocket event type")
     symbol = event.get("s")
     if type(symbol) is not str or symbol != requested_symbol:
