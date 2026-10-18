@@ -718,19 +718,30 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_SCHEMA_INVALID")
     if _json_hash(configuration) != manifest.get("configuration_sha256"):
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_HASH_MISMATCH")
+    configured_target_seconds = configuration.get("target_duration_seconds")
+    manifest_target_seconds = manifest.get("target_duration_seconds")
     if (
         configuration.get("interval") != DEFAULT_INTERVAL
         or tuple(configuration.get("symbols", ())) != symbols
-        or configuration.get("target_duration_seconds") != manifest.get("target_duration_seconds")
+        or type(configured_target_seconds) is not int
+        or type(manifest_target_seconds) is not int
+        or configured_target_seconds != manifest_target_seconds
+        or manifest_target_seconds < DEFAULT_DURATION_SECONDS
     ):
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_CONTRACT_INVALID")
     try:
         capture_start = _aware_utc(datetime.fromisoformat(str(manifest["capture_started_at"])), "capture_started_at")
         capture_end = _aware_utc(datetime.fromisoformat(str(manifest["capture_ended_at"])), "capture_ended_at")
-        elapsed_seconds = float(manifest["actual_elapsed_seconds"])
-        target_seconds = int(manifest["target_duration_seconds"])
+        elapsed_raw = manifest["actual_elapsed_seconds"]
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise ProspectiveCaptureError("CAPTURE_TIMESTAMPS_OR_DURATION_INVALID") from exc
+    if isinstance(elapsed_raw, bool) or not isinstance(elapsed_raw, (int, float)):
+        raise ProspectiveCaptureError("CAPTURE_TIMESTAMPS_OR_DURATION_INVALID")
+    try:
+        elapsed_seconds = float(elapsed_raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ProspectiveCaptureError("CAPTURE_TIMESTAMPS_OR_DURATION_INVALID") from exc
+    target_seconds = manifest_target_seconds
     scheduled_raw = manifest.get("scheduled_capture_start_at")
     if scheduled_raw is not None:
         scheduled_start = _aware_utc(datetime.fromisoformat(str(scheduled_raw)), "scheduled_capture_start_at")
