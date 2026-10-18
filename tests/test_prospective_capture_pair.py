@@ -119,6 +119,7 @@ def test_source_provenance_binds_a_clean_repository_head_and_branch(tmp_path):
         SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
         SimpleNamespace(returncode=0, stdout=head + "\n"),
         SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
         SimpleNamespace(returncode=0, stdout=""),
     ])
     calls = []
@@ -132,7 +133,7 @@ def test_source_provenance_binds_a_clean_repository_head_and_branch(tmp_path):
     assert provenance["git_head_sha"] == head
     assert provenance["branch"] == "main"
     assert provenance["source_status_entries"] == []
-    assert len(calls) == 4
+    assert len(calls) == 5
 
 
 def test_source_provenance_blocks_modified_capture_sources(tmp_path):
@@ -141,6 +142,7 @@ def test_source_provenance_blocks_modified_capture_sources(tmp_path):
         SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
         SimpleNamespace(returncode=0, stdout=head + "\n"),
         SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
         SimpleNamespace(returncode=0, stdout=" M bot_obrero/prospective_capture_pair.py\n"),
     ])
 
@@ -158,6 +160,7 @@ def test_source_provenance_blocks_execution_outside_repository_root(tmp_path):
         SimpleNamespace(returncode=0, stdout=str(tmp_path.parent) + "\n"),
         SimpleNamespace(returncode=0, stdout="c" * 40 + "\n"),
         SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout="c" * 40 + "\n"),
         SimpleNamespace(returncode=0, stdout=""),
     ])
     provenance = _capture_source_provenance(
@@ -196,6 +199,7 @@ def test_source_provenance_blocks_capture_from_non_main_branch(tmp_path):
         SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
         SimpleNamespace(returncode=0, stdout="e" * 40 + "\n"),
         SimpleNamespace(returncode=0, stdout="research/probe\n"),
+        SimpleNamespace(returncode=0, stdout="e" * 40 + "\n"),
         SimpleNamespace(returncode=0, stdout=""),
     ])
     provenance = _capture_source_provenance(
@@ -205,3 +209,21 @@ def test_source_provenance_blocks_capture_from_non_main_branch(tmp_path):
     assert provenance["reason"] == "CAPTURE_REQUIRES_MAIN_BRANCH"
     assert provenance["branch"] == "research/probe"
     assert provenance["git_head_sha"] == "e" * 40
+
+
+
+def test_source_provenance_blocks_main_behind_or_ahead_of_origin_main(tmp_path):
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
+        SimpleNamespace(returncode=0, stdout="f" * 40 + "\n"),
+        SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout="1" * 40 + "\n"),
+        SimpleNamespace(returncode=0, stdout=""),
+    ])
+    provenance = _capture_source_provenance(
+        tmp_path, run_command=lambda _command, **_kwargs: next(outputs)
+    )
+    assert provenance["status"] == "BLOCKED"
+    assert provenance["reason"] == "CAPTURE_MAIN_NOT_UP_TO_DATE"
+    assert provenance["git_head_sha"] == "f" * 40
+    assert provenance["origin_main_sha"] == "1" * 40

@@ -64,6 +64,10 @@ def _capture_source_provenance(
             ["git", "branch", "--show-current"],
             cwd=str(working_directory), capture_output=True, text=True, check=False,
         )
+        origin_main_result = execute(
+            ["git", "rev-parse", "refs/remotes/origin/main"],
+            cwd=str(working_directory), capture_output=True, text=True, check=False,
+        )
         status_result = execute(
             ["git", "status", "--porcelain=v1", "--untracked-files=all", "--",
              "bot_obrero/", "pyproject.toml"],
@@ -75,22 +79,23 @@ def _capture_source_provenance(
             "reason": f"GIT_PROVENANCE_UNAVAILABLE:{type(exc).__name__}",
             "git_head_sha": None,
             "branch": None,
-                        "source_status_entries": [],
+            "source_status_entries": [],
         }
 
-    results = (top_result, head_result, branch_result, status_result)
+    results = (top_result, head_result, branch_result, origin_main_result, status_result)
     if any(getattr(result, "returncode", 1) != 0 for result in results):
         return {
             "status": "UNKNOWN",
             "reason": "GIT_PROVENANCE_COMMAND_FAILED",
             "git_head_sha": None,
             "branch": None,
-                        "source_status_entries": [],
+            "source_status_entries": [],
         }
 
     repo_root_text = str(getattr(top_result, "stdout", "")).strip()
     head_sha = str(getattr(head_result, "stdout", "")).strip().lower()
     branch = str(getattr(branch_result, "stdout", "")).strip() or None
+    origin_main_sha = str(getattr(origin_main_result, "stdout", "")).strip().lower()
     status_text = str(getattr(status_result, "stdout", "")).rstrip()
     status_entries = status_text.splitlines() if status_text else []
 
@@ -100,7 +105,7 @@ def _capture_source_provenance(
             "reason": "CAPTURE_REQUIRES_REPOSITORY_ROOT",
             "git_head_sha": head_sha or None,
             "branch": branch,
-                        "source_status_entries": status_entries,
+            "source_status_entries": status_entries,
         }
     if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", head_sha):
         return {
@@ -108,13 +113,32 @@ def _capture_source_provenance(
             "reason": "GIT_HEAD_SHA_INVALID",
             "git_head_sha": None,
             "branch": branch,
-                        "source_status_entries": status_entries,
+            "source_status_entries": status_entries,
+        }
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", origin_main_sha):
+        return {
+            "status": "UNKNOWN",
+            "reason": "GIT_ORIGIN_MAIN_SHA_INVALID",
+            "git_head_sha": head_sha,
+            "origin_main_sha": None,
+            "branch": branch,
+            "source_status_entries": status_entries,
         }
     if branch != "main":
         return {
             "status": "BLOCKED",
             "reason": "CAPTURE_REQUIRES_MAIN_BRANCH",
             "git_head_sha": head_sha,
+            "origin_main_sha": origin_main_sha,
+            "branch": branch,
+            "source_status_entries": status_entries,
+        }
+    if head_sha != origin_main_sha:
+        return {
+            "status": "BLOCKED",
+            "reason": "CAPTURE_MAIN_NOT_UP_TO_DATE",
+            "git_head_sha": head_sha,
+            "origin_main_sha": origin_main_sha,
             "branch": branch,
             "source_status_entries": status_entries,
         }
@@ -123,15 +147,17 @@ def _capture_source_provenance(
             "status": "BLOCKED",
             "reason": "CAPTURE_SOURCE_WORKTREE_DIRTY",
             "git_head_sha": head_sha,
+            "origin_main_sha": origin_main_sha,
             "branch": branch,
-                        "source_status_entries": status_entries,
+            "source_status_entries": status_entries,
         }
     return {
         "status": "VALID",
         "reason": None,
         "git_head_sha": head_sha,
+        "origin_main_sha": origin_main_sha,
         "branch": branch,
-                "source_status_entries": [],
+        "source_status_entries": [],
     }
 
 
