@@ -360,6 +360,39 @@ def test_validator_rejects_records_that_precede_the_declared_capture_run(tmp_pat
         validate_manifest(manifest_path)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("target_duration_seconds", "86400"),
+        ("actual_elapsed_seconds", "86403.0"),
+    ],
+)
+def test_validator_rejects_string_encoded_duration_numbers(tmp_path, field, value):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    if field == "target_duration_seconds":
+        manifest["target_duration_seconds"] = value
+        manifest["configuration"]["target_duration_seconds"] = value
+        canonical_config = json.dumps(
+            manifest["configuration"],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        manifest["configuration_sha256"] = hashlib.sha256(canonical_config).hexdigest()
+        expected_error = "CAPTURE_CONFIGURATION_CONTRACT_INVALID"
+    else:
+        manifest[field] = value
+        expected_error = "CAPTURE_TIMESTAMPS_OR_DURATION_INVALID"
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProspectiveCaptureError, match=expected_error):
+        validate_manifest(journal.manifest_path)
+
+
 def test_validator_rejects_boolean_manifest_schema_version(tmp_path):
     journal = _finalized_capture(tmp_path)
     manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
