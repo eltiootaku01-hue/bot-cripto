@@ -518,3 +518,18 @@ Una revisión defensiva del nuevo empaquetador encontró que enumerar todos los 
 **CI del SHA funcional exacto:** 1.704 pruebas en cada Python 3.11, 3.12, 3.13 y 3.14; `pip-audit` success; CodeQL success. La prueba de rechazo usa fixtures sintéticos, no un dataset de mercado. Referencias relacionadas de los mantenedores: [Binance Spot WebSocket Streams](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md) documenta desconexiones al cumplir 24 h/`serverShutdown`; [límites oficiales de Actions](https://docs.github.com/en/actions/reference/limits) limita un job hospedado a seis horas. La captura real sigue requiriendo un equipo persistente.
 
 La issue #98 continúa bloqueada y `NO_TRADE` permanece.
+
+
+## Actualización oficial de retención de evidencia de GitHub Actions — 2026-10-18
+
+**Fuente primaria:** [GitHub Changelog, 2026-10-01 — Actions retention now covers checks, runs, and statuses](https://github.blog/changelog/2026-10-01-actions-retention-now-covers-checks-runs-and-statuses/) y [documentación oficial de retención](https://docs.github.com/en/organizations/managing-organization-settings/configuring-the-retention-period-for-github-actions-artifacts-and-logs-in-your-organization?apiVersion=2022-11-28).
+
+**Cambio upstream verificado:** desde el 1 de octubre de 2026, los checks, las ejecuciones de workflows y los commit statuses pasan a respetar la misma política de retención configurada para artefactos y logs. Para repositorios públicos, el máximo documentado es 90 días; ajustar la retención no restaura información que ya se haya eliminado.
+
+**Riesgo para BOT-CRIPTO:** una URL de GitHub Actions verde no debe ser el único archivo de evidencia de larga duración para la captura prospectiva ni para el holdout económico anual. Un artefacto puede caducar y los metadatos de CI pueden desaparecer conforme a la política del repositorio.
+
+**Mitigación recomendada:** tras aceptar una captura real, conservar el directorio original y el ZIP/SHA-256 fuera de la retención temporal de Actions, manteniendo además la configuración, los manifests, hashes, commit exacto, salida del validador y preregistro del experimento. No subir grandes JSONL de mercado a `main`; utilizar almacenamiento durable controlado o un release/archivo persistente con acceso apropiado. Antes de elevar la puntuación de preparación, verificar que la ubicación elegida sea accesible y que el hash guardado coincida con el paquete recibido.
+
+**Separación de evidencia:** este hallazgo actualiza el plan de custodia; no prueba que se haya perdido un artefacto de este repositorio, no constituye una captura de mercado y no cambia la puntuación **77/100** ni la decisión **`NO_TRADE`**.
+
+También se reconsultaron las [notas oficiales de Binance Spot WebSocket](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md), que mantienen la advertencia de una duración máxima de 24 h por conexión y de reconectar ante `serverShutdown`, y la [documentación oficial de SQLite WAL](https://www.sqlite.org/wal.html), que delimita el WAL-reset bug a WAL con conexiones concurrentes. BOT-CRIPTO conserva la exigencia de validación de cobertura/solapamiento real y el uso de journal `DELETE` en la ruta PAPER; esta revisión no encontró evidencia que justifique debilitar ambos gates.
