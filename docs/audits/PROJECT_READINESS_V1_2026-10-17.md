@@ -302,3 +302,12 @@ El commit funcional [`ba9641c463d9699015deab85c14781031f388575`](https://github.
 La herramienta solo empaqueta si el manifiesto de pareja ya es `VALID`, verifica la coherencia de configuración/procedencia, vuelve a ejecutar el validador independiente, rechaza rutas inseguras/archivos temporales y genera un ZIP más un SHA-256 sidecar. Las pruebas usan fixtures sintéticos; no aportan puntuación de adquisición ni rendimiento.
 
 La preparación permanece en **77/100** y la evidencia económica en 5/20. La captura real de la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue pendiente; V2 permanece `DESIGNED / NOT RUN`, sin T0 ni evaluación independiente de 365 días. No promover táctica y mantener `NO_TRADE`.
+
+
+## Hardening del paquete de captura: allowlist y CI en cuatro Python — 2026-10-18
+
+Se endureció `bot_obrero/prospective_capture_bundle.py` tras una segunda revisión: ahora cualquier fichero no reconocido dentro de la corrida bloquea el ZIP. La allowlist exige el manifiesto de pareja, manifiestos individuales, dos JSONL Kline, dos JSONL bookTicker y los dos logs; la prueba `test_bundle_refuses_unexpected_files_instead_of_packaging_them` agrega deliberadamente `logs/operator-notes.txt` y comprueba rechazo sin crear archivo. Se corrigió además el fixture positivo para incluir ambos símbolos BTC y ETH, sin relajar el contrato de producción.
+
+El SHA funcional exacto [`281302deebdfcdf3b23734f651386fed35bf85bf`](https://github.com/eltiootaku01-hue/bot-cripto/commit/281302deebdfcdf3b23734f651386fed35bf85bf) aprobó [pytest](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157860) con **1.704 pruebas por versión** en Python 3.11, 3.12, 3.13 y 3.14, [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157935) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157840), todos `success`.
+
+No se cambia la puntuación de preparación por hardening o tests sintéticos. La matriz se mantiene en **77/100**, evidencia económica 5/20; captura #98 y estudio independiente de 365 días siguen pendientes. `NO_TRADE` permanece.

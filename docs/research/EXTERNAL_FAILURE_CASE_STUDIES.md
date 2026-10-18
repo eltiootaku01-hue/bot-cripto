@@ -509,3 +509,12 @@ Produce un ZIP con tiempos deterministas y un sidecar `.sha256`; rehúsa archivo
 La restricción upstream que motiva mantener la operación fuera de un único job hospedado continúa vigente: GitHub documenta un máximo de seis horas por trabajo hospedado ([límites oficiales](https://docs.github.com/en/actions/reference/limits)), mientras esta evidencia necesita más de 24 horas reales y una futura custodia de 365 días. Binance también documenta el límite de conexión de 24 horas y el evento `serverShutdown` ([WebSocket Streams](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md)); por eso el empaquetador vuelve a validar los manifiestos y la captura conserva logs y procedencia.
 
 **Límite:** la issue #98 sigue abierta hasta recibir el paquete de una ejecución real y aceptarlo de manera independiente. Score de preparación sin incremento; `NO_TRADE` permanece.
+
+
+## 24. El empaquetador debe rechazar archivos ajenos a la captura (2026-10-18)
+
+Una revisión defensiva del nuevo empaquetador encontró que enumerar todos los ficheros de la carpeta podía incluir notas u otros archivos no pertenecientes a la captura. La implementación posterior en [`281302deebdfcdf3b23734f651386fed35bf85bf`](https://github.com/eltiootaku01-hue/bot-cripto/commit/281302deebdfcdf3b23734f651386fed35bf85bf) usa una allowlist formada por `pair-manifest.json`, los dos manifiestos individuales, los cuatro JSONL de BTC/ETH y los dos logs previstos. Un archivo extra detiene la operación antes de producir el ZIP, y la prueba correspondiente asegura que el archivo privado no se empaqueta.
+
+**CI del SHA funcional exacto:** 1.704 pruebas en cada Python 3.11, 3.12, 3.13 y 3.14; `pip-audit` success; CodeQL success. La prueba de rechazo usa fixtures sintéticos, no un dataset de mercado. Referencias relacionadas de los mantenedores: [Binance Spot WebSocket Streams](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md) documenta desconexiones al cumplir 24 h/`serverShutdown`; [límites oficiales de Actions](https://docs.github.com/en/actions/reference/limits) limita un job hospedado a seis horas. La captura real sigue requiriendo un equipo persistente.
+
+La issue #98 continúa bloqueada y `NO_TRADE` permanece.

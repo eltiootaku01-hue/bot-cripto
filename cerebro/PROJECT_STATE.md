@@ -332,3 +332,13 @@ Se integró [PR #101](https://github.com/eltiootaku01-hue/bot-cripto/pull/101) e
 - **Uso tras una captura real aceptada:** `python -m bot_obrero.prospective_capture_bundle create --run-dir evidence/prospective-btc-eth-pair/<pair-run-id>`. El resultado entrega ruta del ZIP y sidecar. La guía está en `docs/PROSPECTIVE_BTC_ETH_CAPTURE_V1.md`.
 - **No confundir:** las nuevas pruebas sintéticas validan el empaquetador, no la autenticidad de datos de mercado. La [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue abierta y bloqueada hasta que los manifiestos y datos de una captura real se reciban y acepten.
 - **Estado económico inalterado:** 77/100, evidencia económica 5/20, V2 `DESIGNED / NOT RUN`, sin T0 ni holdout, `NO_TRADE`, sin LIVE ni fondos reales.
+
+
+## Continuidad técnica tras el endurecimiento de empaquetado — 281302d — 2026-10-18
+
+- **SHA funcional verificado antes de esta actualización documental:** `281302deebdfcdf3b23734f651386fed35bf85bf`.
+- **CI en ese SHA exacto:** [pytest](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157860) success, 1.704 pruebas en cada versión Python 3.11, 3.12, 3.13 y 3.14; [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157840) success; [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157935) success.
+- **Herramienta de transferencia de captura:** `bot_obrero/prospective_capture_bundle.py` revalida la pareja y produce ZIP + SHA-256 sidecar; rechaza manifests que no estén `VALID`, procedencia cambiada, rutas inseguras, symlinks, archivos temporales, y archivos ajenos al allowlist. La allowlist exige los dos manifiestos, cuatro JSONL y dos logs junto con `pair-manifest.json`.
+- **Regresión de privacidad/alcance:** `tests/test_prospective_capture_bundle.py::test_bundle_refuses_unexpected_files_instead_of_packaging_them` confirma que un archivo ajeno no se comparte. Los fixtures siguen siendo sintéticos y no satisfacen la aceptación de mercado.
+- **Siguiente gate:** ejecutar una captura real en PC persistente y compartir el paquete del directorio resultante. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) está abierta; no se dispone aún de manifiestos reales aceptados.
+- **Dictamen económico:** preparación **77/100**; evidencia económica 5/20; BTC_ETH_STRATEGIES_V2 `DESIGNED / NOT RUN`, sin T0 y sin holdout prospectivo de 365 días; `NO_TRADE`; sin LIVE ni fondos reales.

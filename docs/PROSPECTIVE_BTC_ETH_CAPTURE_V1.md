@@ -208,3 +208,16 @@ if ($LASTEXITCODE -ne 0) {
 El resultado devuelve la ruta del ZIP, la del archivo de suma `.sha256`, el SHA-256, el tamaño y el solapamiento recalculado. El ZIP y su archivo `.sha256` quedan junto a la carpeta de la corrida, no dentro de ella. Adjuntar ambos al informe de revisión y conservar también la carpeta original sin modificar. Se puede comparar el hash reportado con `Get-FileHash <ruta-del-ZIP> -Algorithm SHA256`.
 
 La revisión debe comprobar que la corrida es el resultado real de este colector y que sus datos originales están incluidos. Un ZIP con estructura válida o una prueba unitaria de la herramienta no satisface la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sin datos reales Kline + bookTicker con ≥86.400 segundos de solapamiento y un día UTC común completo.
+
+
+## Aislamiento del contenido incluido en el ZIP
+
+La versión funcional de empaquetado en main limita los archivos permitidos a:
+- `pair-manifest.json`;
+- el manifiesto Kline y los dos ficheros JSONL de Kline (`BTCUSDT.jsonl`, `ETHUSDT.jsonl`);
+- el manifiesto bookTicker y los dos ficheros JSONL de quotes (`BTCUSDT-bookTicker.jsonl`, `ETHUSDT-bookTicker.jsonl`);
+- `logs/kline.log` y `logs/bookticker.log`.
+
+Si aparece un archivo distinto, incluso una nota agregada por una persona, el paquete se rechaza con `UNEXPECTED_CAPTURE_FILE`. Las rutas inseguras, symlinks y ficheros `.tmp` también bloquean la operación. Este control evita que un archivo ajeno termine compartido por accidente; no sustituye la validación independiente de origen ni convierte datos sintéticos en evidencia real.
+
+En el SHA funcional [`281302d`](https://github.com/eltiootaku01-hue/bot-cripto/commit/281302deebdfcdf3b23734f651386fed35bf85bf), la suite pasó 1.704 pruebas en Python 3.11–3.14, CodeQL y `pip-audit` terminaron `success`. La regresión `test_bundle_refuses_unexpected_files_instead_of_packaging_them` prueba que un archivo `operator-notes.txt` en la carpeta de logs bloquea el empaquetado.
