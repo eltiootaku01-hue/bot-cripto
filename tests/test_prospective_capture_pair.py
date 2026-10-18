@@ -280,3 +280,53 @@ def test_pair_capture_rechecks_source_after_wait_and_blocks_before_opening_socke
     assert result["reason"] == "CAPTURE_SOURCE_PROVENANCE_CHANGED_BEFORE_LAUNCH"
     manifest = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["source_provenance_at_launch"]["status"] == "BLOCKED"
+
+
+def test_pair_capture_blocks_if_source_revision_changes_after_children_finish(tmp_path, monkeypatch):
+    import importlib
+
+    module = importlib.import_module("bot_obrero.prospective_capture_pair")
+    clean = {
+        "status": "VALID",
+        "git_head_sha": "a" * 40,
+        "origin_main_sha": "a" * 40,
+        "branch": "main",
+        "source_status_entries": [],
+    }
+    changed = {
+        "status": "VALID",
+        "git_head_sha": "b" * 40,
+        "origin_main_sha": "b" * 40,
+        "branch": "main",
+        "source_status_entries": [],
+    }
+    provenance_values = iter([clean, clean, changed])
+
+    def fake_popen(command, **_kwargs):
+        output_dir = Path(command[command.index("--output-dir") + 1])
+        manifest = output_dir / "synthetic-run" / "manifest.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}\n", encoding="utf-8")
+        return FakeProcess(0)
+
+    monkeypatch.setattr(
+        module,
+        "validate_paired_manifests",
+        lambda **_kwargs: pytest.fail("changed source must block before dataset validation"),
+    )
+    result = run_capture_pair(
+        output_dir=tmp_path,
+        align_to_utc_midnight=False,
+        source_provenance_resolver=lambda _cwd: next(provenance_values),
+        popen_factory=fake_popen,
+        clock=lambda: datetime(2026, 10, 18, 0, 0, 1, tzinfo=UTC),
+        sleep=lambda _seconds: None,
+    )
+
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "RuntimeError:CAPTURE_SOURCE_PROVENANCE_CHANGED_DURING_RUN"
+    assert result["validation"] is None
+    assert result["source_provenance_at_finish"]["git_head_sha"] == "b" * 40
+    persisted = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
+    assert persisted["status"] == "BLOCKED"
+    assert persisted["validation"] is None
