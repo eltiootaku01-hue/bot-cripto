@@ -317,12 +317,11 @@ class ProspectiveBookTickerJournal:
             self._refresh_summaries_locked()
             self._write_manifest_locked()
 
-    def note_transport_error(self, symbol: str, error: BaseException, *, reconnecting: bool) -> None:
+    def note_transport_error(self, symbol: str, error: BaseException) -> None:
+        """Record transport failures; reconnects count actual subsequent connection attempts only."""
         with self._lock:
             state = self._state[symbol]
             state["transport_errors"] += 1
-            if reconnecting and state["connection_attempts"] > 0:
-                state["reconnects"] += 1
             state["last_error"] = f"{type(error).__name__}:{str(error)[:500]}"
             self._refresh_summaries_locked()
             self._write_manifest_locked()
@@ -712,7 +711,7 @@ def capture(
                 )
                 backoff = reconnect_base_seconds
             except BinanceWebSocketServerShutdown as exc:
-                journal.note_transport_error(symbol, exc, reconnecting=True)
+                journal.note_transport_error(symbol, exc)
                 stop.wait(backoff)
                 backoff = min(reconnect_max_seconds, backoff * 2)
             except BinanceWebSocketTransportError as exc:
