@@ -2,12 +2,19 @@ name: tests
 on: [push, pull_request]
 jobs:
   pytest:
+    name: pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # pyproject.toml declares requires-python >=3.11; exercise the minimum
+        # supported version as well as the current maintained CI baseline.
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e ".[test]"
       - name: PRE1-R1 — admission request factory regression
         run: pytest -q tests/test_hueso_05f_pre1_admission_request_factory.py
