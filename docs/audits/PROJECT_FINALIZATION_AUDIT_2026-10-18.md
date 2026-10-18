@@ -202,3 +202,16 @@ Exact post-merge `main` verification: [tests — 1,676 passed in 14.86 s](https:
 - [CCXT manual: rate limits and retries](https://docs.ccxt.com/es/docs/manual): documents rate limiting and transient exchange/network errors; collectors should use bounded backoff, preserve interruption evidence, and never turn missing data into success.
 
 **Decision unchanged:** issue #98 is `BLOCKED` until actual simultaneous Kline + bookTicker manifests validate with ≥86,400 seconds of overlap and a common complete UTC day. No T0, no winner claim, `NO_TRADE`, no LIVE. The current score stays **77/100** because this change fixes CI determinism and does not add evidence of economic edge.
+
+
+## 17. Pair-capture overlap guard — 2026-10-18
+
+**Merged to main:** [PR #101](https://github.com/eltiootaku01-hue/bot-cripto/pull/101), SHA `3590947d6fceaebfc437cbc4d784d548693dff8e`.
+
+**Observed design defect:** the paired runner launched Kline then bookTicker, but configured both with the same 86,400-second target. The acceptance gate independently requires a true 86,400-second overlap. Because Kline can stop once its own target elapsed and a complete UTC day was observed, a non-zero launch skew could make pair overlap slightly shorter than 24 hours even when both child manifests were individually valid. This was a structural edge case found by source inspection; it was not based on a real capture failure, because no real capture has yet been accepted.
+
+**Correction:** define `PAIR_OVERLAP_GUARD_SECONDS = 60`, run Kline at 86,460 seconds, keep bookTicker at 86,400 seconds, retain 300-second grace for both, and bind target/per-collector durations, guard and minimum overlap into the pair configuration hash. With the runner's maximum permitted startup lateness of 10 seconds, the 60-second guard provides a 50-second cushion over the required overlap; the validator still enforces the full 86,400 seconds and common complete UTC day. Regression tests inspect both generated commands and the persisted configuration. The runbook's recommended one-command path and manual paired Kline command have been updated; issue #98 documents the current parameters.
+
+**Post-merge exact-SHA CI:** [tests — 1,676 passed in 12.28 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39136102138), [CodeQL — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39136102076), [pip-audit — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39136102147). PR E2E and dependency audit also passed before merge: [SMA](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39135969536), [indicators](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39135969530), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39135969540).
+
+**Decision boundary unchanged:** the fix makes the intended capture acceptance reachable under normal startup skew; it is not a market dataset and does not close issue #98. Preparation remains **77/100**, V2 is not running, no T0 is set, no winning strategy is proved, `NO_TRADE`, no LIVE.
