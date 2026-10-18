@@ -210,6 +210,10 @@ El resultado devuelve la ruta del ZIP, la del archivo de suma `.sha256`, el SHA-
 La revisión debe comprobar que la corrida es el resultado real de este colector y que sus datos originales están incluidos. Un ZIP con estructura válida o una prueba unitaria de la herramienta no satisface la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sin datos reales Kline + bookTicker con ≥86.400 segundos de solapamiento y un día UTC común completo.
 
 
+## Prueba de integración del verificador de recepción
+
+La suite combina ahora dos clases de cobertura: fixtures unitarios con el validador aislado para probar errores de empaquetado/ZIP y una integración con diarios Kline/bookTicker sintéticos que ejecuta ambos validadores de producción sin sustituirlos. La prueba positiva confirma la ruta completa de empaquetado y recepción; una segunda modifica un JSONL dentro del ZIP, recalcula deliberadamente el SHA-256 externo y comprueba que el manifiesto interno sigue rechazando el contenido alterado. Estas pruebas fortalecen el contrato del verificador, pero **siguen siendo datos sintéticos y no cuentan como captura real para cerrar la issue #98**.
+
 ## Verificar un ZIP recibido (nueva comprobación independiente)
 
 Después de recibir el ZIP y su sidecar `.sha256`, ejecutar desde la raíz del mismo clon actualizado de `main`:
