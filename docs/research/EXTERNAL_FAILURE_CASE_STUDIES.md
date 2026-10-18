@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 18 de octubre de 2026  
-**Base de código revisada:** `main` ahora incluye PR #93 en `8c325d9899ae4a15b06240012b05473f2cd34824`, además de PR #86 (anti-lookahead) y PR #87 (CodeQL, pip-audit, Dependabot y pytest corregido). CI post-merge exacto [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) success, 1608 pruebas; CodeQL [39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) y pip-audit [39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) también success.
+**Base de código revisada:** `main` incluye PR #96 en `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b` (validación fail-closed de claves de orden del replay PAPER), PR #93 (tipos estrictos del manifest de captura) y las correcciones de PR #86/#87. Suite post-merge exacta: [39101918101](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), 1610 tests; CodeQL [39101918074](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) y pip-audit [39101918092](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) `success`.
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -306,3 +306,12 @@ Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y 
 **Medida local vigente:** las pruebas del adaptador verifican límites por conexión, errores de transporte, clasificación de `serverShutdown`, y cierre/reconexión coordinados por el colector prospectivo. Mantener la dependencia fijada y reevaluar sus changelogs antes de actualizarla o migrar a `WebSocketApp`/ejecución en segundo plano.
 
 **Límite:** la versión corregida y una suite verde reducen un riesgo concreto, pero no reemplazan la captura real de 24 h, el seguimiento de errores durante la operación sostenida ni la evaluación económica independiente.
+
+
+## 19. Replay económico PAPER: validar claves malformadas antes de ordenar
+
+**Hallazgo local (PR #96):** la función de replay intentaba ordenar el historial por `(filled_at, client_order_id)` antes de verificar los tipos. Una lista JSON en una de esas claves, combinada con otro valor de tipo string, causaba `TypeError` durante la comparación y escapaba del resultado del auditor. El orden textual de timestamps ISO-8601 tampoco respeta necesariamente el orden temporal cuando coexisten offsets distintos.
+
+**Mitigación en main:** [PR #96](https://github.com/eltiootaku01-hue/bot-cripto/pull/96) valida las estructuras, exige claves strings no vacías y fechas aware válidas, normaliza a UTC y ordena usando el instante más el ID. Dos regresiones verifican que claves malformadas devuelvan `UNKNOWN`, y no una excepción. Suite final de main: [1610 tests, success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101); CodeQL [success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) y pip-audit [success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092).
+
+**Límite:** no demuestra que una captura de 24 h se haya ejecutado ni aporta por sí solo evidencia de edge económico. `NO_TRADE` permanece.

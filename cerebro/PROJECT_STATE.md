@@ -2,7 +2,7 @@
 
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA con cambios de código/workflows verificado:** `8c325d9899ae4a15b06240012b05473f2cd34824` (merge squash PR #93: validador de captura con tipos JSON estrictos). La punta pre-merge `65ad1a1179c26feae2377761ab0e928e301f8713` pasó 1608 pruebas en [39100827937](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827937), `pip-audit` [39100827924](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827924) y CodeQL [39100827934](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827934) finalizaron `success`; E2E SMA [39100827989](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827989) e indicadores [39100827964](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100827964) también aprobaron. CI post-merge de main exacto [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) pasó 1608 pruebas en 15.66 s; `pip-audit` [39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) y CodeQL [39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) finalizaron `success`. Este archivo sigue siendo una síntesis de continuidad; verificar siempre el HEAD vivo de `main`. La captura real de 24 h sigue pendiente.
+**Último SHA con cambios de código/workflows verificado:** `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b` (PR #96 endurece replay económico PAPER; PR #93 endurece tipos JSON en la captura). CI post-merge: [1610 tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) `success`; la captura real de 24 h sigue pendiente.
 
 ## 1. Estado operativo actual
 
@@ -149,3 +149,13 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - **Regresiones:** 4 tests que alteran los valores JSON y, en las pruebas de JSONL, recalculan hashes exteriores para asegurarse de que se ejercita la validación de contrato.
 - **CI post-merge:** [39100954733](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954733) `success`, 1608 pruebas en 15.66 s; [CodeQL 39100954774](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954774) y [pip-audit 39100954741](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39100954741) `success`. CI y E2E exactos de la punta pre-merge también pasaron.
 - La puntuación ponderada sigue **73/100**: integridad del formato mejorada no equivale a captura real ni a edge rentable. `NO_TRADE` se mantiene.
+
+
+## Actualización de continuidad — PR #96 (18 de octubre de 2026)
+
+- **Main funcional verificado:** `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b`; PR [#96](https://github.com/eltiootaku01-hue/bot-cripto/pull/96) fusionada.
+- **Hallazgo:** `replay_paper_economics()` ordenaba fills antes de validar las claves. Un `filled_at` o `client_order_id` con un tipo JSON inesperado podía arrojar `TypeError` y salir del contrato de replay seguro.
+- **Corrección:** validar mapping, tipos de claves y timestamp con zona horaria antes de comparar; ordenar por instante UTC y luego por ID. Dos regresiones verifican salida `UNKNOWN` en vez de excepción.
+- PR #96: [1610 pruebas antes del merge](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821969), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821961), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821964), [SMA E2E](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821960) e [indicadores E2E](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821955): todos `success`.
+- Main post-merge exacto: [1610 pruebas en 11.67 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074): todos `success`.
+- La puntuación permanece **73/100**. El arreglo aumenta resiliencia, pero no acredita captura real de 24 h ni edge independiente; `NO_TRADE` sigue vigente.
