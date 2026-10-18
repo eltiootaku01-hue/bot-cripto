@@ -1,9 +1,8 @@
 # Automatización de auditoría estática y dependencias
 
-**Fecha:** 17 de octubre de 2026  
-**Base inspeccionada:** main con PR #86 fusionada  
-**Rama de implementación:** `security/automated-codeql-dependency-audit-2026-10-17`  
-**Estado al abrir la PR:** los checks de este workflow deben pasar en el SHA exacto antes del merge; no se presume que ya hayan pasado.
+**Fecha:** 18 de octubre de 2026  
+**PR #87:** fusionada en main mediante `43d2cd70b2a350cf2987210166df7711d932e41b`.  
+**CI post-merge exacto:** tests [39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044) success, 1604 pruebas en 14.62 s; CodeQL [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033) success; pip-audit [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) success.
 
 ## Brecha
 
@@ -17,7 +16,7 @@ La primera ejecución real del workflow `pip-audit` detectó `PYSEC-2026-1845` e
 - Changelog de `pytest 9.0.3`: https://github.com/pytest-dev/pytest/releases/tag/9.0.3
 - Registro OSV/PyPA: https://osv.dev/vulnerability/PYSEC-2026-1845
 
-**Corrección preparada en esta PR:** la restricción de test pasa de `pytest>=8,<9` a `pytest>=9.0.3,<9.1`. La restricción mantiene la versión por debajo de la rama 9.1 mientras se valida la suite completa, pero permite recibir eventuales parches 9.0.x. Esta decisión se acepta solo si el CI completo pasa y el nuevo `pip-audit` no vuelve a reportar el aviso.
+**Corrección fusionada:** el extra de prueba cambió de `pytest>=8,<9` a `pytest>=9.0.3,<9.1`. Tras la actualización, la suite pasó 1604 pruebas y `pip-audit` reportó `No known vulnerabilities found` en las dependencias auditables.
 
 ## Controles añadidos
 
@@ -40,3 +39,12 @@ La primera ejecución real del workflow `pip-audit` detectó `PYSEC-2026-1845` e
 - Los findings de seguridad deben triagearse; no suprimir una alerta solo para que CI pase.
 - Mantener Actions pinneadas por SHA. Dependabot puede proponer otro SHA/versión; la actualización requiere revisar upstream, la release, el diff y todos los checks pertinentes.
 - Nada de esto prueba una ventaja económica, no habilita LIVE y no cambia `NO_TRADE`.
+
+
+## Verificación de la rama principal tras la fusión
+
+- PR [#87](https://github.com/eltiootaku01-hue/bot-cripto/pull/87) quedó fusionada con el SHA `43d2cd70b2a350cf2987210166df7711d932e41b`.
+- CI post-merge main exacto: [tests 39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044), `success`, **1604 pruebas en 14.62 s**; [CodeQL 39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033), `success`; [pip-audit 39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089), `success`.
+- La salida de pip-audit reportó `No known vulnerabilities found`. El entorno instala el proyecto editable `bot-obrero 0.1.0`, que no se encuentra en PyPI y por eso no puede auditarse desde ese índice. Esto no implica un hallazgo de vulnerabilidad de bot-obrero; el código del proyecto se cubre por pruebas y CodeQL, aunque ninguna herramienta puede demostrar ausencia de todos los defectos.
+- La ejecución de CodeQL terminó correctamente y subió sus resultados SARIF. No se interpreta el estado del job como garantía de cero alertas; las alertas publicadas deben revisarse en GitHub Code Security/Code Scanning cuando esté disponible en el repositorio.
+- El hallazgo inicial `PYSEC-2026-1845` en pytest 8.4.2 se corrigió usando pytest 9.0.3, versión en la que el mantenedor documenta el fix de `CVE-2025-71176`.
