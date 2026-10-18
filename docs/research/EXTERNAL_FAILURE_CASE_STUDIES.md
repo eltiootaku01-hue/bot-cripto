@@ -368,3 +368,16 @@ El mantenedor registró varias correcciones en la versión 9.1.1, entre ellas:
 **Regresiones asociadas:** `tests/test_binance_book_ticker.py` verifica que el sink streaming no retenga la lista de resultados; `tests/test_prospective_book_ticker_capture.py` verifica que no exista un set acumulativo de IDs, y ejercita duplicados, gaps, hashes y validación sintética de 24 h.
 
 **Validación:** el SHA `723d44b7c68d84fe905d2878203092ba5db02928` pasó [1.641 pruebas](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159335) y `pip-audit` [39105159320](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159320); CodeQL [39105159249](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159249) terminó `success` para el mismo SHA. El SHA contiene el adaptador streaming sin retención en memoria, detección de update IDs de memoria constante, fsync por lote/tiempo y validador conjunto Kline/bookTicker. No declarar CodeQL aprobado hasta que su run termine. Para aceptar la captura real se exige aún ejecutar y validar los manifiestos Kline+bookTicker en una misma ventana de al menos 24 h, preservando `NO_TRADE`.
+
+
+## 13. bookTicker: rechazar tipos JSON de evento inesperados sin propagar TypeError
+
+**Fuente primaria del contrato:** [Binance Spot WebSocket Streams — Individual Symbol Book Ticker](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md). Un payload bookTicker válido define campos de tipos concretos: símbolo, ID de actualización, precios y cantidades. El parser debe rechazar cualquier tipo inesperado como error de protocolo, no permitir que un detalle de implementación filtre una excepción Python.
+
+**Hallazgo local:** el parser inicial comparaba `event["e"]` con un conjunto de valores permitidos usando membresía en `set`. Si una entrada JSON malformada proporcionaba una lista o diccionario como tipo de evento, el valor podía ser no-hashable y Python lanzar `TypeError` antes de devolver el error protocolario acordado.
+
+**Corrección aplicada:** el parser ahora realiza comparaciones explícitas contra los valores de evento válidos y convierte lista, diccionario, booleano o entero inesperado en `BinanceWebSocketProtocolError`. No se aceptan esos mensajes como quotes ni se inventa evidencia.
+
+**Regresión:** `tests/test_binance_book_ticker.py` añade casos para los cuatro tipos inválidos.
+
+**Validación de la revisión:** en SHA `0913bbee0c6090bc182d9955bd711e4a5130ffca`, la suite pasó **1645 pruebas** ([run 39105436364](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105436364)) y `pip-audit` pasó ([run 39105436379](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105436379)). CodeQL [39105436371](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105436371) todavía se ejecutaba cuando se publicó este apunte; verificar el resultado exacto antes de declarar los tres checks en verde. La captura real combinada Kline+bookTicker de 24 h sigue pendiente y la decisión es `NO_TRADE`.
