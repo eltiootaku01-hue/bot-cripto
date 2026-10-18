@@ -166,6 +166,17 @@ def test_bundle_does_not_overwrite_existing_archive(tmp_path, monkeypatch):
     assert output.read_bytes() == b"existing"
 
 
+def test_bundle_refuses_unexpected_files_instead_of_packaging_them(tmp_path, monkeypatch):
+    root, _calls = _capture_tree(tmp_path, monkeypatch)
+    private_note = root / "logs" / "operator-notes.txt"
+    private_note.write_text("not part of the captured evidence\n", encoding="utf-8")
+
+    with pytest.raises(bundle.CaptureBundleError, match="UNEXPECTED_CAPTURE_FILE"):
+        bundle.create_capture_bundle(root)
+
+    assert not (root.parent / f"{root.name}-evidence.zip").exists()
+
+
 def test_bundle_rejects_changed_source_provenance_between_boundaries(tmp_path, monkeypatch):
     root, _calls = _capture_tree(tmp_path, monkeypatch)
     pair_path = root / "pair-manifest.json"

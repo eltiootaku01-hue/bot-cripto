@@ -104,15 +104,23 @@ def _validate_source_provenance(pair: Mapping[str, Any]) -> None:
         raise CaptureBundleError("SOURCE_PROVENANCE_REVISION_MISMATCH")
 
 
-def _list_bundle_files(root: Path) -> list[Path]:
+def _list_bundle_files(root: Path, expected_files: set[str]) -> list[Path]:
     files: list[Path] = []
     for path in root.rglob("*"):
         if path.is_symlink():
             raise CaptureBundleError("SYMLINK_NOT_ALLOWED_IN_CAPTURE_TREE")
+        relative = path.relative_to(root).as_posix()
         if path.is_file():
             if path.name.endswith(".tmp"):
                 raise CaptureBundleError("TEMPORARY_FILE_IN_CAPTURE_TREE")
+            if relative not in expected_files:
+                # Evidence folders can contain private operator notes or other
+                # unrelated artifacts. Refuse them rather than leaking them.
+                raise CaptureBundleError("UNEXPECTED_CAPTURE_FILE")
             files.append(path)
+    actual_files = {path.relative_to(root).as_posix() for path in files}
+    if actual_files != expected_files:
+        raise CaptureBundleError("REQUIRED_CAPTURE_FILE_MISSING")
     return sorted(files, key=lambda item: item.relative_to(root).as_posix())
 
 
@@ -212,17 +220,19 @@ def create_capture_bundle(
         if stored_validation.get(key) != recomputed.get(key):
             raise CaptureBundleError(f"STORED_PAIR_VALIDATION_MISMATCH:{key}")
 
-    files = _list_bundle_files(root)
-    required = {
+    expected_files = {
         "pair-manifest.json",
         pair.get("kline_manifest"),
         pair.get("bookticker_manifest"),
         "logs/kline.log",
         "logs/bookticker.log",
     }
-    present = {path.relative_to(root).as_posix() for path in files}
-    if not required.issubset(present):
-        raise CaptureBundleError("REQUIRED_CAPTURE_FILE_MISSING")
+    kline_relative_dir = kline_path.parent.relative_to(root).as_posix()
+    bookticker_relative_dir = bookticker_path.parent.relative_to(root).as_posix()
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        expected_files.add(f"{kline_relative_dir}/{symbol}.jsonl")
+        expected_files.add(f"{bookticker_relative_dir}/{symbol}-bookTicker.jsonl")
+    files = _list_bundle_files(root, expected_files)
 
     raw_output = Path(output_path) if output_path is not None else root.parent / f"{root.name}-evidence.zip"
     if raw_output.is_symlink():
