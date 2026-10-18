@@ -33,7 +33,7 @@ Esto permite elegir la fecha por disponibilidad técnica, no por comportamiento 
 
 **Fuentes oficiales y brechas de adquisición:**
 - [Binance Spot WebSocket streams — klines](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md): aceptar una vela como cerrada solamente cuando el payload tenga `k.x = true`; el stream incluye tiempos de apertura/cierre. El repositorio ya contiene `bot_obrero/prospective_capture.py` para persistencia de klines y su validador; esto prueba infraestructura implementada, no una captura real aceptada.
-- [Binance Spot WebSocket streams — book ticker](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md): capturar mejor bid/ask para el precio de referencia disponible después de cada decisión. Aún falta demostrar un colector durable integrado para quotes (`bookTicker`) que registre el instante de primera recepción, bid/ask y hashes junto a las velas; no tratar klines como sustituto de evidencia de cotización.
+- [Binance Spot WebSocket streams — book ticker](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md): capturar mejor bid/ask para el precio de referencia disponible después de cada decisión. `bot_obrero/binance_book_ticker.py` y `bot_obrero/prospective_book_ticker_capture.py` están ahora implementados en `main`, con JSONL durable, hashes y validador independiente. Sigue pendiente demostrar su aceptación en una captura real que se solape con la captura de klines.
 - [Binance Spot REST API](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md): documentar endpoint, parámetros, zona horaria UTC y respuestas utilizadas en la reconciliación de integridad.
 - [Freqtrade — lookahead analysis](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/): referencia metodológica para detectar indicadores/señales que cambian al alterar datos posteriores y para advertir cobertura insuficiente de tipos de señales.
 
@@ -130,9 +130,9 @@ Si ninguna estrategia cumple todo, el resultado es `NO_ROBUST_EDGE_FOUND / NO_TR
 
 ## 10. Estado actual
 
-`DESIGNED / NOT RUN`. No hay T0 fijado: la captura prospectiva de klines y su validador ya existen en `main`, pero todavía no se ha ejecutado/aceptado la prueba de humo real de 24 h y no se ha demostrado la persistencia conjunta de bookTicker requerida por este protocolo. No se adquirió ni se puntuó ningún dato V2, no se modificaron estrategias operativas y no se habilitaron órdenes.
+`DESIGNED / NOT RUN`. No hay T0 fijado: tanto el colector prospectivo de klines como el de bookTicker y sus validadores están implementados y cuentan con pruebas sintéticas, pero todavía no se han ejecutado/aceptado las capturas reales de 24 h en una ventana común. No se adquirió ni se puntuó ningún dato V2, no se modificaron estrategias operativas y no se habilitaron órdenes.
 
-La siguiente etapa técnica es cerrar y probar la persistencia de bookTicker ligada temporalmente a la misma decisión/fill, después hacer la prueba de humo real de 24 h y aceptar sus manifiestos. No comenzar el año de evaluación hasta que código, configuración y protocolo estén congelados, y el artefacto real de captura quede validado.
+La siguiente etapa técnica es ejecutar las dos capturas reales en paralelo, validar ambos manifiestos, comprobar sus intervalos de cobertura y guardar los hashes. Después congelar código/configuración, fijar T0 mediante un commit de preregistro y comenzar solo el periodo prospectivo definido. No comenzar el año de evaluación hasta que los artefactos reales estén aceptados.
 
 ---
 
