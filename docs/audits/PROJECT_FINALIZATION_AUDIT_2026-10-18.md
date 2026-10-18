@@ -7,7 +7,7 @@
 
 ## 1. Dictamen de cierre
 
-**Preparación publicada revisada: 75/100. Objetivo >90: NO ALCANZADO.**
+**Preparación publicada revisada: 76/100. Objetivo >90: NO ALCANZADO.**
 
 No se sube la puntuación por documentar una idea, añadir herramientas o lograr que compile el código. El informe de preparación vigente asigna 5/20 al área de evidencia económica. Con las otras seis áreas en su máximo, esa categoría limita el total a 85/100. Superar 90 requiere nueva evidencia económica que permita puntuar esa categoría al menos en 11/20, además de cerrar los gates técnicos pertinentes.
 
@@ -23,7 +23,7 @@ Los siguientes cambios se hicieron en `main`, no se dejaron como una propuesta d
 
 ### Evidencia de CI (no intercambiar SHA)
 
-En `fdb90440a89e4284ba425689c1c2ec177902a0cf`, el workflow de tests pasó: [run 39103016285](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285); la auditoría de dependencias pasó: [run 39103016266](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266). El run de CodeQL [39103016289](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) estaba pendiente al registrar esta evidencia; no se convierte ese estado en éxito por inferencia. Confirmar el resultado final en GitHub y validar de nuevo el HEAD vivo después de los commits documentales.
+En `fdb90440a89e4284ba425689c1c2ec177902a0cf`, los tres checks terminaron `success`: tests [39103016285](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016285), CodeQL [39103016289](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016289) y auditoría de dependencias [39103016266](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103016266). La validación de cada cambio posterior se registra por su propio SHA.
 
 El main inmediatamente anterior, `f998731c63da691d6f9f87ac52c5acacd8b9b1b3`, tenía los tres checks principales en éxito: [1610 tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39102250567), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39102250569) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39102250582). Esos resultados anteriores no sustituyen los checks de los commits posteriores.
 
@@ -73,15 +73,23 @@ Desde la primera versión de esta auditoría se integraron directamente en `main
 
 1. **BookTicker público:** `bot_obrero/binance_book_ticker.py` valida la pareja autorizada BTCUSDT/ETHUSDT, update ID, bid/ask y cantidades en Decimal, mercado cruzado y clocks de recepción/disponibilidad; solo usa el tiempo de evento del proveedor si está presente.
 2. **Captura durable de quotes:** `bot_obrero/prospective_book_ticker_capture.py` conserva JSONL por símbolo, fsync, manifiesto y hashes, reconexión y validador independiente; su suite contiene un replay sintético completo de 24 h y pruebas negativas para IDs duplicados/desordenados, gaps y manipulación del archivo. No se trata de una captura de mercado real.
-3. **Pruebas del colector:** el test de rechazo de símbolos falló primero porque intentaba rechazar `ETHUSDT`, que sí está permitido. El fixture se corrigió para usar `DOGEUSDT` como símbolo no autorizado. La suite volvió a pasar **1628 pruebas** en [run 39104242145](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242145), CodeQL [39104242189](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242189) y pip-audit [39104242200](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39104242200) están en `success` para el SHA `e476ea38ca7a0655b8127f31ff2de77ca5debe56`.
+3. **Pruebas del colector:** el test de rechazo de símbolos falló al intentar rechazar `ETHUSDT`, que sí está aprobado; el fixture se corrigió a `DOGEUSDT`. La regresión fue detectada y corregida, no escondida. Sobre el SHA posterior de código `723d44b7c68d84fe905d2878203092ba5db02928`, la suite aprobó **1641 pruebas** ([run 39105159335](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159335)), CodeQL terminó `success` ([39105159249](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159249)) y `pip-audit` terminó `success` ([39105159320](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159320)).
 4. **Investigación versionada:** el código, dependencias, reporte y workflow de BTC/ETH V1 se copiaron a rutas de investigación de `main`; el replay de siete estrategias y los controles anti-lookahead pasó [run 39103827728](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39103827728) y conserva `NO_ROBUST_EDGE_FOUND / NO_TRADE`. Los dos informes históricos de recuperación del universo de altcoins, el contrato de investigación V1 y su auditoría de adquisición también se preservaron en `main` con avisos de su antigüedad.
 5. **Cierre documental de PR:** #65–#70 se cerraron como supersedidas/integradas con comentarios que explican qué material se preservó en `main`, y que los bloqueos científicos siguen vigentes. #46, #53, #62 y #88–#91 ya habían sido cerradas por continuidad antigua o cambios de mantenimiento integrados.
-6. **Puntuación:** la matriz se actualizó de 73 a **75/100**: +1 en adquisición temporal y +1 en infraestructura de captura por el software de quotes y su validador sintético. La categoría económica sigue en 5/20; el máximo de la matriz continúa en 85/100 mientras no se demuestre evidencia económica nueva.
+6. **Puntuación:** la matriz se actualizó de 73 a **76/100**: +1 en contratos de quote y +1 en infraestructura de captura; +1 adicional en adquisición por el validador conjunto que prueba solapamiento real de manifiestos y día UTC común con regresiones. La categoría económica sigue en 5/20; el máximo de la matriz continúa en 85/100 mientras no se demuestre evidencia económica nueva.
 
-**Importante:** el protocolo V2 en main sigue `DESIGNED / NOT RUN`. No existe todavía una captura real Kline+bookTicker de al menos 24 h, aceptada y solapada. No se ha fijado T0 del período nuevo ni se ha demostrado un edge en un holdout futuro. El siguiente paso necesita ejecutar ambos comandos de captura desde una máquina persistente, validar los dos manifiestos y conservar hashes; tras eso habrá que fijar el T0 en un commit de preregistro y observar el año prospectivo sin modificar reglas/costes.
+**Importante:** el protocolo V2 en main sigue `DESIGNED / NOT RUN`. No existe todavía una captura real Kline+bookTicker de al menos 24 h, aceptada y solapada. El CLI `validate-pair` ya comprueba este contrato después de que cada validador independiente acepta su manifiesto; su presencia y las pruebas sintéticas no son la captura real. No se ha fijado T0 del período nuevo ni se ha demostrado un edge en un holdout futuro. El siguiente paso necesita ejecutar ambos comandos desde una máquina persistente, correr `validate-pair` y conservar los hashes; tras eso habrá que fijar T0 en un commit de preregistro y observar el año prospectivo sin modificar reglas/costes.
 
 ## 8. Criterio de cierre
 
 Este informe, los cambios de mantenimiento descritos y el catálogo de casos externos están en GitHub. Eso **no** convierte la captura real, el holdout prospectivo ni la supervisión sostenida en hechos realizados.
 
 No declarar 100% hasta que cada gate aplicable tenga evidencia verificable. No declarar >90 hasta que la rúbrica se pueda aumentar con nueva evidencia económica real, no con una edición de la puntuación. La conducta correcta mientras se reúnen esas pruebas sigue siendo `NO_TRADE`.
+
+
+## Verificación del validador conjunto y de durabilidad — 18-10-2026
+
+- `bot_obrero/prospective_book_ticker_capture.py` ahora ofrece `validate-pair`: valida por separado klines y bookTicker, confirma la pareja exacta BTCUSDT/ETHUSDT, requiere ≥86.400 segundos de solapamiento y un día UTC común de velas horarias completas. La salida contiene ambos run IDs, ventana común y hashes de dataset.
+- El diario de quotes usa memoria acotada para IDs, no retiene todos los eventos recibidos, mantiene conexiones hasta una desconexión real o la parada controlada, y hace flush+fsync por umbral de 1.000 registros o 1 segundo. El contador de reconexiones se ha corregido para no contar dos veces un único evento.
+- Prueba conjunta en el SHA funcional `723d44b7c68d84fe905d2878203092ba5db02928`: **1641 pruebas `success` ([39105159335](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159335)), CodeQL `success` ([39105159249](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159249)) y pip-audit `success` ([39105159320](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105159320)).<br/>
+- **Preparación actualizada: 76/100.** La ventaja económica sigue sin probarse. La puntuación de 5/20 de evidencia económica mantiene el máximo aritmético de esta rúbrica en 85/100. No se reclama una captura real de 24 h ni un resultado de estrategia prospectiva.
