@@ -183,3 +183,14 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - **Fallos y mitigaciones:** `docs/research/EXTERNAL_FAILURE_CASE_STUDIES.md` documenta casos upstream de SQLite/WAL, Binance LOT_SIZE/MARKET_LOT_SIZE, lookahead, GitHub Actions Node 24, CodeQL desincronizado, pytest, websocket-client y pip-audit, además de hallazgos locales de captura.
 - **Bloqueo >90:** la rúbrica solo acredita 5/20 en evidencia económica, por lo que el máximo aritmético sigue siendo 85/100 hasta que se pruebe una ventaja neta independiente suficiente. La captura real y el holdout siguen pendientes; `NO_TRADE` sigue siendo la decisión correcta. No habilitar LIVE, claves privadas ni dinero real.
 - **Auditoría de cierre:** [PROJECT_FINALIZATION_AUDIT_2026-10-18.md](../docs/audits/PROJECT_FINALIZATION_AUDIT_2026-10-18.md).
+
+
+## Snapshot vivo de continuidad — 2026-10-18
+
+- **Fuente de verdad:** la rama `main` y sus checks exactos, no los SHA históricos citados en secciones antiguas.
+- **HEAD comprobado antes de esta actualización documental:** `5c058db7c96c09d6df36c29087c0f9b5991bf558`. Tras el informe documental añadido, el HEAD avanzará por un commit de documentación; no se deben atribuir automáticamente a ese commit los checks del padre.
+- **Checks que pasaron en el SHA funcional verificado:** tests [39106093676](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093676), CodeQL [39106093663](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093663) y pip-audit [39106093739](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093739).
+- **PR abiertas:** ninguna según la lectura viva de GitHub.
+- **Bloqueo externo P0:** [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98), captura prospectiva real conjunta BTCUSDT/ETHUSDT Kline + bookTicker durante al menos 24 h, validación independiente y hashes preservados. No se han sustituido esos requisitos por resultados sintéticos ni se ha marcado la captura como realizada.
+- **Preparación:** 76/100 según [rúbrica vigente](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de código ni una predicción de ganancias. La categoría económica limita la puntuación a 85/100 hasta nueva evidencia; el objetivo >90 todavía no se ha alcanzado.
+- **Decisión y límites:** `NO_TRADE`; sin LIVE, claves privadas, endpoints privados ni dinero real. El próximo aumento legítimo requiere captura aceptada, preregistro, periodo prospectivo independiente y evidencia económica neta robusta. Cualquier nueva prueba debe estar asociada al SHA exacto que la ejecutó.
