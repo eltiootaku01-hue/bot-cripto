@@ -393,6 +393,87 @@ def test_validator_rejects_string_encoded_duration_numbers(tmp_path, field, valu
         validate_manifest(journal.manifest_path)
 
 
+@pytest.mark.parametrize("configured_symbols", [None, 42])
+def test_validator_rejects_non_list_configuration_symbols(tmp_path, configured_symbols):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    manifest["configuration"]["symbols"] = configured_symbols
+    canonical_config = json.dumps(
+        manifest["configuration"],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    manifest["configuration_sha256"] = hashlib.sha256(canonical_config).hexdigest()
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProspectiveCaptureError, match="CAPTURE_CONFIGURATION_CONTRACT_INVALID"):
+        validate_manifest(journal.manifest_path)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "null", "nonempty"])
+def test_validator_requires_a_present_empty_fatal_errors_list(tmp_path, mutation):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        manifest.pop("fatal_errors")
+    elif mutation == "null":
+        manifest["fatal_errors"] = None
+    else:
+        manifest["fatal_errors"] = ["synthetic fatal error"]
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProspectiveCaptureError, match="CAPTURE_FATAL_ERRORS_INVALID"):
+        validate_manifest(journal.manifest_path)
+
+
+@pytest.mark.parametrize("metadata_field", ["bytes", "records"])
+def test_validator_rejects_float_encoded_file_metadata_counts(tmp_path, metadata_field):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    details = manifest["files"]["BTCUSDT.jsonl"]
+    details[metadata_field] = float(details[metadata_field])
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    expected_error = (
+        "CAPTURE_FILE_HASH_MISMATCH" if metadata_field == "bytes"
+        else "CAPTURE_RECORD_COUNT_MISMATCH"
+    )
+
+    with pytest.raises(ProspectiveCaptureError, match=expected_error):
+        validate_manifest(journal.manifest_path)
+
+
+@pytest.mark.parametrize("malformed_symbol", [None, 42])
+def test_validator_rejects_non_string_instrument_symbol_without_leaking_type_error(tmp_path, malformed_symbol):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    filename = "BTCUSDT.jsonl"
+    data_path = journal.run_dir / filename
+    envelopes = [json.loads(line) for line in data_path.read_text(encoding="utf-8").splitlines()]
+    record = envelopes[0]["market_data"]
+    record["instrument"]["symbol"] = malformed_symbol
+    canonical_record = json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    envelopes[0]["record_sha256"] = hashlib.sha256(canonical_record).hexdigest()
+    _rewrite_dataset_and_manifest(journal, manifest, filename, envelopes)
+
+    with pytest.raises(ProspectiveCaptureError, match="CAPTURE_RECORD_SOURCE_OR_IDENTITY_INVALID"):
+        validate_manifest(journal.manifest_path)
+
+
 def test_validator_rejects_boolean_manifest_schema_version(tmp_path):
     journal = _finalized_capture(tmp_path)
     manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
