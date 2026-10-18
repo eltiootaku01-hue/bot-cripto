@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import subprocess
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
 from bot_obrero.prospective_capture_pair import (
     _build_commands,
+    _capture_source_provenance,
     _next_utc_start,
     run_capture_pair,
 )
@@ -108,3 +110,81 @@ def test_failed_child_stops_the_other_capture_and_persists_blocked_pair_manifest
 def test_invalid_monitor_interval_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="MONITOR_INTERVAL"):
         run_capture_pair(output_dir=tmp_path, monitor_interval_seconds=0)
+
+
+
+def test_source_provenance_binds_a_clean_repository_head_and_branch(tmp_path):
+    head = "a" * 40
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=""),
+    ])
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return next(outputs)
+
+    provenance = _capture_source_provenance(tmp_path, run_command=fake_run)
+    assert provenance["status"] == "VALID"
+    assert provenance["git_head_sha"] == head
+    assert provenance["branch"] == "main"
+    assert provenance["source_status_entries"] == []
+    assert len(calls) == 4
+
+
+def test_source_provenance_blocks_modified_capture_sources(tmp_path):
+    head = "b" * 40
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=" M bot_obrero/prospective_capture_pair.py\n"),
+    ])
+
+    provenance = _capture_source_provenance(
+        tmp_path, run_command=lambda _command, **_kwargs: next(outputs)
+    )
+    assert provenance["status"] == "BLOCKED"
+    assert provenance["reason"] == "CAPTURE_SOURCE_WORKTREE_DIRTY"
+    assert provenance["git_head_sha"] == head
+    assert provenance["source_status_entries"] == [" M bot_obrero/prospective_capture_pair.py"]
+
+
+def test_source_provenance_blocks_execution_outside_repository_root(tmp_path):
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path.parent) + "\n"),
+        SimpleNamespace(returncode=0, stdout="c" * 40 + "\n"),
+        SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=""),
+    ])
+    provenance = _capture_source_provenance(
+        tmp_path, run_command=lambda _command, **_kwargs: next(outputs)
+    )
+    assert provenance["status"] == "BLOCKED"
+    assert provenance["reason"] == "CAPTURE_REQUIRES_REPOSITORY_ROOT"
+
+
+def test_pair_capture_fails_closed_and_persists_source_provenance_failure(tmp_path):
+    result = run_capture_pair(
+        output_dir=tmp_path,
+        align_to_utc_midnight=False,
+        source_provenance_resolver=lambda _cwd: {
+            "status": "BLOCKED",
+            "reason": "CAPTURE_SOURCE_WORKTREE_DIRTY",
+            "git_head_sha": "d" * 40,
+            "source_status_entries": [" M bot_obrero/prospective_capture_pair.py"],
+        },
+        popen_factory=lambda *_args, **_kwargs: pytest.fail("child process must not start"),
+        clock=lambda: datetime(2026, 10, 18, 0, 0, 1, tzinfo=UTC),
+        sleep=lambda _seconds: None,
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "CAPTURE_SOURCE_WORKTREE_DIRTY"
+    manifest = Path(result["pair_manifest_path"])
+    persisted = json.loads(manifest.read_text(encoding="utf-8"))
+    assert persisted["source_provenance"]["status"] == "BLOCKED"
+    assert persisted["source_provenance"]["git_head_sha"] == "d" * 40
+    assert persisted["configuration_sha256"]

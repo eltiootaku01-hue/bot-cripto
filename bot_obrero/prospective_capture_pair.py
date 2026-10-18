@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -40,6 +41,90 @@ PopenFactory = Callable[..., Any]
 
 class _CapturePairBlocked(RuntimeError):
     """Expected fail-closed outcome before a paired capture can be accepted."""
+
+
+def _capture_source_provenance(
+    cwd: Path,
+    *,
+    run_command: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Bind capture evidence to a Git revision and reject modified source files."""
+    execute = subprocess.run if run_command is None else run_command
+    working_directory = Path(cwd).resolve()
+    try:
+        top_result = execute(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(working_directory), capture_output=True, text=True, check=False,
+        )
+        head_result = execute(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(working_directory), capture_output=True, text=True, check=False,
+        )
+        branch_result = execute(
+            ["git", "branch", "--show-current"],
+            cwd=str(working_directory), capture_output=True, text=True, check=False,
+        )
+        status_result = execute(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all", "--",
+             "bot_obrero/", "pyproject.toml"],
+            cwd=str(working_directory), capture_output=True, text=True, check=False,
+        )
+    except OSError as exc:
+        return {
+            "status": "UNKNOWN",
+            "reason": f"GIT_PROVENANCE_UNAVAILABLE:{type(exc).__name__}",
+            "git_head_sha": None,
+            "branch": None,
+                        "source_status_entries": [],
+        }
+
+    results = (top_result, head_result, branch_result, status_result)
+    if any(getattr(result, "returncode", 1) != 0 for result in results):
+        return {
+            "status": "UNKNOWN",
+            "reason": "GIT_PROVENANCE_COMMAND_FAILED",
+            "git_head_sha": None,
+            "branch": None,
+                        "source_status_entries": [],
+        }
+
+    repo_root_text = str(getattr(top_result, "stdout", "")).strip()
+    head_sha = str(getattr(head_result, "stdout", "")).strip().lower()
+    branch = str(getattr(branch_result, "stdout", "")).strip() or None
+    status_text = str(getattr(status_result, "stdout", "")).strip()
+    status_entries = status_text.splitlines() if status_text else []
+
+    if not repo_root_text or Path(repo_root_text).resolve() != working_directory:
+        return {
+            "status": "BLOCKED",
+            "reason": "CAPTURE_REQUIRES_REPOSITORY_ROOT",
+            "git_head_sha": head_sha or None,
+            "branch": branch,
+                        "source_status_entries": status_entries,
+        }
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", head_sha):
+        return {
+            "status": "UNKNOWN",
+            "reason": "GIT_HEAD_SHA_INVALID",
+            "git_head_sha": None,
+            "branch": branch,
+                        "source_status_entries": status_entries,
+        }
+    if status_entries:
+        return {
+            "status": "BLOCKED",
+            "reason": "CAPTURE_SOURCE_WORKTREE_DIRTY",
+            "git_head_sha": head_sha,
+            "branch": branch,
+                        "source_status_entries": status_entries,
+        }
+    return {
+        "status": "VALID",
+        "reason": None,
+        "git_head_sha": head_sha,
+        "branch": branch,
+                "source_status_entries": [],
+    }
 
 
 def _now() -> datetime:
@@ -129,6 +214,7 @@ def run_capture_pair(
     monitor_interval_seconds: float = DEFAULT_MONITOR_INTERVAL_SECONDS,
     align_to_utc_midnight: bool = True,
     popen_factory: PopenFactory = subprocess.Popen,
+    source_provenance_resolver: Callable[[Path], Mapping[str, Any]] | None = None,
     clock: Clock = _now,
     sleep: Sleep = time.sleep,
 ) -> dict[str, Any]:
@@ -141,6 +227,8 @@ def run_capture_pair(
         raise ValueError("MONITOR_INTERVAL_OUT_OF_RANGE")
 
     now = _aware_utc(clock(), "current_time")
+    provenance_resolver = _capture_source_provenance if source_provenance_resolver is None else source_provenance_resolver
+    source_provenance = dict(provenance_resolver(Path.cwd()))
     run_id = "btceth-pair-" + now.strftime("%Y%m%dT%H%M%S%fZ")
     run_dir = Path(output_dir).resolve() / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -159,6 +247,7 @@ def run_capture_pair(
         "bookticker_grace_seconds": DEFAULT_CAPTURE_GRACE_SECONDS,
         "minimum_overlap_seconds": BOOK_TICKER_DURATION_SECONDS,
         "source": "binance-public:spot-websocket",
+        "source_provenance": source_provenance,
         "trading_enabled": False,
     }
     scheduled_start = _next_utc_start(now) if align_to_utc_midnight else now
@@ -170,6 +259,7 @@ def run_capture_pair(
         "scheduled_start_at": scheduled_start.isoformat(),
         "configuration": configuration,
         "configuration_sha256": hashlib.sha256(_canonical_json(configuration)).hexdigest(),
+        "source_provenance": source_provenance,
         "logs": {"kline": "logs/kline.log", "bookticker": "logs/bookticker.log"},
         "kline_manifest": None,
         "bookticker_manifest": None,
@@ -183,6 +273,11 @@ def run_capture_pair(
     handles: dict[str, Any] = {}
     exit_code = 2
     try:
+        if source_provenance.get("status") != "VALID":
+            reason = source_provenance.get("reason") or "SOURCE_PROVENANCE_INVALID"
+            summary["status"] = "BLOCKED"
+            summary["reason"] = reason
+            raise _CapturePairBlocked(str(reason))
         while align_to_utc_midnight:
             remaining = (scheduled_start - _aware_utc(clock(), "current_time")).total_seconds()
             if remaining <= 0:
@@ -252,6 +347,8 @@ def run_capture_pair(
                 )
                 if validation.get("status") != "VALID":
                     raise RuntimeError("PAIRED_CAPTURE_VALIDATION_NOT_VALID")
+                validation["kline"]["manifest_path"] = str(manifests["kline"][0].relative_to(run_dir))
+                validation["bookticker"]["manifest_path"] = str(manifests["bookticker"][0].relative_to(run_dir))
                 summary["status"] = "VALID"
                 summary["validation"] = validation
                 summary["reason"] = None
