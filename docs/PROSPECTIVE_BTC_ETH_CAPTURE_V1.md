@@ -19,15 +19,25 @@ These external reports establish known failure patterns; they do not establish t
 
 This command is designed for a persistent terminal such as a local machine or a configured Codespace. A GitHub-hosted CI run only tests the code; it is not evidence that 24 hours of market capture occurred.
 
-From the repository root:
+From the repository root, the **recommended one-command runner** is:
+
+```powershell
+python -m bot_obrero.prospective_capture_pair capture --output-dir evidence/prospective-btc-eth-pair
+```
+
+The paired runner waits until the next UTC midnight (unless started within five seconds of midnight), launches the existing Kline and bookTicker collectors together, and gives both the same target duration and 300-second grace. It watches both child processes, stops the remaining collector if either fails, independently validates both manifests and the common overlap, and writes a `pair-manifest.json` containing the result, configuration hash, dataset hashes and log paths. The JSONL datasets and per-collector manifests remain in the same run directory. A successful run exits with code 0 and reports `status: VALID`; a failed/interrupted run returns nonzero and must not be used for preregistration.
+
+The runner expects the current working directory to be the repository root. Keep the PC powered on, prevent sleep/hibernation for the duration, maintain network connectivity, and leave the terminal running. The default target is 86,400 seconds plus 300 seconds of grace. Do not use synthetic CI artifacts as market evidence, and do not edit a blocked/running manifest to make it pass.
+
+The underlying Kline collector remains available independently:
 
 ```powershell
 python -m bot_obrero.prospective_capture capture --output-dir evidence/prospective-btc-eth --symbols BTCUSDT ETHUSDT --interval 1h --duration-seconds 86400
 ```
 
-By default, the collector waits for the next UTC midnight to start. It then captures for at least 24 elapsed hours and allows up to five additional minutes for the final hour to close and arrive. If the stream cannot demonstrate the acceptance criteria within that grace period, the run is `BLOCKED` and cannot be used to start the annual prospective holdout. To start immediately instead, pass `--no-align-next-utc-midnight`; an unaligned run may not contain a complete UTC day and can correctly end `BLOCKED`.
+It waits for the next UTC midnight to start and allows up to five additional minutes for the final hour to close and arrive. If the stream cannot demonstrate the acceptance criteria within that grace period, the run is `BLOCKED` and cannot be used to start the annual prospective holdout. To start immediately instead, pass `--no-align-next-utc-midnight`; an unaligned run may not contain a complete UTC day and can correctly end `BLOCKED`.
 
-The default stream chunk is 1,000 messages. The existing adapter closes each connection after a bounded chunk; the capture runner rotates connections at those boundaries and uses capped exponential backoff after transport errors. A `serverShutdown` control event is treated as reconnectable transport, not as a Kline payload. Each event is handed to the journal and fsynced before the stream continues by default. A persistence or malformed-payload failure blocks the capture and stops both stream workers.
+The default Kline stream chunk is 1,000 messages. The adapter rotates connections at bounded chunks and uses capped exponential backoff after transport errors. A `serverShutdown` control event is treated as reconnectable transport, not as a Kline payload. Events are fsynced by default. A persistence or malformed-payload failure blocks capture and stops the Kline stream workers.
 
 ## Output and provenance
 
