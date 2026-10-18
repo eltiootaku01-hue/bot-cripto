@@ -3,6 +3,9 @@ name: phase1.24.1-binance-websocket-e2e
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   binance-websocket-e2e:
     name: real-binance-websocket-e2e

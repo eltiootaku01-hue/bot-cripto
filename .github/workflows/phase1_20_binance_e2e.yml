@@ -3,6 +3,9 @@ name: phase1.20-binance-e2e
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   binance-e2e:
     runs-on: ubuntu-latest
