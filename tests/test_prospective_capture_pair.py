@@ -188,3 +188,20 @@ def test_pair_capture_fails_closed_and_persists_source_provenance_failure(tmp_pa
     assert persisted["source_provenance"]["status"] == "BLOCKED"
     assert persisted["source_provenance"]["git_head_sha"] == "d" * 40
     assert persisted["configuration_sha256"]
+
+
+
+def test_source_provenance_blocks_capture_from_non_main_branch(tmp_path):
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
+        SimpleNamespace(returncode=0, stdout="e" * 40 + "\n"),
+        SimpleNamespace(returncode=0, stdout="research/probe\n"),
+        SimpleNamespace(returncode=0, stdout=""),
+    ])
+    provenance = _capture_source_provenance(
+        tmp_path, run_command=lambda _command, **_kwargs: next(outputs)
+    )
+    assert provenance["status"] == "BLOCKED"
+    assert provenance["reason"] == "CAPTURE_REQUIRES_MAIN_BRANCH"
+    assert provenance["branch"] == "research/probe"
+    assert provenance["git_head_sha"] == "e" * 40

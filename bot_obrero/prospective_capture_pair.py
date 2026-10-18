@@ -110,6 +110,14 @@ def _capture_source_provenance(
             "branch": branch,
                         "source_status_entries": status_entries,
         }
+    if branch != "main":
+        return {
+            "status": "BLOCKED",
+            "reason": "CAPTURE_REQUIRES_MAIN_BRANCH",
+            "git_head_sha": head_sha,
+            "branch": branch,
+            "source_status_entries": status_entries,
+        }
     if status_entries:
         return {
             "status": "BLOCKED",
