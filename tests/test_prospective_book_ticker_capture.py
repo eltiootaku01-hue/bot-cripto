@@ -37,6 +37,32 @@ def make_quote(symbol: str, update_id: int, received_at: datetime) -> BinanceBoo
     )
 
 
+def test_reconnect_counter_tracks_new_connection_attempts_not_transport_errors(tmp_path):
+    journal = ProspectiveBookTickerJournal(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        now=lambda: START,
+        run_id="bookticker-reconnect-counter",
+    )
+    journal.start(START)
+    journal.note_connection_attempt("BTCUSDT")
+    journal.note_transport_error("BTCUSDT", TimeoutError("socket timeout"))
+    journal.note_connection_attempt("BTCUSDT")
+
+    summary = journal._manifest["symbols_summary"]["BTCUSDT"]
+    assert summary["connection_attempts"] == 2
+    assert summary["reconnects"] == 1
+    assert summary["transport_errors"] == 1
+
+    result = journal.finalize(
+        status="BLOCKED",
+        ended_at=START + timedelta(seconds=1),
+        elapsed_seconds=1,
+        reason="unit_test_short_run",
+    )
+    assert result["status"] == "BLOCKED"
+
+
 def test_journal_writes_hash_bound_quote_envelopes_and_rejects_unapproved_symbol(tmp_path):
     journal = ProspectiveBookTickerJournal(
         output_dir=tmp_path,
