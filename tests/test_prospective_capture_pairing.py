@@ -97,3 +97,107 @@ def test_pair_window_rejects_boolean_duration_that_looks_like_integer():
             common_complete_utc_days=["2026-10-18"],
             minimum_overlap_seconds=True,
         )
+
+def test_validate_paired_manifests_composes_independent_validators(tmp_path, monkeypatch):
+    import json
+
+    from bot_obrero import prospective_book_ticker_capture as module
+
+    kline_path = tmp_path / "kline-manifest.json"
+    quote_path = tmp_path / "quote-manifest.json"
+    kline_start = DAY
+    kline_end = DAY + timedelta(days=1, minutes=5)
+    quote_start = DAY + timedelta(seconds=2)
+    quote_end = DAY + timedelta(days=1, seconds=2)
+
+    kline_path.write_text(json.dumps({
+        "status": "COMPLETED",
+        "run_id": "kline-run",
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "capture_started_at": kline_start.isoformat(),
+        "capture_ended_at": kline_end.isoformat(),
+    }), encoding="utf-8")
+    quote_path.write_text(json.dumps({
+        "status": "COMPLETED",
+        "run_id": "quote-run",
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "capture_started_at": quote_start.isoformat(),
+        "capture_ended_at": quote_end.isoformat(),
+        "files": {
+            "BTCUSDT-bookTicker.jsonl": {"sha256": "a" * 64},
+            "ETHUSDT-bookTicker.jsonl": {"sha256": "b" * 64},
+        },
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(module, "validate_kline_manifest", lambda _path: {
+        "status": "VALID",
+        "run_id": "kline-run",
+        "capture_started_at": kline_start.isoformat(),
+        "capture_ended_at": kline_end.isoformat(),
+        "dataset_sha256": {"BTCUSDT.jsonl": "c" * 64, "ETHUSDT.jsonl": "d" * 64},
+        "acceptance": {
+            "symbols": {
+                "BTCUSDT": {"complete_utc_days": ["2026-10-18"]},
+                "ETHUSDT": {"complete_utc_days": ["2026-10-18"]},
+            },
+        },
+    })
+    monkeypatch.setattr(module, "validate_manifest", lambda _path: {
+        "status": "VALID", "run_id": "quote-run"
+    })
+
+    result = module.validate_paired_manifests(
+        kline_manifest_path=kline_path,
+        bookticker_manifest_path=quote_path,
+    )
+    assert result["status"] == "VALID"
+    assert result["overlap_seconds"] == DEFAULT_DURATION_SECONDS
+    assert result["common_complete_utc_days"] == ["2026-10-18"]
+    assert result["kline"]["run_id"] == "kline-run"
+    assert result["bookticker"]["run_id"] == "quote-run"
+    assert result["bookticker"]["dataset_sha256"]["BTCUSDT-bookTicker.jsonl"] == "a" * 64
+
+
+def test_validate_paired_manifests_rejects_symbol_universe_mismatch(tmp_path, monkeypatch):
+    import json
+
+    from bot_obrero import prospective_book_ticker_capture as module
+
+    kline_path = tmp_path / "kline-manifest.json"
+    quote_path = tmp_path / "quote-manifest.json"
+    start = DAY
+    end = DAY + timedelta(days=1)
+    kline_path.write_text(json.dumps({
+        "status": "COMPLETED",
+        "run_id": "kline-run",
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "capture_started_at": start.isoformat(),
+        "capture_ended_at": end.isoformat(),
+    }), encoding="utf-8")
+    quote_path.write_text(json.dumps({
+        "status": "COMPLETED",
+        "run_id": "quote-run",
+        "symbols": ["BTCUSDT", "DOGEUSDT"],
+        "capture_started_at": start.isoformat(),
+        "capture_ended_at": end.isoformat(),
+        "files": {},
+    }), encoding="utf-8")
+    monkeypatch.setattr(module, "validate_kline_manifest", lambda _path: {
+        "status": "VALID",
+        "run_id": "kline-run",
+        "capture_started_at": start.isoformat(),
+        "capture_ended_at": end.isoformat(),
+        "dataset_sha256": {},
+        "acceptance": {"symbols": {
+            "BTCUSDT": {"complete_utc_days": ["2026-10-18"]},
+            "ETHUSDT": {"complete_utc_days": ["2026-10-18"]},
+        }},
+    })
+    monkeypatch.setattr(module, "validate_manifest", lambda _path: {
+        "status": "VALID", "run_id": "quote-run"
+    })
+    with pytest.raises(ProspectiveBookTickerCaptureError, match="PAIRED_CAPTURE_SYMBOLS_DIFFER"):
+        module.validate_paired_manifests(
+            kline_manifest_path=kline_path,
+            bookticker_manifest_path=quote_path,
+        )
