@@ -121,6 +121,7 @@ def test_source_provenance_binds_a_clean_repository_head_and_branch(tmp_path):
         SimpleNamespace(returncode=0, stdout=head + "\n"),
         SimpleNamespace(returncode=0, stdout="main\n"),
         SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\trefs/heads/main\n"),
         SimpleNamespace(returncode=0, stdout=""),
     ])
     calls = []
@@ -134,7 +135,8 @@ def test_source_provenance_binds_a_clean_repository_head_and_branch(tmp_path):
     assert provenance["git_head_sha"] == head
     assert provenance["branch"] == "main"
     assert provenance["source_status_entries"] == []
-    assert len(calls) == 5
+    assert len(calls) == 6
+    assert calls[4][0:2] == ["git", "ls-remote"]
 
 
 def test_source_provenance_blocks_modified_capture_sources(tmp_path):
@@ -144,6 +146,7 @@ def test_source_provenance_blocks_modified_capture_sources(tmp_path):
         SimpleNamespace(returncode=0, stdout=head + "\n"),
         SimpleNamespace(returncode=0, stdout="main\n"),
         SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\trefs/heads/main\n"),
         SimpleNamespace(returncode=0, stdout=" M bot_obrero/prospective_capture_pair.py\n"),
     ])
 
@@ -156,12 +159,35 @@ def test_source_provenance_blocks_modified_capture_sources(tmp_path):
     assert provenance["source_status_entries"] == [" M bot_obrero/prospective_capture_pair.py"]
 
 
+def test_source_provenance_blocks_stale_local_origin_main_when_remote_advances(tmp_path):
+    head = "a" * 40
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout="b" * 40 + "\trefs/heads/main\n"),
+        SimpleNamespace(returncode=0, stdout=""),
+    ])
+
+    provenance = _capture_source_provenance(
+        tmp_path, run_command=lambda _command, **_kwargs: next(outputs)
+    )
+
+    assert provenance["status"] == "BLOCKED"
+    assert provenance["reason"] == "CAPTURE_ORIGIN_MAIN_TRACKING_STALE"
+    assert provenance["git_head_sha"] == head
+    assert provenance["origin_main_sha"] == head
+    assert provenance["live_main_sha"] == "b" * 40
+
+
 def test_source_provenance_blocks_execution_outside_repository_root(tmp_path):
     outputs = iter([
         SimpleNamespace(returncode=0, stdout=str(tmp_path.parent) + "\n"),
         SimpleNamespace(returncode=0, stdout="c" * 40 + "\n"),
         SimpleNamespace(returncode=0, stdout="main\n"),
         SimpleNamespace(returncode=0, stdout="c" * 40 + "\n"),
+        SimpleNamespace(returncode=0, stdout="c" * 40 + "\trefs/heads/main\n"),
         SimpleNamespace(returncode=0, stdout=""),
     ])
     provenance = _capture_source_provenance(
@@ -201,6 +227,7 @@ def test_source_provenance_blocks_capture_from_non_main_branch(tmp_path):
         SimpleNamespace(returncode=0, stdout="e" * 40 + "\n"),
         SimpleNamespace(returncode=0, stdout="research/probe\n"),
         SimpleNamespace(returncode=0, stdout="e" * 40 + "\n"),
+        SimpleNamespace(returncode=0, stdout="e" * 40 + "\trefs/heads/main\n"),
         SimpleNamespace(returncode=0, stdout=""),
     ])
     provenance = _capture_source_provenance(
@@ -219,6 +246,7 @@ def test_source_provenance_blocks_main_behind_or_ahead_of_origin_main(tmp_path):
         SimpleNamespace(returncode=0, stdout="f" * 40 + "\n"),
         SimpleNamespace(returncode=0, stdout="main\n"),
         SimpleNamespace(returncode=0, stdout="1" * 40 + "\n"),
+        SimpleNamespace(returncode=0, stdout="1" * 40 + "\trefs/heads/main\n"),
         SimpleNamespace(returncode=0, stdout=""),
     ])
     provenance = _capture_source_provenance(
@@ -236,6 +264,7 @@ def test_source_revision_match_rejects_changed_revision_or_non_clean_state():
         "status": "VALID",
         "git_head_sha": "a" * 40,
         "origin_main_sha": "a" * 40,
+        "live_main_sha": "a" * 40,
         "branch": "main",
         "source_status_entries": [],
     }
@@ -247,6 +276,9 @@ def test_source_revision_match_rejects_changed_revision_or_non_clean_state():
     changed_origin = {**clean, "origin_main_sha": "c" * 40}
     assert _same_source_revision(clean, changed_origin) is False
 
+    changed_live_main = {**clean, "live_main_sha": "d" * 40}
+    assert _same_source_revision(clean, changed_live_main) is False
+
     dirty = {**clean, "status": "BLOCKED", "source_status_entries": [" M bot_obrero/"]}
     assert _same_source_revision(clean, dirty) is False
 
@@ -256,6 +288,7 @@ def test_pair_capture_rechecks_source_after_wait_and_blocks_before_opening_socke
         "status": "VALID",
         "git_head_sha": "a" * 40,
         "origin_main_sha": "a" * 40,
+        "live_main_sha": "a" * 40,
         "branch": "main",
         "source_status_entries": [],
     }
@@ -264,6 +297,7 @@ def test_pair_capture_rechecks_source_after_wait_and_blocks_before_opening_socke
         "reason": "CAPTURE_SOURCE_WORKTREE_DIRTY",
         "git_head_sha": "a" * 40,
         "origin_main_sha": "a" * 40,
+        "live_main_sha": "a" * 40,
         "branch": "main",
         "source_status_entries": [" M bot_obrero/prospective_capture_pair.py"],
     }
@@ -290,6 +324,7 @@ def test_pair_capture_blocks_if_source_revision_changes_after_children_finish(tm
         "status": "VALID",
         "git_head_sha": "a" * 40,
         "origin_main_sha": "a" * 40,
+        "live_main_sha": "a" * 40,
         "branch": "main",
         "source_status_entries": [],
     }
@@ -297,6 +332,7 @@ def test_pair_capture_blocks_if_source_revision_changes_after_children_finish(tm
         "status": "VALID",
         "git_head_sha": "b" * 40,
         "origin_main_sha": "b" * 40,
+        "live_main_sha": "b" * 40,
         "branch": "main",
         "source_status_entries": [],
     }
