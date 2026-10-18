@@ -273,3 +273,14 @@ La configuración ahora exige enteros JSON exactos para `target_duration_seconds
 - Los checks de tests, CodeQL y pip-audit terminaron `success` en ese SHA exacto; la suite registró 1.694 pruebas aprobadas.
 - No se observó un manifiesto real aceptado ni un artefacto de captura asociado a esos checks. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) continúa bloqueante.
 - La rúbrica permanece en **77/100**. No asignar puntos por tests sintéticos como si fueran adquisición real o rentabilidad; no iniciar T0, no declarar ganador y mantener `NO_TRADE`.
+
+
+## Revalidación documental contra main posterior a 947eefc — 2026-10-18
+
+En la revisión de GitHub inmediatamente anterior a esta actualización documental, main apuntaba a 947eefcdb35da19d7a990b7b69fc98088c42cfb1. Los tres checks de ese SHA terminaron success: [pytest, 1.694 tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39144538447), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39144538441) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39144538444). La rama no tenía PR abiertas en la inspección correspondiente. El cambio actual es documental: no modifica código de ejecución ni suma puntos por pruebas sintéticas.
+
+La evaluación permanece en **77/100**; la evidencia económica sigue en 5/20, las estrategias evaluadas no han demostrado edge neto robusto, y el estudio V2 continúa **DESIGNED / NOT RUN**, sin T0. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue BLOCKED porque no consta una pareja de manifiestos de mercado real aceptada con ≥86.400 s de solapamiento, validación independiente y un día UTC completo común. El próximo trabajo no puede suplirse con más tests sintéticos: ejecutar la captura emparejada en una máquina persistente, revisar el resultado y registrar sus hashes inmutables.
+
+Como restricción de planificación, GitHub documenta un máximo de 6 horas por job en ejecutores hospedados ([límites](https://docs.github.com/en/actions/reference/limits)) y retención predeterminada de 90 días para artefactos ([retención de Actions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)). Por ello, la captura de 24 h y la custodia de los datos de un holdout de 365 días necesitan una máquina persistente y almacenamiento durable; el artefacto temporal de un job hospedado no es sustituto de esa evidencia.
+
+**Dictamen intacto:** no declarar 100 %, no nombrar una estrategia ganadora sin resultados independientes, no iniciar T0 ni habilitar LIVE. Mantener **NO_TRADE**.

@@ -295,3 +295,13 @@ Se integró [PR #101](https://github.com/eltiootaku01-hue/bot-cripto/pull/101) e
 - **pip-audit:** success, [run 39142481017](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142481017).
 - La ejecución de tests no adjuntó artefactos de captura. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) permanece abierta porque los manifiestos reales Kline + bookTicker de una ventana común no están disponibles para aceptación.
 - **No cambiar el gate:** no fijar T0 ni seleccionar una estrategia ganadora hasta aceptar el smoke real de ≥86.400 s de solapamiento y después completar el holdout independiente. `NO_TRADE` permanece.
+
+
+## Continuidad verificada inmediatamente antes de la presente actualización documental — 2026-10-18
+
+- **SHA de main observado antes de esta actualización:** 947eefcdb35da19d7a990b7b69fc98088c42cfb1.
+- **Checks en ese SHA exacto:** [pytest](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39144538447) success (1.694 pruebas), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39144538441) success, [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39144538444) success.
+- **Estado de PRs:** ninguna abierta en la consulta actual. **Estado de issue #98:** abierta/bloqueada, sin evidencia verificable de una captura real adjunta a la issue o a los checks consultados.
+- **Preparación:** 77/100; NO_TRADE; V2 DESIGNED / NOT RUN; ningún T0 fijado. La puntuación no se aumenta por sincronizar documentación ni por tests sintéticos.
+- **Restricciones infraestructurales:** los jobs de runners hospedados de GitHub tienen un límite de 6 horas; los artefactos y logs se retienen por defecto 90 días. Referencias oficiales: [límites](https://docs.github.com/en/actions/reference/limits) y [retención de artefactos](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts). Ejecutar la pareja Kline + bookTicker en una máquina persistente y conservar la evidencia anual en almacenamiento durable, no solo en artefactos temporales.
+- **Siguiente paso verificable:** ejecutar python -m bot_obrero.prospective_capture_pair capture --output-dir evidence/prospective-btc-eth-pair en un clon limpio y actualizado de main, con Python/dependencias instalados y equipo sin suspensión; aceptar solo el pair-manifest.json final con status VALID, ≥86.400 s de solapamiento y hashes/verificadores correctos. Ante salida distinta de cero o estado BLOCKED, guardar logs y diagnosticar sin editar manifiestos para forzar aceptación.

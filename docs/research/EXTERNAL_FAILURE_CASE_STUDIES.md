@@ -474,3 +474,17 @@ La primera versión del orquestador Kline + bookTicker guardaba los hashes del d
 **Contexto upstream:** Python documenta que `bool` es subtipo de `int`, motivo por el que algunos contratos exigen comprobación explícita del tipo además del valor ([documentación oficial](https://docs.python.org/es/3.12/reference/datamodel.html)). Binance documenta la desconexión obligatoria de la conexión Spot WebSocket tras 24 horas y el evento `serverShutdown` ([documentación oficial](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md?plain=1)).
 
 **Límite:** ninguna de estas regresiones equivale a una captura de mercado real. La issue #98 sigue abierta y `NO_TRADE` permanece.
+
+
+## 21. Captura larga y conservación de evidencia: límites oficiales de GitHub Actions (2026-10-18)
+
+### Restricciones externas confirmadas
+
+- **OBSERVED — límite de ejecución:** la documentación oficial de [límites de GitHub Actions](https://docs.github.com/en/actions/reference/limits) establece un máximo de **6 horas por trabajo en ejecutores hospedados por GitHub**. La captura de BOT-CRIPTO exige al menos 86.400 segundos reales de solapamiento, más la gracia configurada; no debe ejecutarse como un único job alojado esperando que supere su límite. Dividirla en jobs no demuestra continuidad entre procesos. La mitigación adecuada para la aceptación actual es el colector emparejado en una máquina persistente, como el PC Windows descrito por la issue #98.
+- **OBSERVED — retención de evidencia:** GitHub explica que los artefactos y logs de Actions se retienen normalmente **90 días** ([descarga de artefactos](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts); [política de retención](https://docs.github.com/en/organizations/managing-organization-settings/configuring-the-retention-period-for-github-actions-artifacts-and-logs-in-your-organization)). Un dataset prospectivo de 365 días no debe depender exclusivamente de artefactos temporales, cuya expiración puede preceder al cierre del estudio.
+- **Mitigación para BTC_ETH_STRATEGIES_V2:** guardar fragmentos diarios inmutables, hashes SHA-256 y manifiestos en un medio de evidencia durable y versionado; definir recuperación y copias de respaldo antes de T0. Los artefactos de Actions pueden servir como transferencia/verificación temporal, no como la única copia durante todo el año. No subir JSONL voluminoso a main ni reconstruir tiempos real-time a partir de backfill.
+- **Límite de interpretación:** estos son límites de la plataforma de CI/almacenamiento, no fallos observados del código local. La solución actual —captura supervisada en máquina persistente y validación de pareja— es coherente con esos límites; su ejecución real sigue pendiente.
+
+### Estado local revalidado
+
+El SHA funcional 5b67db204569cdba9cfa96ad81b06c2eade15a1c y su sincronización documental posterior 947eefcdb35da19d7a990b7b69fc98088c42cfb1 no aportan manifiestos reales de captura. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) continúa siendo el bloqueo operativo; la suite verde valida software, no continuidad de mercado. Mantener **NO_TRADE** y no asignar T0 hasta la aceptación independiente de Kline + bookTicker.
