@@ -171,3 +171,16 @@ Run git fetch origin main before capture so the remote-tracking ref is refreshed
 ## Revalidación de procedencia antes y después de la captura (18-10-2026)
 
 El control Git no se ejecuta una sola vez: comprueba la fuente al preparar la corrida, vuelve a compararla justo después de la espera a medianoche y antes de abrir los WebSockets, y vuelve a comprobarla cuando ambos colectores terminan y antes de validar la pareja. Si cambia HEAD, origin/main, rama o estado del código durante la espera/captura, la corrida termina BLOCKED y no puede usarse como evidencia aceptada.
+
+
+## Live remote-main verification — hardening 2026-10-18
+
+The paired runner now verifies not only `HEAD` and the locally cached `refs/remotes/origin/main`, but also queries the live remote ref with:
+
+```powershell
+git ls-remote --exit-code origin refs/heads/main
+```
+
+It records `live_main_sha` in source provenance and requires the remote SHA, local tracking SHA and `HEAD` to agree at initial validation, after the UTC-midnight wait immediately before launch, and after both collectors finish before accepting the manifests. If `origin/main` is stale relative to the live remote, the run becomes `BLOCKED` with `CAPTURE_ORIGIN_MAIN_TRACKING_STALE`. If the remote cannot be queried or the ref cannot be parsed, the provenance gate fails closed; the runner does not accept the datasets. Refresh the local tracking ref before starting as instructed above, and do not edit a blocked manifest to make it pass.
+
+Regression test: `tests/test_prospective_capture_pair.py::test_source_provenance_blocks_stale_local_origin_main_when_remote_advances`. CI for code/test SHA `2cd9709095167fb58aff27dfc6fc8eecedf8b05e`: 1,676 tests, CodeQL and pip-audit all `success`. This verifies the provenance guard, not a real market capture. Issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) remains open until the real paired manifests pass the independent validators.
