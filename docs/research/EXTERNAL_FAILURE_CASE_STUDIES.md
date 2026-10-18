@@ -544,3 +544,16 @@ También se reconsultaron las [notas oficiales de Binance Spot WebSocket](https:
 **Evidencia local:** [pytest](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210250) terminó `success` con 1.708 pruebas por Python 3.11–3.14; [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210264) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210171) también finalizaron `success` sobre el mismo SHA. Cuatro pruebas nuevas validan recepción positiva, checksum erróneo, path traversal y archivo ajeno.
 
 **Límite de evidencia:** esas pruebas usan fixtures sintéticos. No prueban mercado real ni cierran la issue #98. La captura verdadera y el holdout anual siguen sin aceptar/ejecutar; mantener `NO_TRADE`.
+
+
+## 26. GitHub Actions workflow lockfiles — nueva defensa de cadena de suministro en vista previa (2026-10-18)
+
+**Fuente primaria y fecha:** [GitHub Changelog, 14 de octubre de 2026 — GitHub Actions workflow lockfiles in public preview](https://github.blog/changelog/2026-10-14-github-actions-workflow-lockfiles-in-public-preview/).
+
+**Problema descrito por GitHub:** las referencias por tag o rama pueden moverse después de la revisión de un workflow, de modo que una ejecución posterior podría tomar código distinto sin que cambie el archivo del repositorio. La vista previa de lockfiles de Actions fija commits de dependencias de workflows, acciones transitivas y workflows reutilizables; la extensión oficial de GitHub CLI puede generar el lockfile y comprobar si queda desactualizado.
+
+**Estado observado en BOT-CRIPTO:** los workflows del repositorio ya fijan acciones first-party mediante SHA inmutables. No se encontró un `.github/workflows/actions.lock` en la punta revisada. No afirmar que el lockfile de la vista previa esté activo ni que falte protección para las referencias que ya están fijadas.
+
+**Mitigación recomendada:** mantener los SHA actuales; evaluar la extensión oficial `gh actions-lock` en una rama aislada, generar el archivo con la herramienta del mantenedor, verificar dependencias transitivas y workflow reutilizables, añadir una validación de lockfile fresco, y luego abrir una PR con diff y CI propios. No escribir manualmente el formato del lockfile ni migrar basándose solo en el anuncio de vista previa. Un lockfile fija qué commit se ejecuta, pero no demuestra que una dependencia sea segura; la revisión de procedencia y `CodeQL`/`pip-audit` siguen siendo necesarias.
+
+**Decisión en esta revisión:** `OBSERVED / FOLLOW-UP`, sin cambio de workflows ni puntuación de preparación. El repo sigue empleando pins por SHA; cualquier adopción del lockfile requiere primero validar la herramienta oficial, compatibilidad y CI mediante una PR.
