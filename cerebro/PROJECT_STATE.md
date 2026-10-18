@@ -2,13 +2,13 @@
 
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA funcional con tests, CodeQL y auditoría de dependencias en verde tras la ventana de gracia:** `375009b96278b6ad44240ae7359f3c483958895b`. En él, [tests aprobaron 1650 casos](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105870878), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105870780) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105870782) terminaron `success`. El SHA incluye captura bookTicker con memoria acotada, fsync por tiempo/lote, gracia de 300 s y `validate-pair`. Los commits documentales posteriores se verifican por su propio SHA; la captura real Kline+bookTicker y el holdout prospectivo siguen pendientes.
+**Último SHA funcional con checks exactos en verde:** cec4e8e6dd58871a04dd1f1171eb985a6926ea37. Tests: 1661 passed (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376) terminaron success. Incluye captura bookTicker durable, validador conjunto, gracia de 300 s, orquestador y bloqueo de captura si el checkout no corresponde a un main limpio/actual. La captura real Kline+bookTicker y el holdout prospectivo siguen pendientes.
 
 ## 1. Estado operativo actual
 
 ## Preparación demostrada hacia el objetivo >90%
 
-- **Evaluación ponderada actual:** **76/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
+- **Evaluación ponderada actual:** **77/100**, según [PROJECT_READINESS_V1_2026-10-17.md](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de líneas de código ni una estimación de beneficio; puntúa capacidades con evidencia de prueba y de estrategia. El umbral >90 no está alcanzado.
 - **CI histórico de main tras PR #87:** [run 39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044), `success`, **1604 pruebas aprobadas en 14.62 s**, SHA `43d2cd70b2a350cf2987210166df7711d932e41b`. CodeQL [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033) y `pip-audit` [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) también son `success` en el SHA exacto. Los E2E de SMA/indicadores pasaron en la punta de PR #87.
 - **Próximos gates de mayor prioridad:** ejecutar y validar una captura real continua de al menos 24 horas; extender la invariancia anti-lookahead a los artefactos del estudio anual BTC→ETH; y demostrar edge neto en un holdout independiente. La herramienta de captura ya está integrada, pero no cuenta como evidencia de haberla ejecutado. `NO_TRADE` se mantiene.
 
@@ -192,7 +192,7 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - **Checks que pasaron en el SHA funcional verificado:** tests [39106093676](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093676), CodeQL [39106093663](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093663) y pip-audit [39106093739](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39106093739).
 - **PR abiertas:** ninguna según la lectura viva de GitHub.
 - **Bloqueo externo P0:** [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98), captura prospectiva real conjunta BTCUSDT/ETHUSDT Kline + bookTicker durante al menos 24 h, validación independiente y hashes preservados. No se han sustituido esos requisitos por resultados sintéticos ni se ha marcado la captura como realizada.
-- **Preparación:** 76/100 según [rúbrica vigente](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de código ni una predicción de ganancias. La categoría económica limita la puntuación a 85/100 hasta nueva evidencia; el objetivo >90 todavía no se ha alcanzado.
+- **Preparación:** 77/100 según [rúbrica vigente](../docs/audits/PROJECT_READINESS_V1_2026-10-17.md). No es un porcentaje de código ni una predicción de ganancias. La categoría económica limita la puntuación a 85/100 hasta nueva evidencia; el objetivo >90 todavía no se ha alcanzado.
 - **Decisión y límites:** `NO_TRADE`; sin LIVE, claves privadas, endpoints privados ni dinero real. El próximo aumento legítimo requiere captura aceptada, preregistro, periodo prospectivo independiente y evidencia económica neta robusta. Cualquier nueva prueba debe estar asociada al SHA exacto que la ejecutó.
 
 
@@ -203,3 +203,10 @@ Antes de cualquier cambio material, volver a verificar el HEAD vivo, ramas/PR ab
 - CI verde sobre `b1a21381a54e64db87f89265bd351d9db0370a65`: tests [39108357014](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108357014), **1655 pruebas**; CodeQL [39108356962](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108356962); pip-audit [39108357017](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108357017).
 - **Preparación revisada: 77/100.** La mejora de un punto cubre coordinación/supervisión local probada, no operación prolongada real. Ninguna captura real se ha ejecutado o aceptado. `NO_TRADE` continúa; sin LIVE, claves privadas, endpoints privados ni dinero real.
 - El techo aritmético de la rúbrica continúa en 85/100 hasta que mejore la evidencia económica, actualmente 5/20. Para superar 90 hará falta evidencia neta independiente en un holdout preregistrado; no se modifica la puntuación para simular avance.
+
+
+## Actualización de continuidad — procedencia estricta de la captura (18-10-2026)
+
+- **Commit funcional:** cec4e8e6dd58871a04dd1f1171eb985a6926ea37; tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), 1661 pruebas; CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231); pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376), los tres success.
+- El orquestador vincula el hash de configuración a HEAD y origin/main, la rama y la comprobación de fuente. Exige estar en la raíz del repo, en rama main, con HEAD == origin/main y sin archivos modificados/untracked en bot_obrero/ y pyproject.toml. La salida bloqueada persiste la causa y no abre sockets.
+- **Puntuación sin cambio: 77/100.** Esta defensa mejora reproducibilidad y evita capturas con código local ambiguo, pero no añade evidencia económica o datos reales. Issue #98 permanece abierta hasta ejecutar la captura real Kline+bookTicker durante al menos 24 h aceptadas. NO_TRADE y la prohibición de LIVE se mantienen.

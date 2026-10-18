@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 18 de octubre de 2026  
-**Base de código revisada:** `main` incluye PR #96 en `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b` (validación fail-closed de claves de orden del replay PAPER), PR #93 (tipos estrictos del manifest de captura) y las correcciones de PR #86/#87. Suite post-merge exacta: [39101918101](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), 1610 tests; CodeQL [39101918074](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) y pip-audit [39101918092](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) `success`.
+**Base de código revisada:** cada sección conserva el SHA histórico y los checks que le corresponden. La actualización del estado vivo de main (orquestación/procedencia de captura y CI final por SHA) se registra en la sección 14; no inferir que un check histórico pruebe el HEAD actual.
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -381,3 +381,23 @@ El mantenedor registró varias correcciones en la versión 9.1.1, entre ellas:
 **Regresión:** `tests/test_binance_book_ticker.py` añade casos para los cuatro tipos inválidos.
 
 **Validación de la revisión:** en SHA `0913bbee0c6090bc182d9955bd711e4a5130ffca`, la suite pasó **1645 pruebas** ([run 39105436364](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105436364)) y `pip-audit` pasó ([run 39105436379](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105436379)). CodeQL [39105436371](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39105436371) terminó `success`; los tres checks están en verde sobre el mismo SHA. La captura real combinada Kline+bookTicker de 24 h sigue pendiente y la decisión es `NO_TRADE`.
+
+
+## 14. Procedencia de captura y actualizaciones oficiales revisadas — 18-10-2026
+
+### Hallazgo local: dataset validado sin identidad explícita de su código fuente
+
+La primera versión del orquestador Kline + bookTicker guardaba los hashes del dataset y el resultado de validación, pero no ligaba la pareja a un SHA de código ni verificaba que el código fuente local correspondiera a la rama aprobada. En una investigación financiera eso debilita la reproducibilidad: dos ejecuciones pueden declarar la misma configuración textual aunque una se haya producido con módulos modificados.
+
+**Corrección aplicada en main:** el módulo bot_obrero/prospective_capture_pair.py comprueba raíz Git, rama main, igualdad exacta entre HEAD y el ref local origin/main, ausencia de cambios/untracked bajo bot_obrero/ y pyproject.toml, y disponibilidad de todos los comandos Git. El SHA fuente, el SHA de origin/main, la rama y el resultado del estado del source se incluyen en la configuración que se liga por configuration_sha256. Ante estado desconocido, checkout atrasado, rama distinta o source sucio, la pareja queda BLOCKED y no inicia WebSocket. Los manifiestos de la validación conjunta usan rutas relativas para no guardar la ruta absoluta del directorio local en esa salida.
+
+**Regresiones:** checkout limpio; fuente modificada; ejecución fuera de la raíz; rechazo sin lanzar procesos; rama distinta de main; y HEAD distinto de origin/main. Un rechazo persiste su causa, nunca fabrica evidencia de mercado aceptada.
+
+### Actualizaciones de los mantenedores verificadas
+
+- **SQLite:** el registro oficial de versiones (https://sqlite.org/releaselog/current.html) identifica SQLite 3.53.4 (24-07-2026) y conserva la corrección del WAL-reset bug. Las noticias de SQLite (https://www.sqlite.org/news.html) indican que el bug se corrigió en 3.51.3 y 3.53.0. Esta corrección upstream no implica que BOT-CRIPTO haya sufrido corrupción; el adaptador local mantiene journal DELETE, no WAL.
+- **pytest:** el changelog oficial de pytest 9.1.1 (https://pytest.org/en/latest/changelog.html, 19-06-2026) registra arreglos para una regresión de parametrización indirecta que podía causar duplicate parametrization y para la carga inicial de conftest.py. El proyecto acota pytest a la rama 9.1.x y exige ejecutar toda la suite.
+- **GitHub Actions:** el aviso oficial de GitHub (https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/) confirma que los runners retiraron Node 20 el 23-09-2026 y usan Node 24 para acciones JavaScript. Se mantienen acciones fijadas por SHA y verificación CodeQL por commit.
+- **Binance Spot WebSocket:** la documentación oficial de streams (https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md) confirma límite de 24 h por conexión, evento serverShutdown, ping cada 20 s y desconexión si no recibe pong dentro de un minuto. El colector trata cortes/reconexiones como eventos de continuidad; solo la captura y validación reales pueden demostrar una ventana aceptada.
+
+**CI del commit de procedencia:** cec4e8e6dd58871a04dd1f1171eb985a6926ea37 pasó 1661 tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231) y pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376), todos success. Estos checks prueban el software; no equivalen a captura real ni edge económico.

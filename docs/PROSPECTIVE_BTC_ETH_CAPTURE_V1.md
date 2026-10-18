@@ -8,7 +8,7 @@
 
 The existing `BinanceSpotWebSocketAdapter.listen` method is a bounded acquisition boundary. It was intentionally written without a durable streaming loop, reconnection policy, persistence, or 24-hour lifecycle manager. Binance's official Spot WebSocket documentation says one connection is valid for only 24 hours, describes the `serverShutdown` event, documents ping/pong requirements, and limits connection attempts and incoming control messages. A long-running capture must therefore record events incrementally and treat connection rotation, disconnects, missing candles, and persistence errors as evidence—not as success.
 
-Sources checked on 2026-10-17:
+Sources rechecked on 2026-10-18:
 - Binance Spot market-data streams: https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md
 - CCXT manual, exception handling and rate limits: https://docs.ccxt.com/es/docs/manual
 - Freqtrade lookahead analysis: https://docs.freqtrade.io/en/2026.5/lookahead-analysis/
@@ -25,7 +25,9 @@ From the repository root, the **recommended one-command runner** is:
 python -m bot_obrero.prospective_capture_pair capture --output-dir evidence/prospective-btc-eth-pair
 ```
 
-The paired runner waits until the next UTC midnight (unless started within five seconds of midnight), launches the existing Kline and bookTicker collectors together, and gives both the same target duration and 300-second grace. It watches both child processes, stops the remaining collector if either fails, independently validates both manifests and the common overlap, and writes a `pair-manifest.json` containing the result, configuration hash, dataset hashes and log paths. The JSONL datasets and per-collector manifests remain in the same run directory. A successful run exits with code 0 and reports `status: VALID`; a failed/interrupted run returns nonzero and must not be used for preregistration.
+Before starting any network capture, the runner verifies Git source provenance: it must run from the repository root on branch main; local HEAD must match the fetched refs/remotes/origin/main; and bot_obrero/ plus pyproject.toml must have no modified or untracked files. It records the source SHA, origin/main SHA, branch and source-status result in the configuration whose SHA-256 is stored in the pair manifest. Unknown Git state, a stale checkout, a non-main branch or modified capture source blocks before the collectors connect. Refresh the remote-tracking ref first with: git fetch origin main; then switch to main and update fast-forward only before running.
+
+The paired runner waits until the next UTC midnight (unless started within five seconds of midnight), launches the existing Kline and bookTicker collectors together, and gives both the same target duration and 300-second grace. It watches both child processes, stops the remaining collector if either fails, independently validates both manifests and the common overlap, and writes a pair-manifest.json containing the result, configuration hash, source provenance, dataset hashes and log paths. Child manifest paths in the validation summary are relative to the pair run directory; the provenance record does not save the computer absolute working-directory path. The JSONL datasets and per-collector manifests remain in the same run directory. A successful run exits with code 0 and reports status VALID; a failed/interrupted run returns nonzero and must not be used for preregistration.
 
 The runner expects the current working directory to be the repository root. Keep the PC powered on, prevent sleep/hibernation for the duration, maintain network connectivity, and leave the terminal running. The default target is 86,400 seconds plus 300 seconds of grace. Do not use synthetic CI artifacts as market evidence, and do not edit a blocked/running manifest to make it pass.
 
@@ -130,3 +132,10 @@ The joint validator re-reads both manifests, independently re-validates each cap
 Replace each `<run-id>` with the directory created by that run. For the quote capture, the manifest must have `status: COMPLETED`, actual elapsed duration of at least 86,700 seconds when using the default 300-second grace, no timestamp regressions, no duplicate/out-of-order update IDs, no observed inter-event gap above policy, and receive coverage from the beginning to the end of the run. If either stream is blocked, invalid or does not satisfy `validate-pair`, the smoke test is not accepted and T0 must not be set.
 
 Keep the two manifests, dataset SHA-256 values, configuration hashes, run identifiers and the joint-validation output as immutable evidence outside the source tree (for example, a versioned GitHub Actions artifact or release asset). Do not commit large raw JSONL datasets to `main`. A green synthetic test suite is necessary software evidence, not a substitute for the real overlapping capture.
+
+
+## Git provenance gate — latest hardening (2026-10-18)
+
+The paired capture runner records and hash-binds the code revision used for data acquisition. It fails closed unless the current directory is the Git repository root, the current branch is main, HEAD exactly equals the locally fetched origin/main ref, the source status for bot_obrero/ and pyproject.toml is empty, and all required Git metadata commands succeed. A blocked run persists the reason in pair-manifest.json and never starts the two collectors.
+
+Run git fetch origin main before capture so the remote-tracking ref is refreshed; the runner deliberately does not fetch or alter branches itself. This does not prove market data was captured: it makes any future evidence traceable to an exact clean source revision.

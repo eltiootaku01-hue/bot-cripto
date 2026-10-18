@@ -117,3 +117,14 @@ Se integró `bot_obrero/prospective_capture_pair.py` directamente en `main` para
 CI del SHA `b1a21381a54e64db87f89265bd351d9db0370a65`: tests [39108357014](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108357014) = 1655 passed; pip-audit [39108357017](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108357017) = success; CodeQL [39108356962](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39108356962) = success. Estos checks prueban el commit indicado; cada commit posterior debe tener sus propios checks.
 
 La rúbrica sube de 76 a **77/100** solo por la nueva supervisión local y su cobertura de regresión. No es captura real ni evidencia de rentabilidad. La issue #98 permanece abierta hasta que el runner complete una captura real de ≥86.400 s de solapamiento, manifiestos válidos, día UTC común y hashes reproducibles. Después todavía hará falta ejecutar el holdout preregistrado; `NO_TRADE` sigue siendo obligatorio.
+
+
+## 10. Actualización de procedencia y captura de datos — 18-10-2026
+
+El orquestador bot_obrero/prospective_capture_pair.py valida que se ejecute desde la raíz Git, en rama main, con HEAD idéntico al ref local origin/main, y sin archivos fuente modificados/untracked bajo bot_obrero/ ni pyproject.toml. Captura los SHAs del código y del ref, la rama y el estado del source en la configuración hash-bound. Un checkout desfasado, código local modificado, rama de investigación o falta de metadata Git bloquea antes de iniciar los sockets. La salida de validación usa rutas relativas a la corrida, y el registro de procedencia no guarda la ruta absoluta del ordenador.
+
+**CI sobre el SHA funcional cec4e8e6dd58871a04dd1f1171eb985a6926ea37:** tests (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569250), 1661 passed; CodeQL (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569231); pip-audit (https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39109569376). Los tres checks terminaron success.
+
+Se revalidaron avisos oficiales de SQLite 3.53.4 y el WAL-reset bug (https://sqlite.org/releaselog/current.html), pytest 9.1.1 (https://pytest.org/en/latest/changelog.html), retirada de Node 20 de GitHub Actions (https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/) y límites WebSocket de Binance (https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md). El detalle del hallazgo local, mitigaciones y límites se añadió también a docs/research/EXTERNAL_FAILURE_CASE_STUDIES.md.
+
+La puntuación se mantiene en **77/100**. La captura de mercado real no se ha ejecutado ni aceptado, por lo que la issue #98 permanece abierta; la investigación V2 y el holdout económico siguen bloqueados. NO_TRADE continúa y no se habilita LIVE.
