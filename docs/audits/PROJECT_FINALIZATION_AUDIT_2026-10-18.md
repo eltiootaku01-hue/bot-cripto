@@ -145,3 +145,16 @@ SHA funcional 76e770cf86f02359a7bbd1353d1c5aea0094eeec: 1663 tests (https://gith
 **Verificación exacta del commit funcional:** [tests 39111442312](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442312), **1664 passed in 15.78s**; [CodeQL 39111442302](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442302), success; [pip-audit 39111442300](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39111442300), success. SHA probado: `33979f0f96afdd54189834cc64996fd2c220fb9a`.
 
 La preparación se mantiene en **77/100**. No se concede puntuación por una prueba de regresión como si fuera captura real; issue #98, preregistro/holdout económico y decisión `NO_TRADE` no cambian.
+
+
+## 13. Equity neto de liquidación para la prueba virtual — 18-10-2026
+
+**Hallazgo local:** la simulación canónica calculaba equity como saldo quote más posición por cierre bruto, mientras el benchmark buy-and-hold ya descontaba los costes de salida modelados en cada marca. El informe diario también medía PnL no realizado sobre el cierre bruto. La comparación podía subestimar drawdown de la estrategia y dejar la conciliación del PnL diario fuera de la misma convención económica.
+
+**Corrección:** `bot_obrero/virtual_backtest.py` marca una posición abierta con el valor neto estimado de liquidación, aplicando half-spread, slippage y comisión usando la misma convención de un SELL virtual. No inventa un fill terminal si la configuración no liquida ni registra la fee hipotética como realizada. `bot_obrero/product_v2.py` concilia el PnL no realizado con la equity neta. Las pruebas cubren marcas con posición abierta y la igualdad entre la marca neta y la liquidación terminal.
+
+**Caso externo relacionado:** QuantConnect describió una corrección del simulador LEAN porque fills sobre cierres horarios/diarios antiguos podían inflar resultados: [anuncio de junio de 2026](https://www.quantconnect.com/announcements/20949/closing-the-stale-price-loophole-on-daily-and-hourly-data/p1). Freqtrade advierte que el análisis anti-lookahead solo verifica señales que se activan y deben cubrirse los tipos de señal relevantes: [Lookahead analysis](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/). Los incidentes describen patrones de riesgo relacionados; no son prueba de que el mismo fallo upstream hubiera ocurrido en este repositorio.
+
+**Verificación exacta:** SHA `939a862e01de598da392d687b790d83017a9321c); [tests: 1675 passed in 15.80 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220900), [CodeQL success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220869), [pip-audit success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220777). El replay V1, con su motor de investigación, pasó sobre SHA padre `b1effde0e0f786bc7dde7dd2bb5ec974802c5929`.
+
+**Dictamen económico sin cambio:** `ETH_TSMOM_168H` lidera la evaluación V1 (+15,5138 % BASE, +1,9100 % STRESS_1), pero termina en -26,3695 % STRESS_2 y no repite positivo en los tres folds BASE. La conclusión sigue `NO_ROBUST_EDGE_FOUND / NO_TRADE`; captura real, preregistro y holdout independiente siguen pendientes. La puntuación se mantiene 77/100, no más de 90.

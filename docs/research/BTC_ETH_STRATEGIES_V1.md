@@ -65,20 +65,20 @@ Cash, buy-and-hold de BTC y buy-and-hold de ETH son benchmarks, no estrategias e
 
 ## 6. Resultados de EVALUATION — 365 días
 
-Retorno total modelado neto de los costes de cada escenario. Las cifras están basadas en capital inicial virtual de 31 USDT. El drawdown se calcula sobre la curva de equity simulada.
+Retorno total modelado neto de los costes de cada escenario. Las cifras están basadas en capital inicial virtual de 31 USDT. El drawdown se calcula sobre una curva de equity marcada al valor neto estimado de liquidación en cada cierre, descontando los costes de salida modelados; no se registra un fill de venta por cada marca.
 
 | Estrategia / referencia | BASE retorno | BASE max DD | STRESS_1 retorno | STRESS_1 max DD | STRESS_2 retorno | STRESS_2 max DD |
 |---|---:|---:|---:|---:|---:|---:|
-| ETH_TSMOM_168H | **+15,5138 %** | -11,7690 % | **+1,9100 %** | -18,2347 % | -26,3695 % | -35,0012 % |
+| ETH_TSMOM_168H | **+15,5138 %** | -11,7674 % | **+1,9100 %** | -18,2353 % | -26,3695 % | -35,0021 % |
 | CASH | 0,0000 % | 0,0000 % | 0,0000 % | 0,0000 % | 0,0000 % | 0,0000 % |
-| RSI_MEANREV_EMA200 | -5,5015 % | -8,1254 % | -7,7376 % | -9,6616 % | -13,2173 % | -14,3522 % |
-| EMA12_26_RSI | -8,1642 % | -17,2901 % | -19,7500 % | -25,4714 % | -43,4641 % | -45,6546 % |
-| BTC_ETH_RS_ROTATION_168H | -25,3829 % | -28,5890 % | -34,4600 % | -37,0587 % | -53,1135 % | -54,5918 % |
+| RSI_MEANREV_EMA200 | -5,5015 % | -8,1259 % | -7,7376 % | -9,6617 % | -13,2173 % | -14,8778 % |
+| EMA12_26_RSI | -8,1642 % | -17,2902 % | -19,7500 % | -25,4718 % | -43,4641 % | -45,6513 % |
+| BTC_ETH_RS_ROTATION_168H | -25,3829 % | -28,4539 % | -34,4600 % | -36,8642 % | -53,1135 % | -54,3109 % |
 | BUY_HOLD_BTCUSDT | -28,1815 % | -49,7730 % | -28,3609 % | -49,7730 % | -28,8250 % | -49,7730 % |
 | BUY_HOLD_ETHUSDT | -39,4498 % | -64,4777 % | -39,6010 % | -64,4777 % | -39,9923 % | -64,4777 % |
-| EMA24_96_CROSS | -40,9066 % | -47,8306 % | -47,4078 % | -51,7670 % | -60,9674 % | -62,0104 % |
-| BTC_GATED_ETH_TREND | -42,5025 % | -44,6673 % | -49,8513 % | -51,5124 % | -64,8043 % | -65,7650 % |
-| DONCHIAN_24_12 | -51,8667 % | -53,7580 % | -57,9993 % | -59,2185 % | -70,5307 % | -70,7675 % |
+| EMA24_96_CROSS | -40,9066 % | -47,8310 % | -47,4078 % | -51,7661 % | -60,9674 % | -62,0096 % |
+| BTC_GATED_ETH_TREND | -42,5025 % | -44,6674 % | -49,8513 % | -51,5136 % | -64,8043 % | -65,7608 % |
+| DONCHIAN_24_12 | -51,8667 % | -53,8451 % | -57,9993 % | -59,3441 % | -70,5307 % | -70,9467 % |
 
 El momentum ETH de 168 h con EMA100 es el candidato más fuerte en la evaluación, pero no sobrevive al escenario de estrés 2 y cae un 26,37 %. Además, su ventaja base se produjo en un periodo con selección múltiple de siete reglas y no se repitió consistentemente en validación. No se debe concluir que existe un edge robusto.
 
@@ -123,3 +123,12 @@ Hashes del cálculo de este estudio:
 6. El simulador de esta ronda usa aritmética binaria de Python/NumPy para exploración, no Decimal de extremo a extremo como el contrato económico canónico. Aunque se calibró el resultado EMA/RSI contra el backtest de referencia, esto no lo convierte en motor financiero apto para promoción; toda futura aceptación necesitará contabilidad Decimal y reconciliación de fills/balances.
 
 **Dictamen final: `NO_ROBUST_EDGE_FOUND`. Decisión operativa: `NO_TRADE`.** Mantener PR #64 abierta y sin merge. No habilitar LIVE, no crear órdenes reales, no prometer ganancias futuras. Una siguiente iteración requiere fuente punto-en-tiempo verificable o un holdout nuevo no consultado previamente, controles adicionales de robustez y, tras eso, PAPER prospectivo reconciliado.
+
+
+## Revisión de valoración de riesgo — 18-10-2026
+
+El replay V1 usaba equity bruto al cierre para medir drawdown en estrategias, mientras los benchmarks buy-and-hold ya descontaban los costes de salida en cada marca. Se corrigió en `research/backtest_valuation.py` para que estrategia, rotación y benchmarks usen la misma convención de liquidación neta. Los retornos totales y fills no cambiaron; se recalcularon las métricas de drawdown que figuran en la tabla.
+
+Verificación del SHA `b1effde0e0f786bc7dde7dd2bb5ec974802c5929`: [1674 tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39112722136), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39112722125), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39112722130) y [replay V1 completo](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39112722110), todos exitosos sobre ese SHA. Después, el motor virtual canónico recibió la misma corrección en `939a862e01de598da392d687b790d83017a9321c`.
+
+La corrección mejora la comparación de riesgo, pero **no crea ventaja económica**. `ETH_TSMOM_168H` es solo el líder histórico de evaluación: su retorno STRESS_2 es -26,3695 % y sus tres folds BASE de validación son -10,6421 %, +4,6558 % y -14,7518 %. No satisface el contrato de robustez. Dictamen: `NO_ROBUST_EDGE_FOUND / NO_TRADE`. Las velas históricas siguen con disponibilidad y finality desconocidas y no sustituyen la captura punto-en-tiempo ni el holdout futuro.
