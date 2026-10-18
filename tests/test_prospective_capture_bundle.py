@@ -35,7 +35,9 @@ def _capture_tree(tmp_path, monkeypatch):
     (root / "kline" / "k-run" / "manifest.json").write_text('{"kind":"synthetic-test-fixture"}\n', encoding="utf-8")
     (root / "bookticker" / "q-run" / "manifest.json").write_text('{"kind":"synthetic-test-fixture"}\n', encoding="utf-8")
     (root / "kline" / "k-run" / "BTCUSDT.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "kline" / "k-run" / "ETHUSDT.jsonl").write_text("{}\n", encoding="utf-8")
     (root / "bookticker" / "q-run" / "BTCUSDT-bookTicker.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "bookticker" / "q-run" / "ETHUSDT-bookTicker.jsonl").write_text("{}\n", encoding="utf-8")
     (root / "logs" / "kline.log").write_text('{"status":"COMPLETED"}\n', encoding="utf-8")
     (root / "logs" / "bookticker.log").write_text('{"status":"COMPLETED"}\n', encoding="utf-8")
 
