@@ -171,3 +171,16 @@ La preparación se mantiene en **77/100**. No se concede puntuación por una pru
 **Resultado:** EVALUATION BASELINE fue -26,8599 % BASE, -35,9698 % STRESS_1 y -54,8336 % STRESS_2; BTC_GATED fue -10,0802 %, -20,6412 % y -42,7490 %. Cash rindió 0 %; buy-and-hold ETH rindió +48,5559 % en BASE. Las validaciones BTC_GATED BASE (+2,9616 %, -6,4983 %, -2,4657 %) son inconsistentes y todas sus ventanas STRESS_2 perdieron. Dictamen `NO_ROBUST_EDGE_FOUND / NO_TRADE`.
 
 El artefacto está explícitamente clasificado como histórico exploratorio con `available_at=UNKNOWN`; no es holdout prospectivo y no cierra la captura real #98. No trasladar estos resultados a T0 ni inferir una ventaja futura.
+
+
+## 15. Latest verified capture-provenance fix — 2026-10-18
+
+**Functional head:** `2cd9709095167fb58aff27dfc6fc8eecedf8b05e`.
+
+**Observed defect:** `bot_obrero/prospective_capture_pair.py` compared `HEAD` with `refs/remotes/origin/main`, but that local tracking ref does not update itself during the runner's wait for UTC midnight or while the collectors run. A push that advances GitHub's live `main` could otherwise remain undetected if no `git fetch` refreshed the local ref.
+
+**Correction:** the provenance resolver now calls `git ls-remote --exit-code origin refs/heads/main`, validates the returned SHA/ref pair, and requires the live SHA to match the local tracking ref. The existing repeated source checks compare this live SHA at initial validation, launch and finish. A stale tracking ref returns `BLOCKED / CAPTURE_ORIGIN_MAIN_TRACKING_STALE`; an unreachable or malformed live ref returns `UNKNOWN`. Added regression: `test_source_provenance_blocks_stale_local_origin_main_when_remote_advances`.
+
+**Exact CI for the functional SHA:** [tests — 1,676 passed](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114975692), [CodeQL — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114975712), [pip-audit — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114975704).
+
+**Decision unchanged:** this closes the identified provenance gap but is not a captured dataset. Issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) stays open until real Kline + bookTicker manifests validate with at least 86,400 seconds of overlap and one common complete UTC day. No T0 for V2, no winning tactic claim, `NO_TRADE`, no LIVE.
