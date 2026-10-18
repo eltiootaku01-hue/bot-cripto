@@ -1,7 +1,7 @@
 # BOT-CRIPTO — Casos públicos de fallos, actualizaciones y mitigaciones
 
 **Fecha de revisión:** 17 de octubre de 2026  
-**Base de código revisada:** `main` incluye PR #82 (integridad del replay PAPER) y PR #83 (pinning SHA inmutable de Actions), HEAD `a07b8aac15970f3349f9de54f021cfbeb71e4e20`. El CI exacto de main [39079694856](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39079694856) terminó `success` con 1598 pruebas.  
+**Base de código revisada:** `main` incluye PR #86 (anti-lookahead por ventana) y PR #87 (CodeQL, pip-audit, Dependabot y pytest corregido), HEAD `43d2cd70b2a350cf2987210166df7711d932e41b`. CI exacto [39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044) success, 1604 pruebas; CodeQL [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033) y pip-audit [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) también success.  
 **Rama de origen técnica auditada:** `feat/paper-operational-runtime-v1`; la prueba de recuperación se añadió en `integrate/paper-runtime-main-sync-2026-10-17`.
 **Regla de evidencia:** un caso de otro proyecto demuestra que una clase de fallo existe; solo una prueba local demuestra si BOT-CRIPTO tiene ese fallo.
 
@@ -260,8 +260,19 @@ Las etiquetas se resolvieron contra `refs/tags` en los repositorios oficiales y 
 
 **Brecha local observada:** el repositorio ya tenía CI unitario/E2E y pinning inmutable para Actions, pero no se había comprobado un workflow CodeQL recurrente ni una auditoría automática de vulnerabilidades Python.
 
-**Mitigación propuesta en la PR de seguridad:** CodeQL `security-extended` para Python y workflow Actions; `pip-audit==2.10.1` en el entorno instalado; Dependabot semanal para el ecosistema `pip` y `github-actions`. El análisis y la auditoría se ejecutan para PRs a main, pushes a main, y de forma semanal/manual. La acción CodeQL y las acciones base van fijadas por SHA.
+**Mitigación aplicada en main via [PR #87](https://github.com/eltiootaku01-hue/bot-cripto/pull/87), merge SHA `43d2cd70b2a350cf2987210166df7711d932e41b`:** CodeQL `security-extended` para Python y Actions; `pip-audit==2.10.1` sobre el entorno instalado; Dependabot semanal para ecosistemas `pip` y `github-actions`. El análisis y la auditoría corren en PRs a main, pushes a main, y de forma semanal/manual. Las Actions quedan fijadas por SHA. CI post-merge [39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044), CodeQL [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033) y pip-audit [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) pasaron.
 
 **Hallazgo corregible obtenido de la primera ejecución de este mismo auditor:** se detectó `PYSEC-2026-1845` en `pytest 8.4.2`, corregido desde la release `9.0.3`. La vulnerabilidad trata el uso de directorios temporales inseguros en Unix; la release del mantenedor documenta la corrección de `CVE-2025-71176`. Fuentes: https://github.com/advisories/GHSA-6w46-j5rx-g56g y https://github.com/pytest-dev/pytest/releases/tag/9.0.3. La PR cambia el extra de test a `pytest>=9.0.3,<9.1` y exige revalidar todas las pruebas más `pip-audit` antes de merge.
 
 **Límites:** los scanners encuentran solo los problemas cubiertos por sus reglas y fuentes; no demuestran ausencia de vulnerabilidades. Si el auditor detecta una vulnerabilidad, la respuesta correcta es revisar y actualizar el paquete (o documentar una mitigación revisada), no ignorar el código de salida. Estas medidas no aportan evidencia de edge económico ni habilitan operaciones LIVE.
+
+
+## 15. pytest: directorio temporal inseguro — CVE-2025-71176 / PYSEC-2026-1845
+
+**Fuente del mantenedor:** pytest 9.0.3, publicado el 7 de abril de 2026, documenta la corrección del uso de un directorio temporal inseguro en Unix (`CVE-2025-71176`): https://docs.pytest.org/en/latest/changelog.html y https://github.com/pytest-dev/pytest/releases/tag/9.0.3. El aviso OSV/PYSEC marca `PYSEC-2026-1845` como corregido a partir de 9.0.3: https://github.com/advisories/GHSA-6w46-j5rx-g56g.
+
+**Detección local:** la primera ejecución de `pip-audit` en la PR #87 detectó el aviso en `pytest 8.4.2` e informó como versión corregida `9.0.3`. Esto es evidencia de que el nuevo control encontró una dependencia vulnerable, no una suposición sacada del changelog.
+
+**Mitigación aplicada:** el extra de test cambió de `pytest>=8,<9` a `pytest>=9.0.3,<9.1`, manteniendo el minor de pytest acotado para esta validación. La suite de main pasó 1604 pruebas en run [39081474044](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474044), y la auditoría en [39081474089](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474089) devolvió `No known vulnerabilities found`.
+
+**Limitación:** pip-audit indica que el proyecto editable `bot-obrero 0.1.0` no puede encontrarse en PyPI y no se audita por ese índice. CodeQL finalizó con éxito [39081474033](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39081474033), pero esto no equivale a una declaración de cero alertas o ausencia total de vulnerabilidades.
