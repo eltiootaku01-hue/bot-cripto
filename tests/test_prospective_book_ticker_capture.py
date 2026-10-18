@@ -45,10 +45,13 @@ def test_journal_writes_hash_bound_quote_envelopes_and_rejects_unapproved_symbol
         now=lambda: START,
         run_id="bookticker-test-hash",
     )
+    from dataclasses import replace
+
     journal.start(START)
     journal.accept(make_quote("BTCUSDT", 100, START))
+    unapproved = replace(make_quote("ETHUSDT", 101, START + timedelta(seconds=1)), symbol="DOGEUSDT")
     with pytest.raises(ProspectiveBookTickerCaptureError, match="SYMBOL_NOT_APPROVED"):
-        journal.accept(make_quote("ETHUSDT", 101, START + timedelta(seconds=1)))
+        journal.accept(unapproved)
     result = journal.finalize(
         status="BLOCKED",
         ended_at=START + timedelta(seconds=1),
