@@ -103,7 +103,7 @@ def test_parser_fails_closed_on_invalid_quote_contract(event, symbol, received, 
         )
 
 
-@pytest.mark.parametrize("event_type", [[], {}, True, 17])
+@pytest.mark.parametrize("event_type", [[], {}, True, 17, None])
 def test_parser_rejects_non_string_event_type_without_leaking_type_error(event_type):
     with pytest.raises(BinanceWebSocketProtocolError, match="unexpected Binance WebSocket event type"):
         parse_binance_book_ticker_event(
