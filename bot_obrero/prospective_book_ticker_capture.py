@@ -33,7 +33,7 @@ from .binance_websocket import (
 
 SCHEMA_VERSION = 1
 DEFAULT_DURATION_SECONDS = 24 * 60 * 60
-DEFAULT_MAX_MESSAGES_PER_CONNECTION = 1000
+DEFAULT_MAX_MESSAGES_PER_CONNECTION = 2_147_483_647  # hold one connection open until stop/disconnect
 DEFAULT_MAX_INTER_EVENT_GAP_SECONDS = 10.0
 DEFAULT_RECONNECT_BASE_SECONDS = 1.0
 DEFAULT_RECONNECT_MAX_SECONDS = 60.0
@@ -708,6 +708,7 @@ def capture(
                     max_messages=max_messages_per_connection,
                     on_item=journal.accept,
                     should_stop=stop.is_set,
+                    retain_results=False,
                 )
                 backoff = reconnect_base_seconds
             except BinanceWebSocketServerShutdown as exc:
