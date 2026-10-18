@@ -184,3 +184,21 @@ El artefacto está explícitamente clasificado como histórico exploratorio con 
 **Exact CI for the functional SHA:** [tests — 1,676 passed](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114975692), [CodeQL — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114975712), [pip-audit — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39114975704).
 
 **Decision unchanged:** this closes the identified provenance gap but is not a captured dataset. Issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) stays open until real Kline + bookTicker manifests validate with at least 86,400 seconds of overlap and one common complete UTC day. No T0 for V2, no winning tactic claim, `NO_TRADE`, no LIVE.
+
+
+## 16. Current main CI and deterministic capture regression — 2026-10-18
+
+**Current main SHA:** `15d4f5ba3e1169ce35cfb08c0f79355ada316e4a`.
+
+PR [#99](https://github.com/eltiootaku01-hue/bot-cripto/pull/99) made `test_failed_child_stops_the_other_capture_and_persists_blocked_pair_manifest` deterministic by injecting a fixed valid provenance snapshot. Before the fix, the test used the production Git resolver while also mocking child processes; concurrent `main` advancement could therefore stop the test at `CAPTURE_ORIGIN_MAIN_TRACKING_STALE` before it asserted the child-failure scenario. This was test coupling to mutable external state, not evidence of faulty market data. Production capture provenance checks remain strict.
+
+Exact post-merge `main` verification: [tests — 1,676 passed in 14.86 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39116193628), [CodeQL — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39116193746), [pip-audit — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39116193641). PR-head E2E: [SMA](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39116076730), [indicators](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39116076722), both success.
+
+### Relevant upstream incident/maintenance references rechecked
+
+- [Binance Spot WebSocket streams](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md): connections are valid for 24 hours and clients should handle `serverShutdown`; this justifies reconnect-aware collection and fail-closed continuity validation.
+- [Freqtrade lookahead analysis](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/): whole-dataframe indicator calculation can expose future data to historical decisions; its documentation cautions that signals not triggered during verification remain untested. BOT-CRIPTO's suffix perturbations are complementary checks, not proof that every unobserved signal class is safe.
+- [QuantConnect LEAN stale-price fill correction (June 2026)](https://www.quantconnect.com/announcements/20949/closing-the-stale-price-loophole-on-daily-and-hourly-data/p1): reusing a stale prior hourly/daily price for intraday fills can inflate a backtest. This is a relevant failure pattern, not proof that the same upstream incident occurred in BOT-CRIPTO.
+- [CCXT manual: rate limits and retries](https://docs.ccxt.com/es/docs/manual): documents rate limiting and transient exchange/network errors; collectors should use bounded backoff, preserve interruption evidence, and never turn missing data into success.
+
+**Decision unchanged:** issue #98 is `BLOCKED` until actual simultaneous Kline + bookTicker manifests validate with ≥86,400 seconds of overlap and a common complete UTC day. No T0, no winner claim, `NO_TRADE`, no LIVE. The current score stays **77/100** because this change fixes CI determinism and does not add evidence of economic edge.
