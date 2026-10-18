@@ -406,7 +406,8 @@ class ProspectiveBookTickerJournal:
         out: dict[str, dict[str, Any]] = {}
         for symbol, state in self._state.items():
             out[symbol] = {
-                key: value for key, value in state.items()
+                key: (round(value, 3) if key == "maximum_inter_event_gap_seconds" else value)
+                for key, value in state.items()
                 if key not in {"seen_update_ids", "last_received_datetime", "last_update_id", "line_count_since_fsync"}
             }
         return out
@@ -502,6 +503,21 @@ def validate_manifest(path: Path) -> dict[str, Any]:
     config = manifest.get("configuration")
     if not isinstance(config, Mapping) or type(config.get("schema_version")) is not int or config.get("schema_version") != SCHEMA_VERSION:
         raise ProspectiveBookTickerCaptureError("CAPTURE_CONFIGURATION_SCHEMA_INVALID")
+    if config.get("capture_kind") != "PROSPECTIVE_PUBLIC_BINANCE_SPOT_BOOK_TICKER" or config.get("symbols") != symbols:
+        raise ProspectiveBookTickerCaptureError("CAPTURE_CONFIGURATION_IDENTITY_MISMATCH")
+    configured_source = config.get("source")
+    if (
+        not isinstance(configured_source, Mapping)
+        or configured_source.get("provider") != "binance"
+        or configured_source.get("market") != "SPOT"
+        or configured_source.get("venue") != "BINANCE"
+        or configured_source.get("source_id") != BOOK_TICKER_SOURCE
+        or configured_source.get("observation_type") != BOOK_TICKER_OBSERVATION_TYPE
+    ):
+        raise ProspectiveBookTickerCaptureError("CAPTURE_CONFIGURATION_SOURCE_INVALID")
+    max_gap = config.get("maximum_inter_event_gap_seconds")
+    if isinstance(max_gap, bool) or not isinstance(max_gap, (int, float)) or not math.isfinite(max_gap) or max_gap <= 0:
+        raise ProspectiveBookTickerCaptureError("CAPTURE_CONFIGURATION_MAX_GAP_INVALID")
     if hashlib.sha256(_canonical_json(config)).hexdigest() != manifest.get("configuration_sha256"):
         raise ProspectiveBookTickerCaptureError("CONFIGURATION_HASH_MISMATCH")
     target_duration = manifest.get("target_duration_seconds")
@@ -598,8 +614,13 @@ def validate_manifest(path: Path) -> dict[str, Any]:
             provider_event = _timestamp(provider_event_raw, "provider_event_time") if provider_event_raw is not None else None
             if observed > received or received > available or (provider_event is not None and provider_event > received):
                 raise ProspectiveBookTickerCaptureError("QUOTE_TEMPORAL_ORDER_INVALID")
-            if received < start or received > end:
+            expected_observed = provider_event if provider_event is not None else received
+            if observed != expected_observed:
+                raise ProspectiveBookTickerCaptureError("QUOTE_OBSERVATION_TIME_SOURCE_MISMATCH")
+            if received < start or received > end or available > end:
                 raise ProspectiveBookTickerCaptureError("RECORD_OUTSIDE_RUN_INTERVAL")
+            if quote.get("symbol") != symbol:
+                raise ProspectiveBookTickerCaptureError("QUOTE_SYMBOL_MISMATCH")
             canonical_quote = dict(quote)
             calculated_hash = _quote_hash(canonical_quote)
             if envelope.get("record_sha256") != calculated_hash:
@@ -637,10 +658,16 @@ def validate_manifest(path: Path) -> dict[str, Any]:
         saved = summaries.get(symbol)
         if not isinstance(saved, Mapping):
             raise ProspectiveBookTickerCaptureError("SYMBOL_SUMMARY_MISSING")
-        for key in ("records", "duplicate_update_ids", "out_of_order_update_ids", "inter_event_gap_count", "clock_regressions"):
+        for key in (
+            "records", "duplicate_update_ids", "out_of_order_update_ids",
+            "inter_event_gap_count", "maximum_inter_event_gap_seconds",
+            "clock_regressions", "first_received_at", "latest_received_at",
+        ):
             if saved.get(key) != recomputed_summary[symbol][key]:
                 raise ProspectiveBookTickerCaptureError("SYMBOL_SUMMARY_MISMATCH")
 
+    if not isinstance(manifest.get("fatal_errors"), list) or manifest["fatal_errors"]:
+        raise ProspectiveBookTickerCaptureError("FATAL_ERRORS_PRESENT_OR_INVALID")
     if not isinstance(manifest.get("acceptance"), Mapping) or manifest["acceptance"].get("accepted") is not True:
         raise ProspectiveBookTickerCaptureError("ACCEPTANCE_NOT_PASSED")
     recomputed = _evaluate(
