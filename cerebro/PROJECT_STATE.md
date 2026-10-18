@@ -2,7 +2,7 @@
 
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA de código fusionado y verificado:** `47a16b80c9c75804479dbb506693ee328792f907` (PR #107). La punta exacta de PR `63b88c5e56368355b731536e858ba266dfe79243` pasó **1.694 pruebas** ([run 39141872404](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141872404)), CodeQL ([39141872405](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141872405)), pip-audit ([39141872406](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141872406)) y E2E SMA/indicadores ([39141872365](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141872365), [39141872383](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39141872383)). El SHA de main post-merge también pasó 1.694 pruebas en [39142025428](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025428), CodeQL [39142025458](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025458) y pip-audit [39142025430](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142025430). PR #101 corrigió el margen de solapamiento: Kline 86.460 s, bookTicker 86.400 s, 300 s de gracia por colector y aceptación conjunta con ≥86.400 s de solapamiento real. PR #103 y #105 endurecieron la validación estructural de Kline. PR #107 exige tipos enteros JSON exactos para las duraciones de configuración y los contadores enteros de `symbols_summary` en bookTicker. Estas mejoras no acreditan una captura real ni edge económico. La issue #98 continúa abierta; preparación **77/100**, `NO_TRADE`.
+**HEAD de `main` verificado antes de esta sincronización documental:** `5b67db204569cdba9cfa96ad81b06c2eade15a1c`. En ese SHA exacto, tests: **1.694 passed** ([run 39142481052](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142481052)); CodeQL: success ([run 39142481038](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142481038)); pip-audit: success ([run 39142481017](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142481017)). La sincronización presente solo actualiza documentación de continuidad, no cambia código funcional. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue abierta; no se ha validado evidencia real de captura, preparación **77/100**, V2 `DESIGNED / NOT RUN`, sin T0, `NO_TRADE`, sin LIVE.
 
 ## 1. Estado operativo actual
 
@@ -285,3 +285,13 @@ Se integró [PR #101](https://github.com/eltiootaku01-hue/bot-cripto/pull/101) e
 - El validador exige ahora que `configuration.target_duration_seconds` y `configuration.capture_grace_seconds` sean enteros JSON exactos y coincidan con los campos del manifiesto. Los contadores `records`, `duplicate_update_ids`, `out_of_order_update_ids`, `inter_event_gap_count` y `clock_regressions` en `symbols_summary` también exigen enteros exactos.
 - Se añadieron siete regresiones, dos para configuraciones numéricas codificadas como floats y cinco para contadores de resumen. La punta exacta de PR pasó 1.694 pruebas, CodeQL, pip-audit y E2E SMA/indicadores; main post-merge también pasó tests, CodeQL y pip-audit.
 - No se modifica el score: **77/100**. Sigue faltando la captura prospectiva real #98, el holdout independiente V2 está `DESIGNED / NOT RUN`, no se fija T0 y `NO_TRADE` permanece.
+
+
+## Revalidación exacta de main — 2026-10-18
+
+- **SHA inspeccionado antes de esta actualización documental:** `5b67db204569cdba9cfa96ad81b06c2eade15a1c`.
+- **Tests:** 1.694 aprobados, [GitHub Actions 39142481052](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142481052).
+- **CodeQL:** success, [run 39142481038](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142481038).
+- **pip-audit:** success, [run 39142481017](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39142481017).
+- La ejecución de tests no adjuntó artefactos de captura. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) permanece abierta porque los manifiestos reales Kline + bookTicker de una ventana común no están disponibles para aceptación.
+- **No cambiar el gate:** no fijar T0 ni seleccionar una estrategia ganadora hasta aceptar el smoke real de ≥86.400 s de solapamiento y después completar el holdout independiente. `NO_TRADE` permanece.
