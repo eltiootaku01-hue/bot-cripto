@@ -3,6 +3,7 @@ import argparse, json, hashlib, math, statistics
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from backtest_valuation import mark_to_liquidation_equity
 
 _parser = argparse.ArgumentParser(description='Explore predefined BTC/ETH hourly strategies on a hash-verified dataset (virtual only).')
 _parser.add_argument('--dataset', type=Path, default=Path('btc-eth-follow-365d-dataset.json'), help='normalized dataset JSON extracted from the source Actions artifact')
@@ -170,7 +171,7 @@ def sim_one(symbol, strategy, scope_start, scope_end, cost):
             proceeds=qty*px; charge=proceeds*fee; cash+=proceeds-charge
             fills.append({'ts':now.isoformat(),'side':'SELL','price':px,'fee':charge}); qty=0.0
         pending=None
-        equity=cash+qty*float(row.close)
+        equity=mark_to_liquidation_equity(cash, qty, float(row.close), adverse, fee)
         peak=max(peak,equity); maxdd=min(maxdd,equity/peak-1 if peak else 0)
         curve.append(equity)
         if i < scope_end-1:
@@ -198,7 +199,7 @@ def sim_buy_hold(symbol, scope_start, scope_end, cost):
     qty=INITIAL/(px0*(1+fee))
     # Mark-to-liquidation equity through each close; terminal figure exactly includes exit cost.
     close=f.close.to_numpy(float)
-    mark=qty*close*(1-adverse)*(1-fee)
+    mark=np.asarray([mark_to_liquidation_equity(0.0, qty, float(price), adverse, fee) for price in close], dtype=float)
     peak=INITIAL; maxdd=0.0
     for x in mark:
         peak=max(peak,x); maxdd=min(maxdd,x/peak-1 if peak else 0)
@@ -243,8 +244,8 @@ def sim_rotation(scope_start,scope_end,cost):
                         charge=notional*fee; cash-=notional+charge; qty=q; asset=pending; buy_times.append(ts)
                         fills.append({'ts':ts.isoformat(),'side':'BUY','asset':asset,'price':px,'fee':charge})
         pending=None
-        equity=cash
-        if asset!='CASH' and qty>0: equity+=qty*float(frames[asset].iloc[i].close)
+        mark_price = float(frames[asset].iloc[i].close) if asset != 'CASH' and qty > 0 else 0.0
+        equity = mark_to_liquidation_equity(cash, qty, mark_price, adverse, fee)
         peak=max(peak,equity); maxdd=min(maxdd,equity/peak-1 if peak else 0); curve.append(equity)
         if i<scope_end-1:
             desired=desired_rotation(i)
