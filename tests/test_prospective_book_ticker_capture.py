@@ -119,6 +119,18 @@ def test_journal_rejects_an_item_whose_evidence_hash_was_changed(tmp_path):
     assert result["symbols_summary"]["BTCUSDT"]["records"] == 0
 
 
+def test_validator_rejects_unhashable_manifest_symbols_without_type_error(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "schema_version": 1,
+        "status": "COMPLETED",
+        "symbols": [[], {}],
+    }), encoding="utf-8")
+
+    with pytest.raises(ProspectiveBookTickerCaptureError, match="MANIFEST_SYMBOL_SET_INVALID"):
+        validate_manifest(manifest)
+
+
 def test_validator_accepts_a_full_synthetic_24_hour_quote_capture_and_detects_file_tampering(tmp_path):
     # Synthetic data exercises the journal/validator contract only; it is not market evidence.
     journal = ProspectiveBookTickerJournal(
