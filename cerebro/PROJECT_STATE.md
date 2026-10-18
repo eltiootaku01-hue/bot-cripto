@@ -233,3 +233,8 @@ El supervisor vuelve a comparar HEAD, origin/main, rama y source status inmediat
 - **Tests y seguridad sobre `939a862e01de598da392d687b790d83017a9321c`:** 1675 tests [run 39113220900](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220900), CodeQL [run 39113220869](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220869) y pip-audit [run 39113220777](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220777); los tres exitosos sobre el mismo SHA.
 - **Resultado económico:** el replay V1 sigue `NO_ROBUST_EDGE_FOUND / NO_TRADE`. Los datos históricos no certifican `available_at` ni finality punto-en-tiempo; la captura real Kline+bookTicker sigue pendiente en [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98).
 - **Preparación:** se conserva **77/100**. La corrección mejora la veracidad de métricas, pero no aporta evidencia independiente de rentabilidad. Sin LIVE, claves privadas, endpoints privados ni dinero real.
+
+
+## Trigger del replay virtual anual en main — 18-10-2026
+
+Se corrigió `.github/workflows/btc-eth-follow-research.yml`: antes solo reaccionaba a cambios en la rama histórica `feat/paper-operational-runtime-v1`, por lo que modificaciones del motor virtual en `main` no arrancaban este replay anual automáticamente. Ahora el workflow escucha `main` para los cambios relevantes de backtest, Product V2, su suite y el propio workflow. El artefacto se etiqueta explícitamente `HISTORICAL_EXPLORATORY`, `PROSPECTIVE_HOLDOUT=false` y señala que `available_at` histórico es UNKNOWN; el replay no podrá confundirse con la captura prospectiva ni cerrar issue #98. La ejecución originada por este commit debe verificarse antes de registrar resultados.

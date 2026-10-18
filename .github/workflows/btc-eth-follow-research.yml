@@ -1,9 +1,9 @@
-name: BTC-ETH follow annual virtual research
+name: BTC-ETH historical annual virtual research (exploratory, not holdout)
 
 on:
   workflow_dispatch:
   push:
-    branches: [feat/paper-operational-runtime-v1]
+    branches: [main]
     paths:
       - "bot_obrero/btc_eth_follow_research.py"
       - "bot_obrero/product_v2.py"
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   btc-eth-annual-follow:
-    name: 365-day BTC-to-ETH paired virtual evaluation
+    name: 365-day historical BTC-to-ETH evaluation (not prospective holdout)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -30,6 +30,17 @@ jobs:
         run: python -m pip install -e ".[test]"
       - name: Run deterministic unit and regression tests
         run: pytest -q tests/test_btc_eth_follow_research.py tests/test_product_v2.py tests/test_virtual_backtest.py
+      - name: Declare evidence classification
+        run: |
+          mkdir -p evidence
+          cat > evidence/EVIDENCE_CLASSIFICATION.txt <<'EOF'
+          CLASSIFICATION=HISTORICAL_EXPLORATORY
+          PROSPECTIVE_HOLDOUT=false
+          MARKET_DATA_SOURCE=PUBLIC_BINANCE_SPOT_REST_HISTORICAL_KLINES
+          POINT_IN_TIME_AVAILABLE_AT=UNKNOWN_FOR_HISTORICAL_KLINES
+          PURPOSE=CHECK_CURRENT_VIRTUAL_ENGINE_AND_DETERMINISTIC_OFFLINE_REPLAY
+          LIMITATION=THIS_ARTIFACT_DOES_NOT_CLOSE_ISSUE_98_OR_START_BTC_ETH_STRATEGIES_V2_T0
+          EOF
       - name: Acquire aligned history and run annual BTC-to-ETH research
         shell: bash
         run: |
@@ -67,7 +78,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
         with:
-          name: btc-eth-follow-365d-${{ github.sha }}
+          name: btc-eth-follow-365d-historical-${{ github.sha }}
           path: evidence/
           if-no-files-found: warn
           retention-days: 90

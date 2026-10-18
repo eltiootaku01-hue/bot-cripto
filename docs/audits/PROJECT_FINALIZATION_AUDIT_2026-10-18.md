@@ -158,3 +158,12 @@ La preparación se mantiene en **77/100**. No se concede puntuación por una pru
 **Verificación exacta:** SHA `939a862e01de598da392d687b790d83017a9321c); [tests: 1675 passed in 15.80 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220900), [CodeQL success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220869), [pip-audit success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113220777). El replay V1, con su motor de investigación, pasó sobre SHA padre `b1effde0e0f786bc7dde7dd2bb5ec974802c5929`.
 
 **Dictamen económico sin cambio:** `ETH_TSMOM_168H` lidera la evaluación V1 (+15,5138 % BASE, +1,9100 % STRESS_1), pero termina en -26,3695 % STRESS_2 y no repite positivo en los tres folds BASE. La conclusión sigue `NO_ROBUST_EDGE_FOUND / NO_TRADE`; captura real, preregistro y holdout independiente siguen pendientes. La puntuación se mantiene 77/100, no más de 90.
+
+
+## 14. Activación correcta de regresión anual desde main — 18-10-2026
+
+**Brecha de pipeline:** el workflow `.github/workflows/btc-eth-follow-research.yml` estaba limitado a `feat/paper-operational-runtime-v1`. Una modificación del motor virtual integrado en `main` ejecutaba los tests unitarios, pero no reejecutaba automáticamente el estudio anual BTC→ETH ni el replay offline del mismo dataset.
+
+**Corrección:** se cambia el disparador de push a `main` manteniendo filtros por los módulos de investigación, Product V2, el backtest virtual y sus pruebas. El workflow guarda `EVIDENCE_CLASSIFICATION.txt` con clasificación `HISTORICAL_EXPLORATORY`, marca `PROSPECTIVE_HOLDOUT=false` y advierte que la evidencia de disponibilidad histórica es `UNKNOWN`. Así, el resultado anual actúa como regresión de la implementación actual, no como una prueba prospectiva ni una afirmación de rentabilidad independiente.
+
+**Verificación pendiente en el commit que añade este disparador:** esperar el run exacto del workflow anual y los checks principales. Si el run falla por adquisición pública, el resultado debe quedar registrado como bloqueo; no fabricar datos ni afirmar una aprobación del replay.
