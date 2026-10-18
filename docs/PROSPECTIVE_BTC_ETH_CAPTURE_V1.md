@@ -109,6 +109,14 @@ python -m bot_obrero.prospective_book_ticker_capture capture --output-dir eviden
 python -m bot_obrero.prospective_book_ticker_capture validate evidence/prospective-btc-eth-bookticker/<run-id>/manifest.json
 ```
 
-Replace `<run-id>` with the directory created by that run. Each validator must print `status: VALID`; for the quote capture, the manifest must also have `status: COMPLETED`, 24-hour elapsed duration, no timestamp regressions, no duplicate/out-of-order update IDs, no observed inter-event gap above policy, and receive coverage from the beginning to the end of the run. If either stream is blocked or invalid, the smoke test is not accepted and T0 must not be set.
+After **both** independent validators print `status: VALID`, run the joint overlap validator:
 
-Keep the two manifests, dataset SHA-256 values, configuration hashes and run identifiers as immutable evidence outside the source tree (for example, a versioned GitHub Actions artifact or release asset). Do not commit large raw JSONL datasets to `main`. A green synthetic test suite is necessary software evidence, not a substitute for the real overlapping capture.
+```powershell
+python -m bot_obrero.prospective_book_ticker_capture validate-pair --kline-manifest evidence/prospective-btc-eth/<kline-run-id>/manifest.json --bookticker-manifest evidence/prospective-btc-eth-bookticker/<bookticker-run-id>/manifest.json
+```
+
+The joint validator re-reads both manifests, independently re-validates each capture, requires at least 86,400 seconds of overlap, and requires one common complete UTC day of final hourly candles at the beginning of that common window. It prints `status: VALID`, start/end of the overlap, overlap duration, shared complete UTC day(s), both run IDs and all dataset hashes. A successful independent validation of each capture alone is not sufficient if the time windows do not actually overlap.
+
+Replace each `<run-id>` with the directory created by that run. For the quote capture, the manifest must have `status: COMPLETED`, 24-hour elapsed duration, no timestamp regressions, no duplicate/out-of-order update IDs, no observed inter-event gap above policy, and receive coverage from the beginning to the end of the run. If either stream is blocked, invalid or does not satisfy `validate-pair`, the smoke test is not accepted and T0 must not be set.
+
+Keep the two manifests, dataset SHA-256 values, configuration hashes, run identifiers and the joint-validation output as immutable evidence outside the source tree (for example, a versioned GitHub Actions artifact or release asset). Do not commit large raw JSONL datasets to `main`. A green synthetic test suite is necessary software evidence, not a substitute for the real overlapping capture.
