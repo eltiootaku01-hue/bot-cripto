@@ -912,7 +912,7 @@ def capture(
                 stop.wait(backoff)
                 backoff = min(reconnect_max_seconds, backoff * 2)
             except BinanceWebSocketTransportError as exc:
-                journal.note_transport_error(symbol, exc, reconnecting=True)
+                journal.note_transport_error(symbol, exc)
                 stop.wait(backoff)
                 backoff = min(reconnect_max_seconds, backoff * 2)
             except BinanceWebSocketError as exc:
