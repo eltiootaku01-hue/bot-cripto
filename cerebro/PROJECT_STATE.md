@@ -2,7 +2,7 @@
 
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
-**Último SHA con cambios de código/workflows verificado:** `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b` (PR #96: fail-closed para claves de orden malformed en PAPER economic replay; PR #93: tipos JSON estrictos en captura). - PR #96: [1610 pruebas antes del merge](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821969), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821961), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821964), [SMA E2E](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821960) e [indicadores E2E](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101821955): todos `success`. - Main post-merge exacto: [1610 pruebas en 11.67 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074): todos `success`.
+**Último SHA con cambios de código/workflows verificado:** `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b` (PR #96 endurece replay económico PAPER; PR #93 endurece tipos JSON en la captura). CI post-merge: [1610 tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) `success`; la captura real de 24 h sigue pendiente.
 
 ## 1. Estado operativo actual
 
