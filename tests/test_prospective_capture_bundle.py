@@ -198,3 +198,61 @@ def test_bundle_refuses_boolean_trading_flag(tmp_path, monkeypatch):
     pair_path.write_text(json.dumps(pair), encoding="utf-8")
     with pytest.raises(bundle.CaptureBundleError, match="TRADING_MUST_REMAIN_DISABLED"):
         bundle.create_capture_bundle(root)
+
+
+def test_verify_received_bundle_rechecks_hash_allowlist_and_pair(tmp_path, monkeypatch):
+    root, calls = _capture_tree(tmp_path, monkeypatch)
+    created = bundle.create_capture_bundle(root)
+
+    verified = bundle.verify_capture_bundle(Path(created["archive"]))
+
+    assert verified["status"] == "VALID"
+    assert verified["sha256"] == created["sha256"]
+    assert verified["files_verified"] == 9
+    assert verified["overlap_seconds"] == 86401.0
+    assert verified["common_complete_utc_days"] == ["2026-10-18"]
+    assert verified["trading_enabled"] is False
+    # Initial packaging and receipt-side revalidation both call the pair validator.
+    assert len(calls) == 2
+
+
+def test_verify_received_bundle_rejects_sha256_mismatch(tmp_path, monkeypatch):
+    root, _calls = _capture_tree(tmp_path, monkeypatch)
+    created = bundle.create_capture_bundle(root)
+    sidecar = Path(created["sha256_file"])
+    sidecar.write_text(f"{'0' * 64}  {Path(created['archive']).name}\n", encoding="ascii")
+
+    with pytest.raises(bundle.CaptureBundleError, match="BUNDLE_SHA256_MISMATCH"):
+        bundle.verify_capture_bundle(Path(created["archive"]))
+
+
+def test_verify_received_bundle_rejects_path_traversal_member(tmp_path, monkeypatch):
+    root, _calls = _capture_tree(tmp_path, monkeypatch)
+    created = bundle.create_capture_bundle(root)
+    archive_path = Path(created["archive"])
+    malicious = zipfile.ZipInfo("../outside.txt", date_time=(1980, 1, 1, 0, 0, 0))
+    malicious.create_system = 3
+    malicious.external_attr = 0o100644 << 16
+    with zipfile.ZipFile(archive_path, mode="a") as archive:
+        archive.writestr(malicious, "must not be extracted")
+    sidecar = Path(created["sha256_file"])
+    sidecar.write_text(f"{bundle._sha256_file(archive_path)}  {archive_path.name}\n", encoding="ascii")
+
+    with pytest.raises(bundle.CaptureBundleError, match="ZIP_MEMBER_PATH_UNSAFE"):
+        bundle.verify_capture_bundle(archive_path)
+
+
+def test_verify_received_bundle_rejects_unexpected_regular_member(tmp_path, monkeypatch):
+    root, _calls = _capture_tree(tmp_path, monkeypatch)
+    created = bundle.create_capture_bundle(root)
+    archive_path = Path(created["archive"])
+    extra = zipfile.ZipInfo("operator-notes.txt", date_time=(1980, 1, 1, 0, 0, 0))
+    extra.create_system = 3
+    extra.external_attr = 0o100644 << 16
+    with zipfile.ZipFile(archive_path, mode="a") as archive:
+        archive.writestr(extra, "not capture evidence")
+    sidecar = Path(created["sha256_file"])
+    sidecar.write_text(f"{bundle._sha256_file(archive_path)}  {archive_path.name}\n", encoding="ascii")
+
+    with pytest.raises(bundle.CaptureBundleError, match="UNEXPECTED_CAPTURE_FILE_IN_BUNDLE"):
+        bundle.verify_capture_bundle(archive_path)

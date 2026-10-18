@@ -210,6 +210,19 @@ El resultado devuelve la ruta del ZIP, la del archivo de suma `.sha256`, el SHA-
 La revisión debe comprobar que la corrida es el resultado real de este colector y que sus datos originales están incluidos. Un ZIP con estructura válida o una prueba unitaria de la herramienta no satisface la issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sin datos reales Kline + bookTicker con ≥86.400 segundos de solapamiento y un día UTC común completo.
 
 
+## Verificar un ZIP recibido (nueva comprobación independiente)
+
+Después de recibir el ZIP y su sidecar `.sha256`, ejecutar desde la raíz del mismo clon actualizado de `main`:
+
+```powershell
+& .\.venv\Scripts\python.exe -m bot_obrero.prospective_capture_bundle verify --archive ".\evidence\<nombre>-evidence.zip"
+if ($LASTEXITCODE -ne 0) {
+  throw "BLOCKED: el paquete recibido no supera verificación; conservarlo sin editar"
+}
+```
+
+`verify` exige el sidecar `<archivo>.zip.sha256`, recalcula el SHA-256 del ZIP, rechaza paths inseguros, miembros duplicados, enlaces simbólicos/entradas no regulares, archivos fuera de la allowlist y paquetes de tamaño descomprimido superior a 4 GiB. Extrae los nueve archivos permitidos de forma segura en un directorio temporal, reejecuta la validación independiente de la pareja y elimina la extracción al terminar. Solo devuelve `VALID` si coinciden los hashes, los manifiestos, los datasets y el día UTC común; los archivos fuente permanecen sin modificar. Esta verificación no convierte datos sintéticos en datos reales ni sustituye la revisión de procedencia.
+
 ## Aislamiento del contenido incluido en el ZIP
 
 La versión funcional de empaquetado en main limita los archivos permitidos a:
