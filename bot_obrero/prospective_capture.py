@@ -59,6 +59,11 @@ def _canonical_json(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def _has_supported_schema_version(value: Any) -> bool:
+    # bool is an int subtype in Python, but JSON true/false are not schema versions.
+    return type(value) is int and value == SCHEMA_VERSION
+
+
 def _json_hash(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value)).hexdigest()
 
@@ -701,13 +706,17 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise ProspectiveCaptureError(f"MANIFEST_READ_FAILED:{exc}") from exc
-    if not isinstance(manifest, Mapping) or manifest.get("schema_version") != SCHEMA_VERSION:
+    if not isinstance(manifest, Mapping) or not _has_supported_schema_version(manifest.get("schema_version")):
         raise ProspectiveCaptureError("MANIFEST_SCHEMA_INVALID")
     if manifest.get("status") != "COMPLETED":
         raise ProspectiveCaptureError("CAPTURE_STATUS_NOT_COMPLETED")
     symbols = _validate_symbols(manifest.get("symbols", []))
     configuration = manifest.get("configuration")
-    if not isinstance(configuration, Mapping) or _json_hash(configuration) != manifest.get("configuration_sha256"):
+    if not isinstance(configuration, Mapping):
+        raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_HASH_MISMATCH")
+    if not _has_supported_schema_version(configuration.get("schema_version")):
+        raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_SCHEMA_INVALID")
+    if _json_hash(configuration) != manifest.get("configuration_sha256"):
         raise ProspectiveCaptureError("CAPTURE_CONFIGURATION_HASH_MISMATCH")
     if (
         configuration.get("interval") != DEFAULT_INTERVAL
@@ -777,9 +786,13 @@ def validate_manifest(manifest_path: Path) -> dict[str, Any]:
                     if not isinstance(envelope, Mapping) or not isinstance(record, Mapping):
                         raise ValueError("record envelope must contain an object")
                     fingerprint = _json_hash(record)
-                    if envelope.get("schema_version") != SCHEMA_VERSION or envelope.get("run_id") != manifest.get("run_id"):
+                    if (
+                        not _has_supported_schema_version(envelope.get("schema_version"))
+                        or envelope.get("run_id") != manifest.get("run_id")
+                    ):
                         raise ProspectiveCaptureError(f"CAPTURE_RECORD_ENVELOPE_INVALID:{filename}:{line_no}")
-                    if envelope.get("symbol") != symbol or envelope.get("sequence") != count + 1:
+                    sequence = envelope.get("sequence")
+                    if envelope.get("symbol") != symbol or type(sequence) is not int or sequence != count + 1:
                         raise ProspectiveCaptureError(f"CAPTURE_RECORD_SEQUENCE_INVALID:{filename}:{line_no}")
                     if envelope.get("record_sha256") != fingerprint:
                         raise ProspectiveCaptureError(f"CAPTURE_RECORD_HASH_MISMATCH:{filename}:{line_no}")

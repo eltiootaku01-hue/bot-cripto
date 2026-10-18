@@ -94,6 +94,30 @@ def _complete_journal(tmp_path, *, max_gap_seconds=3600.0):
     return journal
 
 
+def _finalized_capture(tmp_path):
+    journal = _complete_journal(tmp_path)
+    journal.finalize(
+        status="COMPLETED",
+        ended_at=START + timedelta(hours=24, seconds=3),
+        elapsed_seconds=86403.0,
+    )
+    return journal
+
+
+def _rewrite_dataset_and_manifest(journal, manifest, filename, envelopes):
+    data_path = journal.run_dir / filename
+    data_bytes = (
+        ("\n".join(json.dumps(row, sort_keys=True, ensure_ascii=False) for row in envelopes) + "\n")
+    ).encode("utf-8")
+    data_path.write_bytes(data_bytes)
+    manifest["files"][filename]["bytes"] = len(data_bytes)
+    manifest["files"][filename]["sha256"] = hashlib.sha256(data_bytes).hexdigest()
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_capture_journal_records_a_complete_utc_day_and_validates_hashes(tmp_path):
     journal = _complete_journal(tmp_path)
     manifest = journal.finalize(
@@ -334,3 +358,62 @@ def test_validator_rejects_records_that_precede_the_declared_capture_run(tmp_pat
 
     with pytest.raises(ProspectiveCaptureError, match="RECORD_OUTSIDE_RUN_INTERVAL"):
         validate_manifest(manifest_path)
+
+
+def test_validator_rejects_boolean_manifest_schema_version(tmp_path):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = True
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProspectiveCaptureError, match="MANIFEST_SCHEMA_INVALID"):
+        validate_manifest(journal.manifest_path)
+
+
+def test_validator_rejects_boolean_configuration_schema_version(tmp_path):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    manifest["configuration"]["schema_version"] = True
+    canonical_config = json.dumps(
+        manifest["configuration"],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    manifest["configuration_sha256"] = hashlib.sha256(canonical_config).hexdigest()
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProspectiveCaptureError, match="CAPTURE_CONFIGURATION_SCHEMA_INVALID"):
+        validate_manifest(journal.manifest_path)
+
+
+def test_validator_rejects_boolean_record_schema_version(tmp_path):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    filename = "BTCUSDT.jsonl"
+    data_path = journal.run_dir / filename
+    envelopes = [json.loads(line) for line in data_path.read_text(encoding="utf-8").splitlines()]
+    envelopes[0]["schema_version"] = True
+    _rewrite_dataset_and_manifest(journal, manifest, filename, envelopes)
+
+    with pytest.raises(ProspectiveCaptureError, match="CAPTURE_RECORD_ENVELOPE_INVALID"):
+        validate_manifest(journal.manifest_path)
+
+
+def test_validator_rejects_boolean_record_sequence(tmp_path):
+    journal = _finalized_capture(tmp_path)
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    filename = "BTCUSDT.jsonl"
+    data_path = journal.run_dir / filename
+    envelopes = [json.loads(line) for line in data_path.read_text(encoding="utf-8").splitlines()]
+    envelopes[0]["sequence"] = True
+    _rewrite_dataset_and_manifest(journal, manifest, filename, envelopes)
+
+    with pytest.raises(ProspectiveCaptureError, match="CAPTURE_RECORD_SEQUENCE_INVALID"):
+        validate_manifest(journal.manifest_path)
