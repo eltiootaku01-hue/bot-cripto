@@ -45,12 +45,25 @@ Validaciones:
 
 ## 4. Costes y límites de simulación fijados
 
-- BASE: comisión 0,10 % por fill, spread completo supuesto 10 bps y slippage 5 bps por lado.
-- STRESS_1: comisión 0,10 %, spread 25 bps y slippage 10 bps.
-- STRESS_2: comisión 0,20 %, spread 50 bps y slippage 20 bps.
+### V1 histórico (OHLC; costes de spread supuestos)
+
+Estos son los tres escenarios usados en el replay V1, cuyo histórico ya se examinó:
+- BASE: comisión 0,10 % por fill, spread completo supuesto 10 bps, slippage 5 bps por lado.
+- STRESS_1: comisión 0,10 %, spread completo supuesto 25 bps, slippage 10 bps por lado.
+- STRESS_2: comisión 0,20 %, spread completo supuesto 50 bps, slippage 20 bps por lado.
+
+Esos spreads son supuestos históricos, no mediciones de un libro bid/ask pasado. No usar V1 para afirmar que se conoce el spread que había al momento de cada fill.
+
+### V2 prospectivo (quotes observados)
+
+El contrato V2 usa el bid/ask real observado para cada fill: BASE comisión 0,10 % y slippage adicional 5 bps por lado; STRESS_1 comisión 0,10 % y slippage 10 bps; STRESS_2 comisión 0,20 % y slippage 20 bps. El spread observado ya está representado por la diferencia entre ask y bid; **no se añade otro spread sintético**. Los cargos por comisión/slippage de los escenarios deben quedar predefinidos e idénticos entre candidatos y benchmarks, sin reajuste después de mirar resultados.
+
+### Límites comunes
+
 - Capital virtual inicial 31 USDT; Spot long-only; hasta 95 % del quote disponible por entrada; máximo cinco entradas nuevas en una ventana móvil de 30 días; sin apalancamiento ni posiciones cortas.
 - Las cotizaciones observadas solo pueden usarse si estaban disponibles antes de la decisión y cumplen el contrato; si no hay evidencia de disponibilidad, no inventar fill.
-- Cuando una estrategia y un benchmark usan una valoración de liquidación en cierres, ambos deben deducir los mismos costes de salida; la valoración abierta no es un fill contabilizado.
+- Para equity y drawdown durante una posición abierta, estrategias y benchmarks aplican la misma convención de valor neto de liquidación. En V1 se usa el cierre horario con los costes modelados de salida; en V2 se usa una cotización bid válida y reciente, más la comisión/slippage de salida preregistradas. Esa marca es una valoración, no un fill: no genera una operación de venta ni registra fees hipotéticas como realizadas.
+- Si al marcar una posición abierta no hay un bid elegible dentro del límite de antigüedad preregistrado, no se sustituye por OHLC ni se extrapola un precio: la evaluación queda `INCOMPLETE / NO_TRADE`.
 
 La especificación V2 completa, incluidos bootstrap por bloques, corrección Holm y criterios estadísticos, permanece en [BTC_ETH_STRATEGIES_V2_PROTOCOL.md](BTC_ETH_STRATEGIES_V2_PROTOCOL.md).
 
