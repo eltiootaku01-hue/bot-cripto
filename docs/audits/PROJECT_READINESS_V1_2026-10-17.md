@@ -230,3 +230,12 @@ Se añadió una regresión para el cambio de SHA después de que ambos procesos 
 El motor de backtest y el replay V1 ahora calculan drawdown sobre una marca neta de liquidación para una posición abierta, deduciendo spread/slippage modelados y comisión hipotética de salida. El replay V1 recalculó sus métricas de drawdown; los retornos no cambiaron. La táctica `ETH_TSMOM_168H` sigue sin ser ganadora validada: +15,5138 % BASE, +1,9100 % STRESS_1, -26,3695 % STRESS_2; sus retornos BASE por validación son -10,6421 %, +4,6558 % y -14,7518 %. El protocolo no permite promoción automática por encabezar un solo segmento.
 
 La puntuación continúa en **77/100**. La evidencia económica sigue en 5/20 y el techo aritmético bajo la rúbrica actual permanece en 85/100 hasta que una prueba independiente cambie legítimamente esa categoría. Los resultados históricos tienen `available_at/finality` UNKNOWN y no sustituyen la captura prospectiva real ni un holdout anual futuro.
+
+
+## Replay anual histórico en main — 18-10-2026
+
+El workflow de regresión anual pasó sobre main SHA `977977f8ab5170cd8d17a44bc82586217c325e14`, igual que los 1675 tests, CodeQL y pip-audit. Se registró un dataset de 8.760 velas entre 2025-04-16 y 2026-04-16 UTC, con warm-up y tres folds, además de un replay offline hash-equal.
+
+En la evaluación BASE, `BASELINE` perdió 26,8599 %, `BTC_GATED` perdió 10,0802 %, cash quedó en 0 % y buy-and-hold ETH subió 48,5559 %. La versión BTC_GATED no repite ganancias entre folds y pierde en STRESS_2; la clasificación es `NO_ROBUST_EDGE_FOUND / NO_TRADE`. El artefacto se marcó `HISTORICAL_EXPLORATORY`, pues `available_at` histórico es UNKNOWN y el periodo ya es retrospectivo. No suma evidencia para el holdout prospectivo.
+
+**Puntuación sin cambios: 77/100.** La matriz sigue teniendo 5/20 en evidencia económica; los resultados recientes son negativos para el candidato y no justifican elevar la cifra. La captura real de 24 horas y la evaluación futura independiente siguen siendo las brechas obligatorias.

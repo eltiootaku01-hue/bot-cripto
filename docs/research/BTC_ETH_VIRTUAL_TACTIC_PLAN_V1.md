@@ -73,6 +73,24 @@ La especificación V2 completa, incluidos bootstrap por bloques, corrección Hol
 - [Freqtrade — lookahead analysis 2026.5](https://docs.freqtrade.io/en/2026.5/lookahead-analysis/) advierte que el análisis solo verifica tipos de señales que efectivamente se activaron. Por eso el protocolo requiere perturbación de sufijo y cobertura de señales.
 - [Binance — Spot WebSocket streams](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md) documenta el límite de 24 h y `serverShutdown`; esa evidencia justifica la captura supervisada, pero únicamente un artefacto real puede cerrar el gate #98.
 
+## 6. Replay anual histórico en main después de la corrección — 18-10-2026
+
+El workflow activado desde main [run 39113863156](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863156) pasó con 8.760 velas de evaluación para el periodo `[2025-04-16T09:00:00Z, 2026-04-16T09:00:00Z)`, 2160 barras de warm-up y tres folds de 60 días. El replay offline coincidió con el dataset SHA-256 `d6701552136b4d3e373dbe18a4e3b2e7e481159673a37082a1f342ff09454d08` y la configuración SHA-256 `2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a`.
+
+| Variante | BASE retorno | STRESS_1 | STRESS_2 | Drawdown BASE |
+|---|---:|---:|---:|---:|
+| `BASELINE` EMA/RSI | -26,8599 % | -35,9698 % | -54,8336 % | -27,6160 % |
+| `BTC_GATED` | -10,0802 % | -20,6412 % | -42,7490 % | -22,3907 % |
+| Cash | 0,0000 % | 0,0000 % | 0,0000 % | 0,0000 % |
+| Buy-and-hold BTC | -11,0290 % | -11,2511 % | -11,8261 % | -50,0838 % |
+| Buy-and-hold ETH | +48,5559 % | +48,1850 % | +47,2249 % | -63,2071 % |
+
+`BTC_GATED` supera BTC buy-and-hold por menos de un punto porcentual en BASE, pero aún pierde 10,08 % y queda muy por detrás de cash y de ETH buy-and-hold. Sus validaciones BASE fueron +2,9616 %, -6,4983 % y -2,4657 %, y no sobrevive al escenario STRESS_2. `BASELINE` pierde en evaluación y en los tres folds BASE. Por tanto el resultado no respalda una táctica ganadora.
+
+El reporte declara `NO_ROBUST_EDGE_FOUND / NO_TRADE`. La evidencia `available_at` es `UNKNOWN` para 15.360 barras por símbolo, y el periodo ya es retrospectivo; no es un holdout independiente. Este run refuerza la conclusión negativa y la reproducibilidad, pero no cierra issue #98 ni fija T0 de V2.
+
+Todos los controles del commit `977977f8ab5170cd8d17a44bc82586217c325e14` pasaron: 1675 tests [39113863132](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863132), CodeQL [39113863057](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863057), pip-audit [39113863258](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863258) y replay [39113863156](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863156). La descarga de CI se retiene durante 90 días, no es una copia permanente.
+
 ## Dictamen
 
 **No hay una táctica ganadora demostrada con la evidencia actual.** El plan defendible es mantener `NO_TRADE` y ejecutar el protocolo prospectivo congelado, en lugar de elegir y optimizar otra vez con el mismo histórico. Ninguna simulación garantiza ganancias futuras.

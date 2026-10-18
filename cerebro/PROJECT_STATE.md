@@ -237,4 +237,18 @@ El supervisor vuelve a comparar HEAD, origin/main, rama y source status inmediat
 
 ## Trigger del replay virtual anual en main — 18-10-2026
 
-Se corrigió `.github/workflows/btc-eth-follow-research.yml`: antes solo reaccionaba a cambios en la rama histórica `feat/paper-operational-runtime-v1`, por lo que modificaciones del motor virtual en `main` no arrancaban este replay anual automáticamente. Ahora el workflow escucha `main` para los cambios relevantes de backtest, Product V2, su suite y el propio workflow. El artefacto se etiqueta explícitamente `HISTORICAL_EXPLORATORY`, `PROSPECTIVE_HOLDOUT=false` y señala que `available_at` histórico es UNKNOWN; el replay no podrá confundirse con la captura prospectiva ni cerrar issue #98. La ejecución originada por este commit debe verificarse antes de registrar resultados.
+Se corrigió `.github/workflows/btc-eth-follow-research.yml`: antes solo reaccionaba a cambios en la rama histórica `feat/paper-operational-runtime-v1`, por lo que modificaciones del motor virtual en `main` no arrancaban este replay anual automáticamente. Ahora el workflow escucha `main` para los cambios relevantes de backtest, Product V2, su suite y el propio workflow. El artefacto se etiqueta explícitamente `HISTORICAL_EXPLORATORY`, `PROSPECTIVE_HOLDOUT=false` y señala que `available_at` histórico es UNKNOWN; el replay no podrá confundirse con la captura prospectiva ni cerrar issue #98. La ejecución exacta de main [run 39113863156](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863156) terminó `success`, junto con 1675 tests [39113863132](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863132), CodeQL [39113863057](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863057) y pip-audit [39113863258](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39113863258), los cuatro sobre SHA `977977f8ab5170cd8d17a44bc82586217c325e14`.
+
+El estudio obtuvo 8.760 velas de evaluación entre `2025-04-16T09:00:00Z` y `2026-04-16T09:00:00Z`, con warm-up de 2160 barras y 3 folds de validación. Dataset SHA-256 `d6701552136b4d3e373dbe18a4e3b2e7e481159673a37082a1f342ff09454d08`; configuración SHA-256 `2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a`. El replay offline dio los mismos hashes y la misma decisión.
+
+| Estrategia | BASE | STRESS_1 | STRESS_2 | Resultado |
+|---|---:|---:|---:|---|
+| `BASELINE` EMA/RSI | -26,8599 % | -35,9698 % | -54,8336 % | No pasa |
+| `BTC_GATED` | -10,0802 % | -20,6412 % | -42,7490 % | No pasa |
+| Cash | 0,0000 % | 0,0000 % | 0,0000 % | Referencia |
+| Buy-and-hold BTC | -11,0290 % | -11,2511 % | -11,8261 % | Referencia |
+| Buy-and-hold ETH | +48,5559 % | +48,1850 % | +47,2249 % | Referencia |
+
+En BASE, `BTC_GATED` perdió capital y quedó muy por debajo de cash y de buy-and-hold ETH. Sus validaciones BASE fueron +2,9616 %, -6,4983 % y -2,4657 %; no son consistentes, y los tres folds STRESS_2 fueron negativos. Resultado: `NO_ROBUST_EDGE_FOUND / NO_TRADE`.
+
+Clasificación del artefacto: `HISTORICAL_EXPLORATORY`, `PROSPECTIVE_HOLDOUT=false`. En el dataset histórico se registran `available_at=UNKNOWN` para 15.360 barras de cada símbolo; la identidad SHA prueba los bytes, no su disponibilidad al momento de la decisión. Este run no cierra issue #98, no fija T0 y no sustituye los 365 días prospectivos. El artifact `btc-eth-follow-365d-historical-977977f8ab5170cd8d17a44bc82586217c325e14` se conserva en Actions por 90 días, por lo que no se considera almacenamiento duradero permanente.
