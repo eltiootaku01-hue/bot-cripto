@@ -211,6 +211,44 @@ def test_validator_rejects_float_encoded_integer_summary_fields(tmp_path, field)
         validate_manifest(journal.manifest_path)
 
 
+def test_validator_rejects_boolean_encoded_maximum_inter_event_gap(tmp_path):
+    # A 1-second observed quote gap compares equal to JSON true in Python,
+    # so type validation must run before the summary's equality comparison.
+    journal = ProspectiveBookTickerJournal(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        capture_grace_seconds=0,
+        max_inter_event_gap_seconds=86400,
+        fsync_every_records=100,
+        now=lambda: START,
+        run_id="bookticker-boolean-maximum-gap",
+    )
+    journal.start(START)
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        journal.accept(make_quote(symbol, 1, START))
+        journal.accept(make_quote(symbol, 2, START + timedelta(seconds=1)))
+    result = journal.finalize(
+        status="COMPLETED",
+        ended_at=START + timedelta(seconds=86400),
+        elapsed_seconds=86400,
+    )
+    assert result["status"] == "COMPLETED", result
+    assert result["acceptance"]["accepted"] is True, result
+
+    manifest = json.loads(journal.manifest_path.read_text(encoding="utf-8"))
+    manifest["symbols_summary"]["BTCUSDT"]["maximum_inter_event_gap_seconds"] = True
+    journal.manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ProspectiveBookTickerCaptureError,
+        match="SYMBOL_SUMMARY_NUMERIC_TYPE_INVALID",
+    ):
+        validate_manifest(journal.manifest_path)
+
+
 def test_validator_rejects_unhashable_manifest_symbols_without_type_error(tmp_path):
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({

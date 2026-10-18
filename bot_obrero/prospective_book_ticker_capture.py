@@ -734,6 +734,15 @@ def validate_manifest(path: Path) -> dict[str, Any]:
         ):
             if type(saved.get(key)) is not int:
                 raise ProspectiveBookTickerCaptureError("SYMBOL_SUMMARY_INTEGER_TYPE_INVALID")
+        saved_maximum_gap = saved.get("maximum_inter_event_gap_seconds")
+        # The producer serializes this metric as a finite, non-negative float.
+        # In Python, bool compares equal to 0/1, so equality alone is not a type check.
+        if (
+            type(saved_maximum_gap) is not float
+            or not math.isfinite(saved_maximum_gap)
+            or saved_maximum_gap < 0
+        ):
+            raise ProspectiveBookTickerCaptureError("SYMBOL_SUMMARY_NUMERIC_TYPE_INVALID")
         for key in (
             "records", "duplicate_update_ids", "out_of_order_update_ids",
             "inter_event_gap_count", "maximum_inter_event_gap_seconds",
