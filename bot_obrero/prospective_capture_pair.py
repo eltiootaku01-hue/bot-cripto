@@ -161,6 +161,26 @@ def _capture_source_provenance(
     }
 
 
+def _same_source_revision(
+    expected: Mapping[str, Any],
+    observed: Mapping[str, Any],
+) -> bool:
+    """Require the same clean main revision and fetched origin/main at each boundary."""
+    if expected.get("status") != "VALID" or observed.get("status") != "VALID":
+        return False
+    if expected.get("branch") != "main" or observed.get("branch") != "main":
+        return False
+    if expected.get("git_head_sha") != observed.get("git_head_sha"):
+        return False
+    if expected.get("origin_main_sha") != observed.get("origin_main_sha"):
+        return False
+    if observed.get("git_head_sha") != observed.get("origin_main_sha"):
+        return False
+    if expected.get("source_status_entries") or observed.get("source_status_entries"):
+        return False
+    return True
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -318,6 +338,13 @@ def run_capture_pair(
                 break
             sleep(min(1.0, max(0.05, remaining)))
 
+        launch_provenance = dict(provenance_resolver(Path.cwd()))
+        summary["source_provenance_at_launch"] = launch_provenance
+        if not _same_source_revision(source_provenance, launch_provenance):
+            summary["status"] = "BLOCKED"
+            summary["reason"] = "CAPTURE_SOURCE_PROVENANCE_CHANGED_BEFORE_LAUNCH"
+            raise _CapturePairBlocked(summary["reason"])
+
         start_observed_at = _aware_utc(clock(), "current_time")
         start_lateness = (start_observed_at - scheduled_start).total_seconds()
         if align_to_utc_midnight and (
@@ -374,6 +401,10 @@ def run_capture_pair(
                     raise RuntimeError("EXPECTED_EXACTLY_ONE_MANIFEST_PER_CAPTURE")
                 summary["kline_manifest"] = str(manifests["kline"][0].relative_to(run_dir))
                 summary["bookticker_manifest"] = str(manifests["bookticker"][0].relative_to(run_dir))
+                finish_provenance = dict(provenance_resolver(Path.cwd()))
+                summary["source_provenance_at_finish"] = finish_provenance
+                if not _same_source_revision(source_provenance, finish_provenance):
+                    raise RuntimeError("CAPTURE_SOURCE_PROVENANCE_CHANGED_DURING_RUN")
                 validation = validate_paired_manifests(
                     kline_manifest_path=manifests["kline"][0],
                     bookticker_manifest_path=manifests["bookticker"][0],

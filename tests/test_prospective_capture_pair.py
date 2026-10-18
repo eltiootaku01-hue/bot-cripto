@@ -12,6 +12,7 @@ from bot_obrero.prospective_capture_pair import (
     _build_commands,
     _capture_source_provenance,
     _next_utc_start,
+    _same_source_revision,
     run_capture_pair,
 )
 
@@ -227,3 +228,55 @@ def test_source_provenance_blocks_main_behind_or_ahead_of_origin_main(tmp_path):
     assert provenance["reason"] == "CAPTURE_MAIN_NOT_UP_TO_DATE"
     assert provenance["git_head_sha"] == "f" * 40
     assert provenance["origin_main_sha"] == "1" * 40
+
+
+
+def test_source_revision_match_rejects_changed_revision_or_non_clean_state():
+    clean = {
+        "status": "VALID",
+        "git_head_sha": "a" * 40,
+        "origin_main_sha": "a" * 40,
+        "branch": "main",
+        "source_status_entries": [],
+    }
+    assert _same_source_revision(clean, dict(clean)) is True
+
+    changed_sha = {**clean, "git_head_sha": "b" * 40}
+    assert _same_source_revision(clean, changed_sha) is False
+
+    changed_origin = {**clean, "origin_main_sha": "c" * 40}
+    assert _same_source_revision(clean, changed_origin) is False
+
+    dirty = {**clean, "status": "BLOCKED", "source_status_entries": [" M bot_obrero/"]}
+    assert _same_source_revision(clean, dirty) is False
+
+
+def test_pair_capture_rechecks_source_after_wait_and_blocks_before_opening_sockets(tmp_path):
+    clean = {
+        "status": "VALID",
+        "git_head_sha": "a" * 40,
+        "origin_main_sha": "a" * 40,
+        "branch": "main",
+        "source_status_entries": [],
+    }
+    changed = {
+        "status": "BLOCKED",
+        "reason": "CAPTURE_SOURCE_WORKTREE_DIRTY",
+        "git_head_sha": "a" * 40,
+        "origin_main_sha": "a" * 40,
+        "branch": "main",
+        "source_status_entries": [" M bot_obrero/prospective_capture_pair.py"],
+    }
+    provenance_values = iter([clean, changed])
+    result = run_capture_pair(
+        output_dir=tmp_path,
+        align_to_utc_midnight=False,
+        source_provenance_resolver=lambda _cwd: next(provenance_values),
+        popen_factory=lambda *_args, **_kwargs: pytest.fail("socket collector must not start"),
+        clock=lambda: datetime(2026, 10, 18, 0, 0, 1, tzinfo=UTC),
+        sleep=lambda _seconds: None,
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "CAPTURE_SOURCE_PROVENANCE_CHANGED_BEFORE_LAUNCH"
+    manifest = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["source_provenance_at_launch"]["status"] == "BLOCKED"
