@@ -215,3 +215,12 @@ Exact post-merge `main` verification: [tests — 1,676 passed in 14.86 s](https:
 **Post-merge exact-SHA CI:** [tests — 1,676 passed in 12.28 s](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39136102138), [CodeQL — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39136102076), [pip-audit — success](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39136102147). PR E2E and dependency audit also passed before merge: [SMA](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39135969536), [indicators](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39135969530), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39135969540).
 
 **Decision boundary unchanged:** the fix makes the intended capture acceptance reachable under normal startup skew; it is not a market dataset and does not close issue #98. Preparation remains **77/100**, V2 is not running, no T0 is set, no winning strategy is proved, `NO_TRADE`, no LIVE.
+
+
+## 8. Endurecimiento del validador Kline — PR #103 (2026-10-18)
+
+**Hallazgo observado:** el validador de `bot_obrero/prospective_capture.py` convertía `target_duration_seconds` con `int()` y `actual_elapsed_seconds` con `float()` antes de validar el tipo JSON original. Una cadena numérica podía resultar aceptada si coincidía con la configuración y se recalculaba el hash de configuración.
+
+**Cambio en main:** el manifiesto y la configuración deben declarar un objetivo de duración con tipo entero exacto y valor mínimo de 86.400 s; el tiempo transcurrido debe ser un número JSON, finito y no booleano. Nuevas regresiones ejercitan ambas vías manipuladas sin depender de un hash exterior desactualizado.
+
+**Evidencia:** SHA `6f2512f9dc6d0e00b202291606258c6894e84420`; 1.678 pruebas ([39140269519](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269519)), CodeQL ([39140269490](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269490)) y pip-audit ([39140269472](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39140269472)) en verde. La corrección de tipo refuerza el contrato de integridad pero no sustituye la captura de mercado ni demuestra rentabilidad; #98 sigue abierta y `NO_TRADE` se mantiene.
