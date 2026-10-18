@@ -533,3 +533,14 @@ La issue #98 continúa bloqueada y `NO_TRADE` permanece.
 **Separación de evidencia:** este hallazgo actualiza el plan de custodia; no prueba que se haya perdido un artefacto de este repositorio, no constituye una captura de mercado y no cambia la puntuación **77/100** ni la decisión **`NO_TRADE`**.
 
 También se reconsultaron las [notas oficiales de Binance Spot WebSocket](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md), que mantienen la advertencia de una duración máxima de 24 h por conexión y de reconectar ante `serverShutdown`, y la [documentación oficial de SQLite WAL](https://www.sqlite.org/wal.html), que delimita el WAL-reset bug a WAL con conexiones concurrentes. BOT-CRIPTO conserva la exigencia de validación de cobertura/solapamiento real y el uso de journal `DELETE` en la ruta PAPER; esta revisión no encontró evidencia que justifique debilitar ambos gates.
+
+
+## 25. Verificación en el receptor antes de aceptar un ZIP de evidencia (2026-10-18)
+
+**Riesgo de transferencia:** comprobar el hash antes de enviar no protege contra corrupción, modificación o inclusión de archivos extra ocurridos durante la copia; tampoco demuestra por sí solo que los manifests y datasets internos cumplan el contrato de adquisición. La política actual de GitHub sobre [retención de Actions](https://github.blog/changelog/2026-10-01-actions-retention-now-covers-checks-runs-and-statuses/) añade otra razón para conservar un paquete con checksum fuera de la retención temporal.
+
+**Mitigación implementada en main:** el commit [`2a2a350bf5b0901169bf97f049a7a755e8a0bf49`](https://github.com/eltiootaku01-hue/bot-cripto/commit/2a2a350bf5b0901169bf97f049a7a755e8a0bf49) añade `python -m bot_obrero.prospective_capture_bundle verify --archive <paquete.zip>`. Revisa el sidecar SHA-256, exige la allowlist exacta de nueve archivos, rechaza entradas duplicadas, rutas absolutas/traversal, enlaces simbólicos y miembros no regulares, y reejecuta la validación de la pareja desde una extracción temporal segura. Incluye límite de 4 GiB de tamaño descomprimido y no conserva el contenido extraído.
+
+**Evidencia local:** [pytest](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210250) terminó `success` con 1.708 pruebas por Python 3.11–3.14; [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210264) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210171) también finalizaron `success` sobre el mismo SHA. Cuatro pruebas nuevas validan recepción positiva, checksum erróneo, path traversal y archivo ajeno.
+
+**Límite de evidencia:** esas pruebas usan fixtures sintéticos. No prueban mercado real ni cierran la issue #98. La captura verdadera y el holdout anual siguen sin aceptar/ejecutar; mantener `NO_TRADE`.

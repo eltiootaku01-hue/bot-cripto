@@ -311,3 +311,12 @@ Se endureció `bot_obrero/prospective_capture_bundle.py` tras una segunda revisi
 El SHA funcional exacto [`281302deebdfcdf3b23734f651386fed35bf85bf`](https://github.com/eltiootaku01-hue/bot-cripto/commit/281302deebdfcdf3b23734f651386fed35bf85bf) aprobó [pytest](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157860) con **1.704 pruebas por versión** en Python 3.11, 3.12, 3.13 y 3.14, [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157935) y [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39158157840), todos `success`.
 
 No se cambia la puntuación de preparación por hardening o tests sintéticos. La matriz se mantiene en **77/100**, evidencia económica 5/20; captura #98 y estudio independiente de 365 días siguen pendientes. `NO_TRADE` permanece.
+
+
+## Actualización de preparación — verificación de paquetes recibidos (2026-10-18)
+
+La herramienta de entrega tiene ahora una comprobación para el receptor, no solo para quien crea el paquete: `python -m bot_obrero.prospective_capture_bundle verify --archive <paquete.zip>`. En el commit funcional exacto [`2a2a350`](https://github.com/eltiootaku01-hue/bot-cripto/commit/2a2a350bf5b0901169bf97f049a7a755e8a0bf49), la suite terminó **1.708 passed por Python 3.11/3.12/3.13/3.14**, [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210264) y [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210171) también pasaron. [CI de tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39162210250).
+
+El verificador recalcula el checksum, impone la lista cerrada de nueve archivos, rechaza entradas peligrosas/duplicadas y vuelve a ejecutar la validación de manifiestos/datasets en extracción temporal. Cuatro pruebas adicionales cubren recepción correcta, checksum incorrecto, path traversal y archivos inesperados.
+
+**La puntuación permanece 77/100 y la evidencia económica 5/20**: estas mejoras aumentan la capacidad de revisar una futura entrega, pero sus fixtures son sintéticos. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue abierta; no se ha aceptado captura real, no existe T0 para BTC_ETH_STRATEGIES_V2 y no se ha ejecutado el holdout futuro de 365 días. La decisión sigue siendo `NO_TRADE`.
