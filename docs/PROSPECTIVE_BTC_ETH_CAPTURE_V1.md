@@ -77,3 +77,37 @@ CI evidence for that change: pre-merge suite [39100827937](https://github.com/el
 ## Current main continuity (18 October 2026)
 
 The capture schema validation change from PR #93 remains in main. PR #96 separately hardens the PAPER economic replay's handling of malformed fill ordering; it does not change the capture collector or its acceptance criteria. Latest functional main SHA: `bb4cf093e4798a9ce80a770281a6003dfb4d2f9b`. Post-merge main suite [39101918101](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918101) passed 1610 tests; [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918074) and [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39101918092) passed. These tests still do not substitute for a real accepted 24-hour capture.
+
+
+## Companion capture: prospective bookTicker evidence
+
+The Kline collector above proves candle closure and hourly continuity. It does **not** by itself provide an executable quote for every decision. BTC/ETH V2 also needs point-in-time best bid/ask observations, with receive/availability timestamps and immutable hashes.
+
+Main now includes:
+- `bot_obrero/binance_book_ticker.py`: bounded public Spot `bookTicker` WebSocket adapter, exact approved-symbol guard, decimal and crossed-market validation, update ID validation, separate local receive/handoff clocks, and a hash-bound quote contract.
+- `bot_obrero/prospective_book_ticker_capture.py`: JSONL per-symbol persistence, fsync, run manifest, reconnect backoff, SHA-256 file/record/configuration checks, and a validator that recomputes acceptance from stored records.
+- Regression tests in `tests/test_binance_book_ticker.py` and `tests/test_prospective_book_ticker_capture.py`. The latter uses synthetic quote events to validate the 24-hour persistence contract; it is not evidence of a real capture.
+
+**Important timestamp limit:** Binance Spot's documented raw bookTicker payload includes update ID, symbol, bid/ask prices and quantities, but does not normally include an exchange event timestamp. The adapter therefore records local receive time as the observation clock when no provider event timestamp exists, and separately records local consumer availability. It never fabricates a past exchange timestamp. Downstream execution/replay must still reject a quote that is not available after the decision or exceeds the preregistered freshness limit.
+
+### Run both public-data captures together
+
+Start both commands in separate terminals **before the next UTC midnight** on a persistent machine. Both default to aligning the run to the next UTC midnight; use the same target start for the Kline and bookTicker smoke captures.
+
+Terminal A — hourly klines:
+
+```powershell
+python -m bot_obrero.prospective_capture capture --output-dir evidence/prospective-btc-eth --symbols BTCUSDT ETHUSDT --interval 1h --duration-seconds 86400
+python -m bot_obrero.prospective_capture validate evidence/prospective-btc-eth/<run-id>/manifest.json
+```
+
+Terminal B — best bid/ask quotes:
+
+```powershell
+python -m bot_obrero.prospective_book_ticker_capture capture --output-dir evidence/prospective-btc-eth-bookticker --symbols BTCUSDT ETHUSDT --duration-seconds 86400
+python -m bot_obrero.prospective_book_ticker_capture validate evidence/prospective-btc-eth-bookticker/<run-id>/manifest.json
+```
+
+Replace `<run-id>` with the directory created by that run. Each validator must print `status: VALID`; for the quote capture, the manifest must also have `status: COMPLETED`, 24-hour elapsed duration, no timestamp regressions, no duplicate/out-of-order update IDs, no observed inter-event gap above policy, and receive coverage from the beginning to the end of the run. If either stream is blocked or invalid, the smoke test is not accepted and T0 must not be set.
+
+Keep the two manifests, dataset SHA-256 values, configuration hashes and run identifiers as immutable evidence outside the source tree (for example, a versioned GitHub Actions artifact or release asset). Do not commit large raw JSONL datasets to `main`. A green synthetic test suite is necessary software evidence, not a substitute for the real overlapping capture.
