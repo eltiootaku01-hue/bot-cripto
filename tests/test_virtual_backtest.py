@@ -346,6 +346,32 @@ def test_annual_hourly_evaluation_length_is_accepted_without_splitting_the_run()
     assert config.candles == 8760
 
 
+def test_open_position_equity_curve_uses_net_liquidation_value_for_drawdown():
+    prices = ("20", "19", "18", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31")
+    items = [_item(i, value, open_price=value) for i, value in enumerate(prices)]
+    config = _config(
+        rsi_sell_at=Decimal("100"),
+        spread_bps=Decimal("50"),
+        slippage_bps=Decimal("10"),
+    )
+    result = run_virtual_backtest(items, config)
+    point = result.equity_curve[-1]
+
+    assert result.final_base_position > 0
+    adverse = (config.slippage_bps + config.spread_bps / Decimal("2")) / Decimal("10000")
+    hypothetical_sell_price = point.close * (Decimal("1") - adverse)
+    hypothetical_sell_notional = point.base_position * hypothetical_sell_price
+    net_liquidation_value = hypothetical_sell_notional - hypothetical_sell_notional * config.fee_rate
+    expected_equity = point.quote_balance + net_liquidation_value
+    entry = next(fill for fill in result.fills if fill.side == "BUY")
+    entry_cost = entry.quantity * entry.price + entry.fee
+
+    assert point.equity == expected_equity
+    assert point.equity < point.quote_balance + point.base_position * point.close
+    assert result.final_equity == expected_equity
+    assert result.unrealized_pnl == net_liquidation_value - entry_cost
+
+
 def test_terminal_liquidation_closes_remaining_position_and_charges_exit_costs():
     prices = ("20", "19", "18", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31")
     items = [_item(i, value, open_price=value) for i, value in enumerate(prices)]
@@ -361,7 +387,9 @@ def test_terminal_liquidation_closes_remaining_position_and_charges_exit_costs()
     assert liquidated.final_equity == liquidated.final_quote_balance
     assert liquidated.unrealized_pnl == 0
     assert liquidated.total_fees > regular.total_fees
-    assert liquidated.final_equity < regular.final_equity
+    assert liquidated.final_equity == regular.final_equity
+    assert regular.final_equity < regular.final_quote_balance + regular.final_base_position * items[-1].payload.close
+    assert regular.unrealized_pnl < regular.final_base_position * items[-1].payload.close
 
 
 

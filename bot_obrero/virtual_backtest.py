@@ -573,6 +573,29 @@ def _read_dataset_bundle(path: Path, config: BacktestConfig) -> tuple[list[Marke
 def _raise_bad_dataset_record():
     raise BacktestError("normalized dataset item must be a mapping")
 
+def _net_liquidation_value(position: Decimal, close: Decimal, config: BacktestConfig) -> Decimal:
+    """Return the open Spot position's equity value after modeled exit costs.
+
+    This is a valuation mark, not a submitted or booked SELL fill. It applies
+    the same spread/slippage and fee arithmetic as a SELL execution so strategy
+    drawdown and benchmark drawdown use comparable liquidation assumptions.
+    """
+    if position <= _ZERO:
+        return _ZERO
+    if not isinstance(position, Decimal) or not position.is_finite():
+        raise BacktestError("position for liquidation valuation must be a finite Decimal")
+    if not isinstance(close, Decimal) or not close.is_finite() or close <= _ZERO:
+        raise BacktestError("open-position liquidation mark requires a positive finite Decimal close")
+
+    adverse = (config.slippage_bps + config.spread_bps / Decimal("2")) / _BPS
+    liquidation_price = close * (_ONE - adverse)
+    if liquidation_price <= _ZERO:
+        raise BacktestError("modeled liquidation price is non-positive")
+    notional = position * liquidation_price
+    exit_fee = notional * config.fee_rate
+    return notional - exit_fee
+
+
 def run_virtual_backtest(
     items: Sequence[MarketData], config: BacktestConfig, *,
     evaluation_start: datetime | None = None, evaluation_end: datetime | None = None,
@@ -654,7 +677,7 @@ def run_virtual_backtest(
                 position, entry_cost = _ZERO, _ZERO
             pending = None
 
-        equity = quote + position * candle.close
+        equity = quote + _net_liquidation_value(position, candle.close, config)
         peak = max(peak, equity)
         curve.append(EquityPoint(candle.end, candle.close, quote, position, equity,
                                  equity / peak - _ONE if peak > _ZERO else _ZERO))
@@ -715,7 +738,7 @@ def run_virtual_backtest(
         )
 
     final_equity = curve[-1].equity
-    unrealized = position * candles[-1].payload.close - entry_cost if position > _ZERO else _ZERO
+    unrealized = _net_liquidation_value(position, candles[-1].payload.close, config) - entry_cost if position > _ZERO else _ZERO
     return BacktestResult(
         symbol=candles[0].instrument.symbol, interval=config.interval, config=config,
         candle_count=len(candles), first_candle=candles[0].payload.start,
@@ -772,7 +795,7 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Assumed full spread: {cfg.spread_bps} bps (half charged per fill; historical spread is not available)")
     print(f"Maximum entries per rolling 30 days: {cfg.max_entries_per_30d}")
     print(f"Instrument min quantity / step / min notional: {cfg.min_qty} / {cfg.quantity_step} / {cfg.min_notional}")
-    print(f"Terminal liquidation: {'ENABLED (last close less modeled spread/slippage and exit fee)' if cfg.liquidate_at_end else 'DISABLED (final equity is marked to the last close)'}")
+    print(f"Terminal liquidation: {'ENABLED (SELL fill is booked at the last close, including modeled exit costs)' if cfg.liquidate_at_end else 'DISABLED (open position is marked at last-close net liquidation value; no SELL fill is booked)'}")
     print("Quote balance is denominated in the pair quote asset; it is not an ARS balance or an ARS-to-USDT conversion.")
     print("Execution model: signal at candle close; fill at next candle open with configured slippage")
     print("Temporal limitation: canonical historical available_at is UNKNOWN when absent; this simulation uses an explicit bar-close model without rewriting MarketData.available_at.")
@@ -789,12 +812,12 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print()
     print(f"Final quote balance: {result.final_quote_balance}")
     print(f"Final base position: {result.final_base_position}")
-    print(f"Final equity (last close mark): {result.final_equity}")
+    print(f"Final equity (last-close net-liquidation mark): {result.final_equity}")
     print(f"Realized PnL: {result.realized_pnl}")
-    print(f"Unrealized PnL: {result.unrealized_pnl}")
+    print(f"Unrealized PnL net of modeled exit costs: {result.unrealized_pnl}")
     print(f"Total fees: {result.total_fees}")
     print(f"Return: {return_pct}%")
-    print(f"Maximum drawdown: {result.max_drawdown * Decimal('100')}%")
+    print(f"Maximum drawdown (net of modeled exit costs): {result.max_drawdown * Decimal('100')}%")
     print("Historical simulation is not a guarantee of future profitability.")
 
 

@@ -426,7 +426,7 @@ def daily_equity_metrics(result: BacktestResult) -> tuple[list[dict[str, Any]], 
         elif entry_cost is None:
             unrealized = None
         else:
-            unrealized = close_point.base_position * close_point.close - entry_cost
+            unrealized = close_point.equity - close_point.quote_balance - entry_cost
         daily_drawdown_peak = max(daily_drawdown_peak, close_point.equity)
         drawdown = close_point.equity / daily_drawdown_peak - ONE if daily_drawdown_peak > ZERO else ZERO
         max_daily_drawdown = min(max_daily_drawdown, drawdown)

@@ -558,6 +558,7 @@ def test_daily_equity_metrics_separate_equity_change_realized_unrealized_and_cos
     assert rows[1]["day_status"] == "FULL_UTC_DAY"
     assert rows[1]["net_change"] == Decimal("-15")
     assert rows[1]["unrealized_pnl"] == Decimal("-0.1")
+    assert rows[1]["equity_close"] - Decimal("990") - Decimal("10.1") == rows[1]["unrealized_pnl"]
     assert rows[1]["no_trade"] is True
     assert summary["net_pnl"] == Decimal("0")
     assert summary["positive_days"] == 1 and summary["negative_days"] == 1
