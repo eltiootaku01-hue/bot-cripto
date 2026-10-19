@@ -1,0 +1,37 @@
+name: windows-handoff-smoke
+on:
+  pull_request:
+    paths:
+      - 'tools/windows-handoff/**'
+      - '.github/workflows/windows-handoff-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    name: Windows source download and extraction
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download and extract the pinned source on Windows
+        shell: powershell
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'BOT-CRIPTO-LOCAL'
+          & .\tools\windows-handoff\BAJAR_Y_EXTRAER_BOTCRIPTO.ps1 -Destination $destination
+          $required = @(
+            (Join-Path $destination 'pyproject.toml'),
+            (Join-Path $destination 'cerebro\PROJECT_STATE.md'),
+            (Join-Path $destination 'WINDOWS_LOCAL_HANDOFF_MANIFEST.txt'),
+            (Join-Path $destination 'bot-cripto-source.zip')
+          )
+          foreach ($item in $required) {
+            if (-not (Test-Path -LiteralPath $item -PathType Leaf)) {
+              throw "Required handoff output is missing: $item"
+            }
+          }
+          $manifest = Get-Content -LiteralPath (Join-Path $destination 'WINDOWS_LOCAL_HANDOFF_MANIFEST.txt') -Raw
+          if ($manifest -notmatch 'Commit solicitado: 439d0b6cab598db683462ed891f05093b30d6575') {
+            throw 'Manifest does not record the expected commit.'
+          }
+          Write-Host 'Windows handoff smoke test passed.'
