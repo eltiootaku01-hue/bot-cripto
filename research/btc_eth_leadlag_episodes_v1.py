@@ -15,6 +15,10 @@ COSTS = {
 REPLICATES, SEED, MONTH_BLOCK, DAY_BLOCK = 10000, 20261019, 3, 90
 
 def sha256(b: bytes) -> str: return hashlib.sha256(b).hexdigest()
+def json_default(value):
+ if isinstance(value, np.generic): return value.item()
+ if isinstance(value, pd.Timestamp): return value.isoformat()
+ raise TypeError(f"Not JSON serializable: {type(value).__name__}")
 def canonical_sha256(x: Any) -> str:
  return sha256(json.dumps(x, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
 
@@ -258,7 +262,7 @@ def run(data_path: Path,out: Path,source_sha: str,reps: int,seed: int):
   "bootstrap_replicates":reps,"bootstrap_seed":seed,"bootstrap_block_months":MONTH_BLOCK,"bootstrap_daily_block_days":DAY_BLOCK,
   "inference":inference,"strategy_summary":summ,
   "limitations":["Historical available_at/finality unknown for all archived candles.","Hypothesis chosen after prior diagnostic exposure; not an untouched holdout.","Costs are scenarios, not actual historical fills.","Decision remains NO_TRADE."]}
- (out/"episode-results.json").write_text(json.dumps(info,indent=2,sort_keys=True,allow_nan=False)+"\n",encoding="utf-8")
+ (out/"episode-results.json").write_text(json.dumps(info,indent=2,sort_keys=True,allow_nan=False,default=json_default)+"\n",encoding="utf-8")
  csvout(out/"episodes.csv",events); csvout(out/"monthly-returns.csv",months); csvout(out/"bootstrap-comparisons.csv",secondary)
  csvout(out/"full-period-benchmarks.csv",bench); csvout(out/"strategy-summary.csv",summ)
  (out/"REPORT.md").write_text(build_report(info,months,bench,summ,secondary),encoding="utf-8")
@@ -270,7 +274,7 @@ def run(data_path: Path,out: Path,source_sha: str,reps: int,seed: int):
   "dataset_configuration_sha256":bundle["configuration_sha256"],"preregistration_sha256":info["preregistration_sha256"],
   "bar_count_per_asset":info["bar_count_per_asset"],**counts,"complete_month_count":inference["complete_month_count"],
   "bootstrap_replicates":reps,"files":filedata}
- (out/"manifest.json").write_text(json.dumps(manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+ (out/"manifest.json").write_text(json.dumps(manifest,indent=2,sort_keys=True,default=json_default)+"\n",encoding="utf-8")
  for n,v in filedata.items():
   b=(out/n).read_bytes()
   if len(b)!=v["size_bytes"] or sha256(b)!=v["sha256"]: raise ValueError("OUTPUT_INTEGRITY_FAILED:"+n)
