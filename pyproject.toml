@@ -11,6 +11,9 @@ dependencies = ["websocket-client==1.9.2"]
 [project.optional-dependencies]
 test = ["pytest>=9.1.1,<9.2"]
 
+[project.scripts]
+bot-cripto = "bot_obrero.operator_cli:main"
+
 [tool.setuptools.packages.find]
 include = ["bot_obrero*"]
 exclude = ["research*", "tests*", "docs*"]
