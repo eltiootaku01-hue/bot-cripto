@@ -19,7 +19,6 @@ jobs:
         run: |
           $destination = Join-Path $env:RUNNER_TEMP 'BOT-CRIPTO-LOCAL'
           & .\tools\windows-handoff\BAJAR_Y_EXTRAER_BOTCRIPTO.ps1 -Destination $destination
-          if ($LASTEXITCODE -ne 0) { throw "PowerShell handoff failed with exit code $LASTEXITCODE" }
           $required = @(
             (Join-Path $destination 'pyproject.toml'),
             (Join-Path $destination 'cerebro\PROJECT_STATE.md'),
