@@ -722,6 +722,98 @@ def test_paper_economic_replay_marks_legacy_fills_without_quote_evidence_incompl
         adapter.close()
 
 
+
+def test_paper_economic_replay_uses_durable_fill_sequence_when_timestamps_tie(tmp_path):
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus
+
+    adapter = make_adapter(tmp_path / "fill-sequence.sqlite3", clock=lambda: NOW)
+    try:
+        # The lexical client-order order deliberately differs from commit order.
+        adapter._submit(make_order(client_order_id="z-order"))
+        adapter._submit(make_order(
+            side="SELL", quantity="0.1", max_spend=None, client_order_id="a-order"
+        ))
+        snapshot = adapter.snapshot()
+        assert [(fill["fill_sequence"], fill["client_order_id"]) for fill in snapshot["fills"]] == [
+            (1, "z-order"), (2, "a-order")
+        ]
+        replay = adapter.economic_replay()
+        assert replay.status is PaperEconomicReplayStatus.REPLAYED
+        assert replay.final_balances == snapshot["balances"]
+    finally:
+        adapter.close()
+
+
+def test_paper_economic_contract_decimal_policy_ignores_ambient_context(tmp_path):
+    from decimal import ROUND_DOWN, localcontext
+    from bot_obrero.paper_economic_contract import (
+        PAPER_DECIMAL_PRECISION, PAPER_DECIMAL_ROUNDING, PAPER_ECONOMIC_CONTRACT_VERSION
+    )
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus
+
+    evidence = quote_evidence(bid="99.123456789", ask="100.123456789")
+    order = make_order(
+        quantity="0.123456789", max_spend="25", client_order_id="precision-order",
+        quote_evidence_payload=evidence,
+    )
+    adapter = make_adapter(tmp_path / "decimal-context.sqlite3", clock=lambda: NOW)
+    try:
+        # Deliberately hostile caller Decimal settings must not change economic results.
+        with localcontext() as ambient:
+            ambient.prec = 6
+            ambient.rounding = ROUND_DOWN
+            result = adapter._submit(order)
+            snapshot = adapter.snapshot()
+            replay = adapter.economic_replay()
+            assert result["status"] == "PAPER_FILLED"
+            assert replay.status is PaperEconomicReplayStatus.REPLAYED
+            fill = snapshot["fills"][0]
+            assert fill["economic_contract_version"] == PAPER_ECONOMIC_CONTRACT_VERSION == 1
+            assert fill["fill_sequence"] == 1
+            assert fill["decimal_precision"] == PAPER_DECIMAL_PRECISION == 28
+            assert fill["decimal_rounding"] == PAPER_DECIMAL_ROUNDING == "ROUND_HALF_EVEN"
+            with localcontext() as expected_context:
+                expected_context.prec = 28
+                from decimal import ROUND_HALF_EVEN
+                expected_context.rounding = ROUND_HALF_EVEN
+                expected_price = Decimal("100.123456789") * (
+                    Decimal("1") + Decimal("5") / Decimal("10000")
+                )
+                expected_fee = Decimal("0.123456789") * expected_price * Decimal("0.001")
+            assert Decimal(result["price"]) == expected_price
+            assert Decimal(result["fee"]) == expected_fee
+    finally:
+        adapter.close()
+
+
+def test_paper_economic_replay_fails_closed_for_legacy_or_unsupported_contract(tmp_path):
+    from copy import deepcopy
+    from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
+
+    adapter = make_adapter(tmp_path / "economic-contract-versions.sqlite3")
+    try:
+        adapter._submit(make_order())
+        legacy = deepcopy(adapter.snapshot())
+        legacy["fills"][0]["economic_contract_version"] = 0
+        legacy_result = replay_paper_economics(legacy)
+        assert legacy_result.status is PaperEconomicReplayStatus.INCOMPLETE
+        assert legacy_result.discrepancies == ("FILL_1_LEGACY_ECONOMIC_CONTRACT_UNVERSIONED",)
+
+        unsupported = deepcopy(adapter.snapshot())
+        unsupported["fills"][0]["economic_contract_version"] = 2
+        unsupported_result = replay_paper_economics(unsupported)
+        assert unsupported_result.status is PaperEconomicReplayStatus.UNKNOWN
+        assert unsupported_result.discrepancies == ("FILL_1_ECONOMIC_CONTRACT_VERSION_UNSUPPORTED",)
+
+        malformed_order = deepcopy(adapter.snapshot())
+        malformed_order["fills"][0]["fill_sequence"] = 0
+        malformed_result = replay_paper_economics(malformed_order)
+        assert malformed_result.status is PaperEconomicReplayStatus.MISMATCH
+        assert malformed_result.discrepancies == ("FILL_1_SEQUENCE_INVALID",)
+    finally:
+        adapter.close()
+
+
 def test_paper_adapter_exposes_read_only_economic_replay(tmp_path):
     from bot_obrero.paper_economic_replay import PaperEconomicReplayStatus
 
