@@ -16,14 +16,14 @@
 
 **Hypothesis:** after a strong four-hour BTC impulse, if ETH has not already made a large move and remains above its own 100-hour EMA, ETH's following 24-hour long-only return may be positive and may exceed the return from passive benchmarks after modeled transaction costs.
 
-At the close of hourly bar (t), a signal fires only if all are true:
-1. BTCUSDT close-to-close four-hour return (geq +1.50%).
-2. ETHUSDT close-to-close four-hour return is between (-0.50%) and (+0.80%), inclusive.
-3. ETHUSDT close at (t) is strictly greater than its 100-hour EMA calculated with bars through (t) only.
+At the close of an hourly bar, a signal fires only if all are true:
+1. BTCUSDT close-to-close four-hour return is at least +1.50%.
+2. ETHUSDT close-to-close four-hour return is between -0.50% and +0.80%, inclusive.
+3. ETHUSDT close is strictly greater than its 100-hour EMA calculated with bars through that bar only.
 
 Execution/replay:
-- Decision is after close (t); entry price proxy is ETH open of bar (t+1).
-- Exit price proxy is ETH open of bar (t+25), a fixed 24-hour holding interval after entry.
+- Decision is after the signal bar closes; entry price proxy is ETH open of the next bar.
+- Exit price proxy is ETH open 25 bars after the signal bar (24 hours after entry).
 - Only one position is allowed at a time. Once a signal is accepted, any later signal whose decision timestamp would overlap its holding interval is skipped. The next eligible episode can begin when the previous trade exits, without overlapping exposure.
 - Returns compound sequential accepted episodes within each calendar month; months with no episodes return 0% for the strategy.
 - No leverage, no short positions, no parameter retuning, no ranking of multiple candidate rules.
