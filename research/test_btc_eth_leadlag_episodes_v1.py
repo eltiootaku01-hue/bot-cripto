@@ -74,6 +74,6 @@ def test_monthly_rows_include_cash_and_compound_realized_returns_by_exit_month()
  assert jan["cash_return_pct"]==0 and jan["is_complete_calendar_month"]
  assert feb["strategy_net_return_pct"]==0
 
-def test_dataset_decision_contract_does_not_permit_promotion():
- assert "NO_TRADE" == "NO_TRADE"
- assert "UNKNOWN" in {"UNKNOWN","FINAL"}
+def test_log_return_refuses_total_loss_before_log_transform():
+ with pytest.raises(ValueError,match="INVALID_RETURN_FOR_LOG"):
+  study.logret(-100.0)
