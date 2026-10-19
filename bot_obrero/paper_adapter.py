@@ -17,6 +17,12 @@ from threading import RLock
 from typing import Callable, Mapping, Any
 
 from .execution import ExchangeAdapter, OrderIntent
+from .paper_economic_contract import (
+    PAPER_DECIMAL_PRECISION,
+    PAPER_DECIMAL_ROUNDING,
+    PAPER_ECONOMIC_CONTRACT_VERSION,
+    paper_decimal_context,
+)
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
 _ZERO = Decimal("0")
@@ -185,6 +191,10 @@ class PaperExecutionAdapter(ExchangeAdapter):
             );
             CREATE TABLE IF NOT EXISTS paper_fills (
                 client_order_id TEXT PRIMARY KEY,
+                fill_sequence INTEGER NOT NULL DEFAULT 0,
+                economic_contract_version INTEGER NOT NULL DEFAULT 0,
+                decimal_precision INTEGER NOT NULL DEFAULT 0,
+                decimal_rounding TEXT NOT NULL DEFAULT '',
                 intent_hash TEXT NOT NULL,
                 intent_json TEXT NOT NULL,
                 mode TEXT NOT NULL CHECK(mode='PAPER'),
@@ -225,6 +235,10 @@ class PaperExecutionAdapter(ExchangeAdapter):
             self._connection.execute("ALTER TABLE paper_account ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
         fill_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(paper_fills)")}
         fill_migrations = {
+            "fill_sequence": "INTEGER NOT NULL DEFAULT 0",
+            "economic_contract_version": "INTEGER NOT NULL DEFAULT 0",
+            "decimal_precision": "INTEGER NOT NULL DEFAULT 0",
+            "decimal_rounding": "TEXT NOT NULL DEFAULT ''",
             "fee_asset": "TEXT NOT NULL DEFAULT ''",
             "fee_rate": "TEXT NOT NULL DEFAULT ''",
             "slippage_bps": "TEXT NOT NULL DEFAULT ''",
@@ -243,6 +257,10 @@ class PaperExecutionAdapter(ExchangeAdapter):
                 self._connection.execute(
                     f"ALTER TABLE paper_fills ADD COLUMN {column} {declaration}"
                 )
+        self._connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS paper_fills_v1_sequence_unique "
+            "ON paper_fills(fill_sequence) WHERE economic_contract_version = 1"
+        )
         self._connection.commit()
         now = _aware(self.clock(), "clock")
         with self._connection:
@@ -373,17 +391,18 @@ class PaperExecutionAdapter(ExchangeAdapter):
         quantity = _payload_decimal(payload, "quantity")
         requested_price = _payload_decimal(payload, "price", optional=True)
         assert quantity is not None
-        raw_price = quote.ask if side == "BUY" else quote.bid
-        slip = self.slippage_bps / _BPS
-        fill_price = raw_price * (_ONE + slip if side == "BUY" else _ONE - slip)
-        if fill_price <= _ZERO:
-            raise PaperAdapterError("PAPER_FILL_PRICE_NON_POSITIVE")
-        if payload["order_type"] == "LIMIT":
-            assert requested_price is not None
-            if (side == "BUY" and fill_price > requested_price) or (side == "SELL" and fill_price < requested_price):
-                raise PaperAdapterError("PAPER_LIMIT_NOT_MARKETABLE")
+        with paper_decimal_context():
+            raw_price = quote.ask if side == "BUY" else quote.bid
+            slip = self.slippage_bps / _BPS
+            fill_price = raw_price * (_ONE + slip if side == "BUY" else _ONE - slip)
+            if fill_price <= _ZERO:
+                raise PaperAdapterError("PAPER_FILL_PRICE_NON_POSITIVE")
+            if payload["order_type"] == "LIMIT":
+                assert requested_price is not None
+                if (side == "BUY" and fill_price > requested_price) or (side == "SELL" and fill_price < requested_price):
+                    raise PaperAdapterError("PAPER_LIMIT_NOT_MARKETABLE")
 
-        gross, fee = quantity * fill_price, quantity * fill_price * self.fee_rate
+            gross, fee = quantity * fill_price, quantity * fill_price * self.fee_rate
         base_asset, quote_asset = payload["base_asset"], payload["quote_asset"]
         reservation_id, proposal_id = payload.get("reservation_id"), payload.get("proposal_id")
         if not isinstance(reservation_id, str) or not reservation_id or not isinstance(proposal_id, str) or not proposal_id:
@@ -391,8 +410,9 @@ class PaperExecutionAdapter(ExchangeAdapter):
         if side == "BUY" and payload["order_type"] == "MARKET":
             max_spend = _payload_decimal(payload, "max_quote_spend")
             assert max_spend is not None
-            if gross + fee > max_spend:
-                raise PaperAdapterError("PAPER_BUY_EXCEEDS_MAX_QUOTE_SPEND")
+            with paper_decimal_context():
+                if gross + fee > max_spend:
+                    raise PaperAdapterError("PAPER_BUY_EXCEEDS_MAX_QUOTE_SPEND")
 
         with self._lock:
             try:
@@ -405,6 +425,21 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     return {"mode": "PAPER", "status": "PAPER_ALREADY_FILLED",
                             "client_order_id": order.client_order_id, "price": existing["price"],
                             "quantity": existing["quantity"]}
+                account_state = self._connection.execute(
+                    "SELECT state_version FROM paper_account WHERE singleton=1"
+                ).fetchone()
+                persisted_fill_count = self._connection.execute(
+                    "SELECT COUNT(*) FROM paper_fills"
+                ).fetchone()[0]
+                unsupported_fill_count = self._connection.execute(
+                    "SELECT COUNT(*) FROM paper_fills WHERE economic_contract_version != ?",
+                    (PAPER_ECONOMIC_CONTRACT_VERSION,),
+                ).fetchone()[0]
+                if account_state is None or account_state["state_version"] != persisted_fill_count:
+                    raise PaperAdapterError("PAPER_ECONOMIC_STATE_VERSION_MISMATCH")
+                if unsupported_fill_count:
+                    raise PaperAdapterError("PAPER_ECONOMIC_HISTORY_REQUIRES_REVIEW")
+                fill_sequence = account_state["state_version"] + 1
                 known_assets = {row["asset"] for row in self._connection.execute(
                     "SELECT asset FROM paper_assets").fetchall()}
                 if quote_asset not in known_assets or base_asset not in known_assets:
@@ -419,18 +454,19 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     raise PaperAdapterError("PAPER_ACCOUNT_BALANCE_MISSING_FOR_KNOWN_ASSET")
                 quote_balance = Decimal(quote_row["balance"])
                 base_balance = Decimal(base_row["balance"])
-                if side == "BUY":
-                    debit = gross + fee
-                    if debit > quote_balance:
-                        raise PaperAdapterError("PAPER_INSUFFICIENT_QUOTE_BALANCE")
-                    quote_after, base_after = quote_balance - debit, base_balance + quantity
-                else:
-                    if quantity > base_balance:
-                        raise PaperAdapterError("PAPER_INSUFFICIENT_BASE_BALANCE")
-                    proceeds = gross - fee
-                    if proceeds < _ZERO:
-                        raise PaperAdapterError("PAPER_FEE_EXCEEDS_SELL_PROCEEDS")
-                    quote_after, base_after = quote_balance + proceeds, base_balance - quantity
+                with paper_decimal_context():
+                    if side == "BUY":
+                        debit = gross + fee
+                        if debit > quote_balance:
+                            raise PaperAdapterError("PAPER_INSUFFICIENT_QUOTE_BALANCE")
+                        quote_after, base_after = quote_balance - debit, base_balance + quantity
+                    else:
+                        if quantity > base_balance:
+                            raise PaperAdapterError("PAPER_INSUFFICIENT_BASE_BALANCE")
+                        proceeds = gross - fee
+                        if proceeds < _ZERO:
+                            raise PaperAdapterError("PAPER_FEE_EXCEEDS_SELL_PROCEEDS")
+                        quote_after, base_after = quote_balance + proceeds, base_balance - quantity
                 self._connection.execute(
                     "INSERT OR REPLACE INTO paper_balances(asset,balance) VALUES (?,?)",
                     (quote_asset, _decimal_text(quote_after)),
@@ -441,14 +477,17 @@ class PaperExecutionAdapter(ExchangeAdapter):
                 )
                 self._connection.execute(
                     """INSERT INTO paper_fills(
-                        client_order_id,intent_hash,intent_json,mode,account_id,reservation_id,
+                        client_order_id,fill_sequence,economic_contract_version,decimal_precision,decimal_rounding,
+                        intent_hash,intent_json,mode,account_id,reservation_id,
                         proposal_id,symbol,base_asset,quote_asset,side,quantity,price,fee,
                         filled_at,quote_balance_after,base_balance_after,fee_asset,fee_rate,
                         slippage_bps,quote_bid,quote_ask,quote_observed_at,quote_available_at,
                         quote_max_age_microseconds,quote_source,quote_observation_id,
                         quote_observation_type,quote_evidence_hash,evaluation_context_id
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (order.client_order_id, intent_hash, intent_json, "PAPER", self.account_id,
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (order.client_order_id, fill_sequence, PAPER_ECONOMIC_CONTRACT_VERSION,
+                     PAPER_DECIMAL_PRECISION, PAPER_DECIMAL_ROUNDING,
+                     intent_hash, intent_json, "PAPER", self.account_id,
                      reservation_id, proposal_id, payload["symbol"], base_asset, quote_asset,
                      side, _decimal_text(quantity), _decimal_text(fill_price), _decimal_text(fee),
                      now.isoformat(), _decimal_text(quote_after), _decimal_text(base_after),
@@ -502,11 +541,21 @@ class PaperExecutionAdapter(ExchangeAdapter):
                     return fill
 
                 fills = tuple(snapshot_fill(row) for row in self._connection.execute(
-                    "SELECT * FROM paper_fills ORDER BY filled_at,client_order_id"
+                    "SELECT * FROM paper_fills ORDER BY fill_sequence,client_order_id"
                 ).fetchall())
+                economic_contract_complete = all(
+                    type(fill.get("fill_sequence")) is int
+                    and fill.get("fill_sequence") == index
+                    and type(fill.get("economic_contract_version")) is int
+                    and fill.get("economic_contract_version") == PAPER_ECONOMIC_CONTRACT_VERSION
+                    and type(fill.get("decimal_precision")) is int
+                    and fill.get("decimal_precision") == PAPER_DECIMAL_PRECISION
+                    and fill.get("decimal_rounding") == PAPER_DECIMAL_ROUNDING
+                    for index, fill in enumerate(fills, start=1)
+                )
                 complete = bool(assets) and set(assets) == set(balances) and all(
                     Decimal(value).is_finite() and Decimal(value) >= _ZERO for value in balances.values()
-                ) and account["state_version"] == len(fills)
+                ) and account["state_version"] == len(fills) and economic_contract_complete
                 result = {"mode": "PAPER", "account_id": account["account_id"],
                     "quote_asset": account["quote_asset"], "initial_quote_balance": account["initial_quote_balance"],
                     "asset_universe": assets, "balances": balances, "state_version": account["state_version"],

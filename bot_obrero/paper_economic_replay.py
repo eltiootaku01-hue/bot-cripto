@@ -14,6 +14,12 @@ import hashlib
 import re
 from typing import Any, Mapping, Sequence
 
+from .paper_economic_contract import (
+    PAPER_DECIMAL_PRECISION,
+    PAPER_DECIMAL_ROUNDING,
+    PAPER_ECONOMIC_CONTRACT_VERSION,
+    paper_decimal_context,
+)
 from .paper_quote_evidence import (
     PaperQuoteEvidenceError,
     canonical_json,
@@ -76,7 +82,7 @@ def _result(status: PaperEconomicReplayStatus, fills: int, balances: Mapping[str
     )
 
 
-def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayResult:
+def _replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayResult:
     """Verify quote evidence, fill arithmetic, chronological balances and final snapshot."""
     if not isinstance(snapshot, Mapping) or snapshot.get("mode") != "PAPER":
         return PaperEconomicReplayResult(PaperEconomicReplayStatus.UNKNOWN, 0, {}, ("PAPER_SNAPSHOT_REQUIRED",))
@@ -113,7 +119,7 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
     if any(value < 0 for value in replayed.values()):
         return _result(PaperEconomicReplayStatus.MISMATCH, len(fills), replayed, ("NEGATIVE_INITIAL_BALANCE",))
 
-    fill_order_keys: list[tuple[datetime, str]] = []
+    previous_fill_time = None
     for index, fill in enumerate(fills, start=1):
         if not isinstance(fill, Mapping):
             return _result(
@@ -122,6 +128,27 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
                 replayed,
                 (f"FILL_{index}_NOT_MAPPING",),
             )
+        contract_version = fill.get("economic_contract_version")
+        if type(contract_version) is not int:
+            return _result(PaperEconomicReplayStatus.UNKNOWN, len(fills), replayed,
+                           (f"FILL_{index}_ECONOMIC_CONTRACT_VERSION_INVALID",))
+        if contract_version == 0:
+            return _result(PaperEconomicReplayStatus.INCOMPLETE, len(fills), replayed,
+                           (f"FILL_{index}_LEGACY_ECONOMIC_CONTRACT_UNVERSIONED",))
+        if contract_version != PAPER_ECONOMIC_CONTRACT_VERSION:
+            return _result(PaperEconomicReplayStatus.UNKNOWN, len(fills), replayed,
+                           (f"FILL_{index}_ECONOMIC_CONTRACT_VERSION_UNSUPPORTED",))
+        sequence = fill.get("fill_sequence")
+        if type(sequence) is not int or sequence != index:
+            return _result(PaperEconomicReplayStatus.MISMATCH, len(fills), replayed,
+                           (f"FILL_{index}_SEQUENCE_INVALID",))
+        precision = fill.get("decimal_precision")
+        if type(precision) is not int or precision != PAPER_DECIMAL_PRECISION:
+            return _result(PaperEconomicReplayStatus.UNKNOWN, len(fills), replayed,
+                           (f"FILL_{index}_DECIMAL_PRECISION_UNSUPPORTED",))
+        if fill.get("decimal_rounding") != PAPER_DECIMAL_ROUNDING:
+            return _result(PaperEconomicReplayStatus.UNKNOWN, len(fills), replayed,
+                           (f"FILL_{index}_DECIMAL_ROUNDING_UNSUPPORTED",))
         filled_at_raw = fill.get("filled_at")
         client_order_id = fill.get("client_order_id")
         if type(filled_at_raw) is not str or not filled_at_raw or type(client_order_id) is not str or not client_order_id:
@@ -140,10 +167,11 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
                 replayed,
                 (f"FILL_{index}_ORDER_TIMESTAMP_INVALID",),
             )
-        # Compare instants, not raw ISO-8601 text: valid offsets can sort differently lexicographically.
-        fill_order_keys.append((filled_at.astimezone(timezone.utc), client_order_id))
-    if fill_order_keys != sorted(fill_order_keys):
-        return _result(PaperEconomicReplayStatus.MISMATCH, len(fills), replayed, ("FILL_ORDER_NOT_DETERMINISTIC",))
+        instant = filled_at.astimezone(timezone.utc)
+        if previous_fill_time is not None and instant < previous_fill_time:
+            return _result(PaperEconomicReplayStatus.MISMATCH, len(fills), replayed,
+                           ("FILL_TIMESTAMP_REGRESSION",))
+        previous_fill_time = instant
 
     ids: set[str] = set()
     errors: list[str] = []
@@ -314,6 +342,12 @@ def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayRe
     if replayed != final_reported:
         return _result(PaperEconomicReplayStatus.MISMATCH, len(fills), replayed, ("FINAL_BALANCES_DIFFER_FROM_REPLAY",))
     return _result(PaperEconomicReplayStatus.REPLAYED, len(fills), replayed, ())
+
+
+def replay_paper_economics(snapshot: Mapping[str, Any]) -> PaperEconomicReplayResult:
+    """Replay a PAPER account using the immutable Decimal semantics of contract v1."""
+    with paper_decimal_context():
+        return _replay_paper_economics(snapshot)
 
 
 __all__ = ["PaperEconomicReplayResult", "PaperEconomicReplayStatus", "replay_paper_economics"]

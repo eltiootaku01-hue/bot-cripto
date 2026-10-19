@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, Mapping
 
 from .paper_adapter import PaperExecutionAdapter
+from .paper_economic_contract import paper_decimal_context
 from .paper_economic_replay import PaperEconomicReplayStatus, replay_paper_economics
 from .paper_quote_evidence import PaperQuoteEvidenceError, validate_paper_quote_evidence
 from .persistent_ledger import SQLiteIdempotencyLedger
@@ -41,18 +42,19 @@ def _timestamp(value: Any) -> datetime:
 
 
 def _actual_reservation_consumption(fill: Mapping[str, Any]) -> Decimal:
-    quantity = Decimal(fill["quantity"])
-    price = Decimal(fill["price"])
-    fee = Decimal(fill["fee"])
-    if not all(item.is_finite() for item in (quantity, price, fee)):
-        raise ValueError("non-finite fill economics")
-    if quantity <= 0 or price <= 0 or fee < 0:
-        raise ValueError("invalid fill economics")
-    if fill.get("side") == "BUY":
-        return quantity * price + fee
-    if fill.get("side") == "SELL":
-        return quantity
-    raise ValueError("unknown fill side")
+    with paper_decimal_context():
+        quantity = Decimal(fill["quantity"])
+        price = Decimal(fill["price"])
+        fee = Decimal(fill["fee"])
+        if not all(item.is_finite() for item in (quantity, price, fee)):
+            raise ValueError("non-finite fill economics")
+        if quantity <= 0 or price <= 0 or fee < 0:
+            raise ValueError("invalid fill economics")
+        if fill.get("side") == "BUY":
+            return quantity * price + fee
+        if fill.get("side") == "SELL":
+            return quantity
+        raise ValueError("unknown fill side")
 
 
 def _result(status, account_id, fill_count, reconciled_count, discrepancies):

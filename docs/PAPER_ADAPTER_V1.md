@@ -68,3 +68,41 @@ during submission, after risk authorization. Therefore, the adapter cannot prove
 that the fill quote is the same evidence evaluated by risk. Enforcing this safely
 requires an approved shared-contract change; no quote identity guarantee is
 claimed by this increment.
+
+
+## PAPER Economic Replay Contract v1
+
+The durable fill schema versions the economic interpretation on every fill:
+`economic_contract_version=1`, `fill_sequence`, `decimal_precision=28`, and
+`decimal_rounding=ROUND_HALF_EVEN`. A V1 fill also retains the canonical intent
+and its hash, quote-evidence identity/hash, bid/ask, fee asset/rate, slippage, UTC
+fill timestamp, and post-fill balances.
+
+The immutable initial asset universe and initial balances remain in
+`paper_assets`; replay starts from those balances rather than inferring a seed
+from later fills. Each successful fill receives the next contiguous sequence
+number inside the same `BEGIN IMMEDIATE` transaction that writes both affected
+balances, the fill row, and increments `paper_account.state_version`. The
+sequence number, not lexical order of client order IDs, defines commit order.
+V1 replay requires sequence values exactly `1..N` and rejects timestamps that
+regress in that order. A unique partial index prevents duplicate sequence numbers
+among V1 records.
+
+V1 arithmetic runs inside a private Decimal context with precision 28 and
+`ROUND_HALF_EVEN`, independent of the caller's ambient Decimal settings. The
+fill price is the ask for BUY or bid for SELL adjusted adversely by persisted
+slippage basis points; fee is `quantity × fill_price × fee_rate` and is charged
+in the quote asset. V1 stores canonical decimal strings and does not silently
+apply venue tick-size, lot-size, or currency quantization.
+
+Existing rows upgraded from a schema without an economic contract get version
+`0` and sequence `0`. They are **not** retroactively labeled V1: replay marks
+them incomplete, the account snapshot cannot be promoted as complete, and new
+fills fail closed until legacy history receives an explicit review/migration.
+An unsupported future contract version is `UNKNOWN`, not silently interpreted
+using V1 rules.
+
+These controls prove deterministic accounting and replay integrity for the
+persisted PAPER contract. They do not prove exchange execution, a completed real
+24-hour market capture, a profitable strategy, or readiness for LIVE. The project
+remains `NO_TRADE`.
