@@ -451,7 +451,6 @@ def test_paper_fill_recovers_after_interrupted_finalization_and_restart(tmp_path
         )
         # Inject a failure after the reservation/binding transaction commits but
         # before the separate idempotency-ledger projection can be repaired.
-        original_sync_projection = recovered_ledger.synchronize_projection
 
         def fail_ledger_projection(*_args, **_kwargs):
             raise RuntimeError("INJECTED_CRASH_AFTER_RESERVATION_SETTLEMENT_BEFORE_LEDGER_PROJECTION")
@@ -480,9 +479,21 @@ def test_paper_fill_recovers_after_interrupted_finalization_and_restart(tmp_path
         assert ledger_after_interruption is not None
         assert ledger_after_interruption.result == "ORDER_RESULT_UNKNOWN"
 
-        # Restart/retry repairs only the ledger projection; it must not settle
-        # the already committed PAPER fill a second time.
-        monkeypatch.setattr(recovered_ledger, "synchronize_projection", original_sync_projection)
+        # Simulate a process restart: close all three stores and rebuild them
+        # only from their durable files before repairing the ledger projection.
+        recovered_ledger.close()
+        recovered_store.close()
+        recovered_adapter.close()
+        recovered_adapter = make_adapter(
+            paper_path, account_id=template_state.account_id, clock=lambda: NOW
+        )
+        recovered_store = SQLiteReservationStore(reservation_path)
+        recovered_bridge = ReservationExecutionBridge(recovered_store)
+        recovered_ledger = SQLiteIdempotencyLedger(ledger_path)
+        monkeypatch.setattr(
+            recovered_adapter, "_submit",
+            lambda *_args, **_kwargs: pytest.fail("reconciliation must never submit an order"),
+        )
         first = reconcile_paper_runtime(
             adapter=recovered_adapter, store=recovered_store, bridge=recovered_bridge,
             ledger=recovered_ledger, occurred_at=NOW + timedelta(seconds=1), apply=True,
