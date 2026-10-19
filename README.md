@@ -8,16 +8,16 @@ BOT-CRIPTO is a public-market-data research and local PAPER-simulation project f
 
 Recommended automated setup (requires Git and Python 3.11 or newer):
 
-1. Download or clone this repository's \`main\` branch.
-2. Open PowerShell in the repository and run:
+- If you already have a clean Git clone of this repository, use the manual install commands below from the repository root.
+- If you have a ZIP/source snapshot or are running from a separate tools folder, the installer creates a **separate clean clone of current \`main\`**. Choose a destination that does not already exist:
 
-   \`\`\`powershell
-   .\tools\windows-handoff\INSTALAR_BOTCRIPTO_PAPER.ps1 -Destination "$HOME\BOT-CRIPTO"
-   \`\`\`
+  \`\`\`powershell
+  .\tools\windows-handoff\INSTALAR_BOTCRIPTO_PAPER.ps1 -Destination "$HOME\BOT-CRIPTO-RUN"
+  \`\`\`
 
-   The installer refuses to overwrite an existing destination, verifies that the clone's \`HEAD\` matches \`origin/main\`, creates a virtual environment, installs the package and smoke-checks the command. It does not start a market capture or execute trades.
+  The installer refuses to overwrite an existing destination, verifies that the clone's \`HEAD\` matches \`origin/main\`, creates a virtual environment, installs the package and smoke-checks the command. It does not start a market capture or execute trades.
 
-To install manually from the repository root:
+To install manually from the root of an existing Git clone:
 
 \`\`\`powershell
 python -m venv .venv
