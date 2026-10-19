@@ -1,0 +1,115 @@
+name: BTC ETH independent episode study V1
+
+on:
+  pull_request:
+    paths:
+      - "research/btc_eth_leadlag_episodes_v1.py"
+      - "research/test_btc_eth_leadlag_episodes_v1.py"
+      - "docs/research/BTC_ETH_LEADLAG_EPISODES_V1_PREREGISTRATION.md"
+      - ".github/workflows/btc-eth-leadlag-episodes-v1.yml"
+  push:
+    branches: [main]
+    paths:
+      - "research/btc_eth_leadlag_episodes_v1.py"
+      - "research/test_btc_eth_leadlag_episodes_v1.py"
+      - "docs/research/BTC_ETH_LEADLAG_EPISODES_V1_PREREGISTRATION.md"
+      - ".github/workflows/btc-eth-leadlag-episodes-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  fixed-episode-study:
+    name: Frozen hypothesis, monthly benchmarks, circular block bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Test study contracts
+        run: python -m pytest -q research/test_btc_eth_leadlag_episodes_v1.py
+      - name: Require preregistration to precede the analysis code
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROTOCOL_SHA="$(git log -1 --format=%H -- docs/research/BTC_ETH_LEADLAG_EPISODES_V1_PREREGISTRATION.md)"
+          CODE_SHA="$(git log -1 --format=%H -- research/btc_eth_leadlag_episodes_v1.py)"
+          test -n "$PROTOCOL_SHA"
+          test -n "$CODE_SHA"
+          git merge-base --is-ancestor "$PROTOCOL_SHA" "$CODE_SHA"
+          echo "protocol_commit=$PROTOCOL_SHA" >> "$GITHUB_OUTPUT"
+          echo "code_commit=$CODE_SHA" >> "$GITHUB_OUTPUT"
+          echo "PREREGISTRATION_COMMIT: $PROTOCOL_SHA"
+          echo "ANALYSIS_CODE_COMMIT: $CODE_SHA"
+      - name: Download pinned archived BTC ETH source dataset
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: btc-eth-follow-365d-f8b9c36768f68ee754f1cb217f920dea25ef445e
+          run-id: 39062915950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Execute the single frozen hypothesis with 10000 block bootstrap replicates
+        env:
+          SOURCE_CODE_SHA: ${{ steps.provenance.outputs.code_commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python research/btc_eth_leadlag_episodes_v1.py \
+            --dataset input/btc-eth-follow-365d-dataset.json \
+            --output-dir evidence/btc-eth-leadlag-v1 \
+            --run-sha "$SOURCE_CODE_SHA" \
+            --bootstrap-replicates 10000 \
+            --seed 20261019
+      - name: Independently verify input provenance, study gates, and every output hash
+        env:
+          SOURCE_CODE_SHA: ${{ steps.provenance.outputs.code_commit }}
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path("evidence/btc-eth-leadlag-v1")
+          result = json.loads((root / "episode-results.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert result["decision"] == "NO_TRADE"
+          assert result["status"] == "EXPLORATORY_HISTORICAL_FIXED_HYPOTHESIS_SCREEN_NOT_PROSPECTIVE_HOLDOUT"
+          assert result["source_git_sha"] == "${{ steps.provenance.outputs.code_commit }}"
+          assert result["dataset_logical_sha256"] == "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
+          assert result["dataset_configuration_sha256"] == "2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a"
+          assert result["raw_signal_count"] == 13
+          assert result["accepted_episode_count"] == 10
+          assert result["overlapping_signals_skipped"] == 3
+          assert result["inference"]["complete_month_count"] == 20
+          assert result["bootstrap_replicates"] == 10000
+          assert result["bootstrap_seed"] == 20261019
+          assert result["inference"]["primary"]["promotion_eligible"] is False
+          assert manifest["decision"] == "NO_TRADE"
+          assert manifest["source_git_sha"] == result["source_git_sha"]
+          for name, meta in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == meta["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == meta["sha256"], f"hash mismatch: {name}"
+          print("RAW_SIGNALS:", result["raw_signal_count"])
+          print("ACCEPTED_NONOVERLAPPING_EPISODES:", result["accepted_episode_count"])
+          print("COMPLETE_MONTHS:", result["inference"]["complete_month_count"])
+          print("PRIMARY_MEAN_LOG_EXCESS:", result["inference"]["primary"]["mean_log_excess_per_observation"])
+          print("PRIMARY_BLOCK_BOOTSTRAP_P:", result["inference"]["primary"]["one_sided_null_centered_p_value_mean_greater_zero"])
+          print("PREREGISTRATION_SHA256:", result["preregistration_sha256"])
+          print("DECISION: NO_TRADE")
+          PY
+      - name: Upload report, episode ledger, month tables, and hash manifest
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: btc-eth-leadlag-episodes-v1-${{ github.sha }}
+          path: evidence/btc-eth-leadlag-v1/
+          if-no-files-found: error
+          retention-days: 90
