@@ -1,0 +1,92 @@
+name: BTC-ETH historical strategy tournament V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/strategy_tournament_v2.py"
+      - "research/test_strategy_tournament_v2.py"
+      - "research/requirements-btc-eth-strategies-v1.txt"
+      - ".github/workflows/btc-eth-strategy-tournament-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  tournament:
+    name: Frozen 6,232-candidate screen and multiplicity correction
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned research dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Test the tournament engine contracts
+        run: python -m pytest -q research/test_strategy_tournament_v2.py
+      - name: Download the immutable source dataset artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, immutable SHA
+        with:
+          name: btc-eth-follow-365d-f8b9c36768f68ee754f1cb217f920dea25ef445e
+          run-id: 39062915950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Run all frozen candidates across folds and modeled costs
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/tournament
+          python research/strategy_tournament_v2.py \
+            --dataset input/btc-eth-follow-365d-dataset.json \
+            --output-dir evidence/tournament \
+            --chunk-size 256 \
+            --bootstrap-replicates 2000 \
+            --seed 20261019
+      - name: Independently verify frozen inputs, trial counts and output hashes
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('evidence/tournament')
+          result = json.loads((root / 'tournament-results.json').read_text())
+          manifest = json.loads((root / 'tournament-manifest.json').read_text())
+          assert result['decision'] == 'NO_TRADE'
+          assert result['status'] == 'EXPLORATORY_HISTORICAL_SCREEN_NOT_A_LIVE_HOLDOUT'
+          assert result['dataset_sha256'] == '13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8'
+          assert result['configuration_sha256'] == '2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a'
+          assert result['frozen_method']['candidate_grid_sha256'] == '76b6abf4f61bc05135ea613c813dce2f5c1a44c4869ed42ed3faa18cdf625eae'
+          assert result['search_counts']['candidates_evaluated'] == 6232
+          assert result['search_counts']['validation_candidate_replays'] == 6232 * 3 * 3
+          assert result['search_counts']['fold_cost_candidate_replays'] == 6232 * 3 * 3 + result['search_counts']['legacy_evaluation_finalist_count'] * 3
+          assert result['search_counts']['legacy_evaluation_finalist_count'] <= 100
+          assert result['anti_lookahead_representative_tests']['status'] == 'PASS'
+          assert len(result['anti_lookahead_representative_tests']['tests']) == 12
+          assert all(x['bootstrap_replicates'] == 2000 for x in result['multiple_testing_bootstrap'])
+          assert result['search_counts']['legacy_evaluation_reference_candidates_that_also_meet_validation_and_reference_conditions'] == 0
+          assert result['execution_provenance']['git_sha'] == '${{ github.sha }}'
+          assert manifest['git_sha'] == '${{ github.sha }}'
+          for name, metadata in manifest['files'].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == metadata['size_bytes'], f'size mismatch: {name}'
+              assert hashlib.sha256(payload).hexdigest() == metadata['sha256'], f'hash mismatch: {name}'
+          print('PINNED_GRID_SHA256:', result['frozen_method']['candidate_grid_sha256'])
+          print('UNIQUE_CANDIDATES:', result['search_counts']['candidates_evaluated'])
+          print('CANDIDATE/FOLD/COST REPLAYS:', result['search_counts']['fold_cost_candidate_replays'])
+          print('VALIDATION-CONSISTENT CANDIDATES:', result['search_counts']['validation_consistency_candidates_positive_base_stress1_and_nonnegative_stress2'])
+          print('LEGACY EVALUATION CROSSCHECK PASSES:', result['search_counts']['legacy_evaluation_reference_candidates_that_also_meet_validation_and_reference_conditions'])
+          print('FAMILY-WISE BLOCK BOOTSTRAP REPLICATES:', result['multiple_testing_bootstrap'][0]['bootstrap_replicates'])
+          print('DECISION:', result['decision'])
+          PY
+      - name: Upload full metrics, report, results and hash manifest
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: btc-eth-strategy-tournament-v2-${{ github.sha }}
+          path: evidence/tournament/
+          if-no-files-found: error
+          retention-days: 90
