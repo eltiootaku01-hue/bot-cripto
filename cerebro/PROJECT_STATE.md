@@ -1,5 +1,14 @@
 # BOT-CRIPTO — ESTADO VERIFICADO DE CONTINUIDAD
 
+## Addendum CEREBRO — 2026-10-19: B1-R recuperación tras fallo de proyección del ledger
+
+- **OBSERVED:** la PR [#116](https://github.com/eltiootaku01-hue/bot-cripto/pull/116) fue fusionada por squash en SHA 29b27d3f5dbc263e2e8adc19042923376cd4e81f. Añade una regresión en tests/test_paper_adapter.py para un fallo después de confirmar la transacción compartida de reserva/binding y antes de reparar el ledger de idempotencia separado.
+- **TESTED — SHA de PR be2f08162855c0a75287a81389fa0c9343ed7d19:** pytest en Python 3.11, 3.12, 3.13 y 3.14; CodeQL, pip-audit y E2E SMA/indicadores terminaron success. [Suite de tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39291904602), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39291904607), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39291904706), [E2E SMA](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39291905225), [E2E indicadores](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39291904596).
+- **TESTED — post-merge main en SHA exacto 29b27d3f5dbc263e2e8adc19042923376cd4e81f:** matriz pytest Python 3.11–3.14, pip-audit y CodeQL terminaron success. [Suite de tests](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39292138910), [pip-audit](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39292138949), [CodeQL](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39292138904).
+- **Cobertura específica:** se inyecta un fallo después de persistir el settlement de reserva/binding y antes de actualizar la proyección separada del ledger. El reconciliador debe devolver UNKNOWN; balances, state_version y cantidad de fills deben permanecer estables; después de cerrar y reabrir los tres almacenes, el reintento debe reparar el ledger sin crear otra transición de reserva ni otro fill.
+- **Límite:** esta prueba verifica un punto de fallo inyectado y recuperación tras reabrir almacenes; no convierte tres bases SQLite independientes en una transacción atómica ni acredita todos los posibles fallos de energía/almacenamiento. La reconciliación continúa siendo un protocolo de detección y reparación que debe fallar cerrado ante estados ambiguos.
+- **NO CAMBIAR:** decisión económica NO_TRADE; sin LIVE, claves privadas, endpoints privados, órdenes reales ni dinero real. La captura prospectiva real BTC/ETH de 24 horas permanece bloqueada en [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98). La protección de main continúa sin aplicarse (protected=false) y sigue registrada en [issue #109](https://github.com/eltiootaku01-hue/bot-cripto/issues/109).
+
 ## Addendum CEREBRO — 2026-10-19: PAPER Economic Replay V1
 
 **HEAD de referencia tras integrar PR #110:** `67dbc8fa97fbf14f7fc4bbd3a9fb7dd4a8a7df42`. Este addendum complementa las referencias históricas anteriores; no las reescribe.
