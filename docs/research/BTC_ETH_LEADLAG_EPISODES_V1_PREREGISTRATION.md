@@ -1,7 +1,7 @@
 # BTC→ETH independent-episode test V1 — preregistration
 
-**Status:** protocol frozen before running the V1 episode-result comparison.  
-**Decision boundary:** exploratory historical study only; this protocol cannot unlock PAPER automation or LIVE.  
+**Status:** protocol frozen before running the V1 episode-result comparison.
+**Decision boundary:** exploratory historical study only; this protocol cannot unlock PAPER automation or LIVE.
 **Decision default:** `NO_TRADE`.
 
 ## Provenance and known exposure
