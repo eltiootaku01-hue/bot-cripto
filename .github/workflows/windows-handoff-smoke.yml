@@ -14,6 +14,18 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Parse the PAPER installer without executing it
+        shell: powershell
+        run: |
+          $installer = (Resolve-Path '.\tools\windows-handoff\INSTALAR_BOTCRIPTO_PAPER.ps1').Path
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($installer, [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw 'PAPER installer contains PowerShell syntax errors.'
+          }
+          Write-Host 'PAPER installer PowerShell syntax passed.'
       - name: Download and extract the pinned source on Windows
         shell: powershell
         run: |
