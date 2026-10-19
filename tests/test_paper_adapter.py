@@ -449,9 +449,54 @@ def test_paper_fill_recovers_after_interrupted_finalization_and_restart(tmp_path
             recovered_adapter, "_submit",
             lambda *_args, **_kwargs: pytest.fail("reconciliation must never submit an order"),
         )
-        first = reconcile_paper_runtime(
+        # Inject a failure after the reservation/binding transaction commits but
+        # before the separate idempotency-ledger projection can be repaired.
+
+        def fail_ledger_projection(*_args, **_kwargs):
+            raise RuntimeError("INJECTED_CRASH_AFTER_RESERVATION_SETTLEMENT_BEFORE_LEDGER_PROJECTION")
+
+        monkeypatch.setattr(recovered_ledger, "synchronize_projection", fail_ledger_projection)
+        interrupted = reconcile_paper_runtime(
             adapter=recovered_adapter, store=recovered_store, bridge=recovered_bridge,
             ledger=recovered_ledger, occurred_at=NOW, apply=True,
+        )
+        assert interrupted.status is PaperRuntimeReconciliationStatus.UNKNOWN
+        assert interrupted.discrepancies == (
+            f"PAPER_SETTLEMENT_FAILED:{fill['client_order_id']}:RuntimeError",
+        )
+
+        after_interruption = recovered_adapter.snapshot()
+        reservation_after_interruption = recovered_store.get(reservation_id)
+        binding_after_interruption = recovered_bridge.get_binding(reservation_id)
+        ledger_after_interruption = recovered_ledger.get(fill["client_order_id"])
+        transitions_after_interruption = recovered_store.transitions(reservation_id)
+        assert after_interruption["fill_count"] == 1
+        assert after_interruption["state_version"] == 1
+        assert dict(after_interruption["balances"]) == expected_balances
+        assert reservation_after_interruption.state.value == "RELEASED"
+        assert reservation_after_interruption.consumed_amount == expected_consumption
+        assert binding_after_interruption is not None and binding_after_interruption.state == "SUBMITTED"
+        assert ledger_after_interruption is not None
+        assert ledger_after_interruption.result == "ORDER_RESULT_UNKNOWN"
+
+        # Simulate a process restart: close all three stores and rebuild them
+        # only from their durable files before repairing the ledger projection.
+        recovered_ledger.close()
+        recovered_store.close()
+        recovered_adapter.close()
+        recovered_adapter = make_adapter(
+            paper_path, account_id=template_state.account_id, clock=lambda: NOW
+        )
+        recovered_store = SQLiteReservationStore(reservation_path)
+        recovered_bridge = ReservationExecutionBridge(recovered_store)
+        recovered_ledger = SQLiteIdempotencyLedger(ledger_path)
+        monkeypatch.setattr(
+            recovered_adapter, "_submit",
+            lambda *_args, **_kwargs: pytest.fail("reconciliation must never submit an order"),
+        )
+        first = reconcile_paper_runtime(
+            adapter=recovered_adapter, store=recovered_store, bridge=recovered_bridge,
+            ledger=recovered_ledger, occurred_at=NOW + timedelta(seconds=1), apply=True,
         )
         assert first.status is PaperRuntimeReconciliationStatus.RECONCILED
         assert first.reconciled_fill_count == 1
@@ -461,6 +506,7 @@ def test_paper_fill_recovers_after_interrupted_finalization_and_restart(tmp_path
         binding_after_first = recovered_bridge.get_binding(reservation_id)
         ledger_after_first = recovered_ledger.get(fill["client_order_id"])
         transitions_after_first = recovered_store.transitions(reservation_id)
+        assert transitions_after_first == transitions_after_interruption
         assert after_first["fill_count"] == 1
         assert after_first["state_version"] == 1
         assert dict(after_first["balances"]) == expected_balances
