@@ -249,7 +249,7 @@ def run(data_path: Path,out: Path,source_sha: str,reps: int,seed: int):
  info={"schema_version":1,"study":"BTC_ETH_LEADLAG_EPISODES_V1","status":"EXPLORATORY_HISTORICAL_FIXED_HYPOTHESIS_SCREEN_NOT_PROSPECTIVE_HOLDOUT",
   "decision":"NO_TRADE","source_git_sha":source_sha,"dataset_logical_sha256":bundle["dataset_sha256"],
   "dataset_configuration_sha256":bundle["configuration_sha256"],"dataset_raw_file_sha256":raw_sha,
-  "preregistration_sha256":sha256(pp.read_bytes()),"signal_rule":{"BTC 4h return >= +1.50%","ETH 4h return -0.50% to +0.80%","ETH close > EMA100","entry":"next hourly open proxy","exit":"24h after entry"},
+  "preregistration_sha256":sha256(pp.read_bytes()),"signal_rule":{"conditions":["BTC 4h return >= +1.50%","ETH 4h return -0.50% to +0.80%","ETH close > EMA100"],"entry":"next hourly open proxy","exit":"24h after entry"},
   "costs":COSTS,**counts,"bar_count_per_asset":{s:len(frames[s]) for s in frames},
   "availability_known_per_asset":{s:int(frames[s].available_at.notna().sum()) for s in frames},
   "finality_known_per_asset":{s:int((frames[s].finality.astype(str).str.lower()=="final").sum()) for s in frames},
