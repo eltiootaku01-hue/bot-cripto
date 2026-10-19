@@ -25,7 +25,8 @@ Execution/replay:
 - Decision is after the signal bar closes; entry price proxy is ETH open of the next bar.
 - Exit price proxy is ETH open 25 bars after the signal bar (24 hours after entry).
 - Only one position is allowed at a time. Once a signal is accepted, any later signal whose decision timestamp would overlap its holding interval is skipped. The next eligible episode can begin when the previous trade exits, without overlapping exposure.
-- Returns compound sequential accepted episodes within each calendar month; months with no episodes return 0% for the strategy.
+- Each episode's realized net return is booked in the UTC month when it exits; episodes crossing a month boundary are attributed to the exit month. Returns compound sequential accepted exits within each calendar month; months with no exits return 0% for the strategy.
+- Report partial archive months descriptively, but exclude them from primary and secondary monthly bootstrap comparisons because their coverage is incomplete.
 - No leverage, no short positions, no parameter retuning, no ranking of multiple candidate rules.
 
 ## Cost scenarios, frozen
