@@ -1,5 +1,24 @@
 # BOT-CRIPTO — ESTADO VERIFICADO DE CONTINUIDAD
 
+## Addendum CEREBRO — 2026-10-19: PAPER Economic Replay V1
+
+**HEAD de referencia tras integrar PR #110:** `67dbc8fa97fbf14f7fc4bbd3a9fb7dd4a8a7df42`. Este addendum complementa las referencias históricas anteriores; no las reescribe.
+
+- **OBSERVED:** la PR [#110](https://github.com/eltiootaku01-hue/bot-cripto/pull/110) fue integrada por squash. Commit resultante: [`67dbc8fa97fbf14f7fc4bbd3a9fb7dd4a8a7df42`](https://github.com/eltiootaku01-hue/bot-cripto/commit/67dbc8fa97fbf14f7fc4bbd3a9fb7dd4a8a7df42). La integración aceptó explícitamente el contrato PAPER Economic Replay V1 con precisión Decimal 28 y `ROUND_HALF_EVEN`.
+- **OBSERVED — contenido integrado:** los fills persistidos llevan versión económica, secuencia durable de commit y política decimal; la secuencia se comparte con la transacción que actualiza los balances y `state_version`. Los registros anteriores sin una versión económica verificable no se reinterpretan automáticamente como V1 y bloquean nuevos fills hasta revisión/migración explícita.
+- **TESTED — SHA de la PR `7c453905b713197587916134e1f4e2cdd4d0b34f`:** suite completa, 1.713 pruebas aprobadas en cada Python 3.11, 3.12, 3.13 y 3.14; CodeQL, pip-audit y los E2E SMA/indicadores terminaron `success`. Esta evidencia es del SHA de la PR, no del commit post-merge.
+- **TESTED — post-merge `67dbc8fa97fbf14f7fc4bbd3a9fb7dd4a8a7df42`:** la suite completa de main terminó `success` con 1.713 pruebas en Python 3.11, 3.12, 3.13 y 3.14; pip-audit terminó `success`. **CodeQL post-merge terminó `success`** sobre el SHA exacto de main `67dbc8fa97fbf14f7fc4bbd3a9fb7dd4a8a7df42`.
+  - [Tests de main — run 39235126002](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39235126002)
+  - [pip-audit de main — run 39235126027](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39235126027)
+  - [CodeQL de main — run 39235126006](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39235126006)
+- **BLOCKED:** protección de `main` sigue sin aplicación verificada; la API de ramas informa `protected=false`, checks requeridos con enforcement `off` y rulesets vacíos. Seguir [issue #109](https://github.com/eltiootaku01-hue/bot-cripto/issues/109).
+- **BLOCKED:** no existe captura real Kline + bookTicker BTC/ETH aceptada por 24 h; seguir [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98). Las pruebas automatizadas y los checks E2E no equivalen a adquisición real de 24 h.
+- **NO CAMBIAR:** la decisión económica continúa `NO_TRADE`; preparación documentada 77/100; evidencia económica 5/20; BTC_ETH_STRATEGIES_V2 `DESIGNED / NOT RUN`; sin T0 ni holdout independiente. Sin LIVE, credenciales privadas, endpoints privados, órdenes reales ni dinero real.
+- **Siguiente paso verificable:** confirmar CodeQL sobre `67dbc8fa97fbf14f7fc4bbd3a9fb7dd4a8a7df42`; revisar y fusionar por PR este addendum; comprobar después el CI del SHA de main que incluya la documentación. La integración del contrato V1 no cierra la captura prospectiva ni constituye una señal de trading.
+
+---
+
+
 **Actualizado:** 2026-10-18  
 **Fuente de verdad:** repositorio GitHub y evidencia asociada al SHA exacto; este documento es una síntesis de continuidad, no un sustituto de la inspección del estado vivo.  
 **HEAD de main observado inmediatamente antes de esta actualización documental:** c3ef40918d0efd89dc01454ca7903b371fc4c9e8. En ese SHA exacto, pytest terminó **success** con 1.710 pruebas en cada Python 3.11, 3.12, 3.13 y 3.14 ([run 39163429797](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39163429797)); pip-audit ([39163429816](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39163429816)) y CodeQL ([39163429790](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39163429790)) también terminaron **success**. La issue [#98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue abierta: no se encontró el directorio de evidencia real aceptada en main; preparación **77/100**, evidencia económica **5/20**, V2 **DESIGNED / NOT RUN**, sin T0, decisión **NO_TRADE**, sin LIVE. Además, la inspección viva de GitHub reportó la rama main sin protección ni checks obligatorios, y la lista pública de rulesets vacía; se abrió [#109](https://github.com/eltiootaku01-hue/bot-cripto/issues/109) para que el propietario habilite la protección. Estos resultados técnicos no equivalen a rentabilidad demostrada ni a captura real de mercado. Este cambio es documental y sus checks deben verificarse contra su propio SHA.
