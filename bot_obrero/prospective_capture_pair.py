@@ -50,8 +50,14 @@ def _capture_source_provenance(
     cwd: Path,
     *,
     run_command: Callable[..., Any] | None = None,
+    allow_live_main_advance: bool = False,
 ) -> dict[str, Any]:
-    """Bind capture evidence to a clean revision and the live remote main SHA."""
+    """Bind the local executable source to a clean commit and record remote-main state.
+
+    The initial and pre-launch snapshots are strict. Once streaming starts, the
+    frozen local HEAD must remain unchanged, but unrelated later commits to
+    remote main must not invalidate a year-long data capture.
+    """
     execute = subprocess.run if run_command is None else run_command
     working_directory = Path(cwd).resolve()
     try:
@@ -77,7 +83,7 @@ def _capture_source_provenance(
         )
         status_result = execute(
             ["git", "status", "--porcelain=v1", "--untracked-files=all", "--",
-             "bot_obrero/", "pyproject.toml"],
+             "bot_obrero/", "pyproject.toml", "docs/research/BTC_ETH_STRATEGIES_V2_PROTOCOL.md"],
             cwd=str(working_directory), capture_output=True, text=True, check=False,
         )
     except OSError as exc:
@@ -156,7 +162,7 @@ def _capture_source_provenance(
             "branch": branch,
             "source_status_entries": status_entries,
         }
-    if origin_main_sha != live_main_sha:
+    if not allow_live_main_advance and origin_main_sha != live_main_sha:
         return {
             "status": "BLOCKED",
             "reason": "CAPTURE_ORIGIN_MAIN_TRACKING_STALE",
@@ -166,7 +172,7 @@ def _capture_source_provenance(
             "branch": branch,
             "source_status_entries": status_entries,
         }
-    if head_sha != origin_main_sha:
+    if not allow_live_main_advance and head_sha != origin_main_sha:
         return {
             "status": "BLOCKED",
             "reason": "CAPTURE_MAIN_NOT_UP_TO_DATE",
@@ -188,7 +194,11 @@ def _capture_source_provenance(
         }
     return {
         "status": "VALID",
-        "reason": None,
+        "reason": (
+            "REMOTE_MAIN_ADVANCED_DURING_CAPTURE"
+            if allow_live_main_advance and (head_sha != origin_main_sha or origin_main_sha != live_main_sha)
+            else None
+        ),
         "git_head_sha": head_sha,
         "origin_main_sha": origin_main_sha,
         "live_main_sha": live_main_sha,
@@ -218,6 +228,29 @@ def _same_source_revision(
         return False
     if expected.get("source_status_entries") or observed.get("source_status_entries"):
         return False
+    return True
+
+
+def _same_frozen_source_revision(
+    expected: Mapping[str, Any],
+    observed: Mapping[str, Any],
+) -> bool:
+    """Require exact frozen local code while allowing remote main to advance later."""
+    if expected.get("status") != "VALID" or observed.get("status") != "VALID":
+        return False
+    if expected.get("branch") != "main" or observed.get("branch") != "main":
+        return False
+    frozen_sha = expected.get("git_head_sha")
+    if not isinstance(frozen_sha, str) or frozen_sha != expected.get("origin_main_sha") or frozen_sha != expected.get("live_main_sha"):
+        return False
+    if observed.get("git_head_sha") != frozen_sha:
+        return False
+    if expected.get("source_status_entries") or observed.get("source_status_entries"):
+        return False
+    for key in ("origin_main_sha", "live_main_sha"):
+        value = observed.get(key)
+        if type(value) is not str or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value):
+            return False
     return True
 
 
@@ -255,8 +288,15 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def _build_commands(run_dir: Path, python_executable: str = sys.executable) -> dict[str, list[str]]:
-    """Build fixed, public-data-only commands for the canonical BTC/ETH pair."""
+def _build_commands(
+    run_dir: Path,
+    python_executable: str = sys.executable,
+    duration_seconds: int = BOOK_TICKER_DURATION_SECONDS,
+) -> dict[str, list[str]]:
+    """Build public-data-only commands for a fixed-duration BTC/ETH pair."""
+    if isinstance(duration_seconds, bool) or type(duration_seconds) is not int or not BOOK_TICKER_DURATION_SECONDS <= duration_seconds <= 500 * 24 * 60 * 60:
+        raise ValueError("CAPTURE_DURATION_SECONDS_OUT_OF_RANGE")
+    kline_duration_seconds = duration_seconds + PAIR_OVERLAP_GUARD_SECONDS
     root = Path(run_dir).resolve()
     kline_dir = root / "kline"
     quote_dir = root / "bookticker"
@@ -265,7 +305,7 @@ def _build_commands(run_dir: Path, python_executable: str = sys.executable) -> d
         "--output-dir", str(kline_dir),
         "--symbols", "BTCUSDT", "ETHUSDT",
         "--interval", "1h",
-        "--duration-seconds", str(KLINE_DURATION_SECONDS),
+        "--duration-seconds", str(kline_duration_seconds),
         "--grace-seconds", str(KLINE_GRACE_SECONDS),
         "--no-align-next-utc-midnight",
     ]
@@ -273,7 +313,7 @@ def _build_commands(run_dir: Path, python_executable: str = sys.executable) -> d
         python_executable, "-m", "bot_obrero.prospective_book_ticker_capture", "capture",
         "--output-dir", str(quote_dir),
         "--symbols", "BTCUSDT", "ETHUSDT",
-        "--duration-seconds", str(BOOK_TICKER_DURATION_SECONDS),
+        "--duration-seconds", str(duration_seconds),
         "--grace-seconds", str(DEFAULT_CAPTURE_GRACE_SECONDS),
         "--no-align-next-utc-midnight",
     ]
@@ -305,6 +345,8 @@ def run_capture_pair(
     *,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     python_executable: str = sys.executable,
+    duration_seconds: int = BOOK_TICKER_DURATION_SECONDS,
+    registration_context: Mapping[str, Any] | None = None,
     monitor_interval_seconds: float = DEFAULT_MONITOR_INTERVAL_SECONDS,
     align_to_utc_midnight: bool = True,
     popen_factory: PopenFactory = subprocess.Popen,
@@ -315,13 +357,16 @@ def run_capture_pair(
     """Run both collectors and return a durable pair manifest and validation result."""
     if type(python_executable) is not str or not python_executable.strip():
         raise ValueError("PYTHON_EXECUTABLE_INVALID")
+    if isinstance(duration_seconds, bool) or type(duration_seconds) is not int or not BOOK_TICKER_DURATION_SECONDS <= duration_seconds <= 500 * 24 * 60 * 60:
+        raise ValueError("CAPTURE_DURATION_SECONDS_OUT_OF_RANGE")
     if not isinstance(monitor_interval_seconds, (int, float)) or isinstance(monitor_interval_seconds, bool):
         raise ValueError("MONITOR_INTERVAL_INVALID")
     if not 0 < monitor_interval_seconds <= 30:
         raise ValueError("MONITOR_INTERVAL_OUT_OF_RANGE")
 
     now = _aware_utc(clock(), "current_time")
-    provenance_resolver = _capture_source_provenance if source_provenance_resolver is None else source_provenance_resolver
+    use_default_provenance = source_provenance_resolver is None
+    provenance_resolver = _capture_source_provenance if use_default_provenance else source_provenance_resolver
     source_provenance = dict(provenance_resolver(Path.cwd()))
     run_id = "btceth-pair-" + now.strftime("%Y%m%dT%H%M%S%fZ")
     run_dir = Path(output_dir).resolve() / run_id
@@ -330,23 +375,25 @@ def run_capture_pair(
     logs_dir.mkdir()
     pair_manifest_path = run_dir / "pair-manifest.json"
 
-    commands = _build_commands(run_dir, python_executable)
+    commands = _build_commands(run_dir, python_executable, duration_seconds)
     configuration = {
         "schema_version": SCHEMA_VERSION,
         "capture_kind": "PROSPECTIVE_BINANCE_SPOT_KLINE_AND_BOOK_TICKER_PAIR",
         "symbols": ["BTCUSDT", "ETHUSDT"],
         "interval": "1h",
-        "target_duration_seconds": BOOK_TICKER_DURATION_SECONDS,
-        "kline_duration_seconds": KLINE_DURATION_SECONDS,
-        "bookticker_duration_seconds": BOOK_TICKER_DURATION_SECONDS,
+        "target_duration_seconds": duration_seconds,
+        "kline_duration_seconds": duration_seconds + PAIR_OVERLAP_GUARD_SECONDS,
+        "bookticker_duration_seconds": duration_seconds,
         "pair_overlap_guard_seconds": PAIR_OVERLAP_GUARD_SECONDS,
         "kline_grace_seconds": KLINE_GRACE_SECONDS,
         "bookticker_grace_seconds": DEFAULT_CAPTURE_GRACE_SECONDS,
-        "minimum_overlap_seconds": BOOK_TICKER_DURATION_SECONDS,
+        "minimum_overlap_seconds": duration_seconds,
         "source": "binance-public:spot-websocket",
         "source_provenance": source_provenance,
         "trading_enabled": False,
     }
+    if registration_context is not None:
+        configuration["registration_context"] = dict(registration_context)
     scheduled_start = _next_utc_start(now) if align_to_utc_midnight else now
     summary: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -444,14 +491,18 @@ def run_capture_pair(
                     raise RuntimeError("EXPECTED_EXACTLY_ONE_MANIFEST_PER_CAPTURE")
                 summary["kline_manifest"] = str(manifests["kline"][0].relative_to(run_dir))
                 summary["bookticker_manifest"] = str(manifests["bookticker"][0].relative_to(run_dir))
-                finish_provenance = dict(provenance_resolver(Path.cwd()))
+                finish_provenance = dict(
+                    _capture_source_provenance(Path.cwd(), allow_live_main_advance=True)
+                    if use_default_provenance
+                    else provenance_resolver(Path.cwd())
+                )
                 summary["source_provenance_at_finish"] = finish_provenance
-                if not _same_source_revision(source_provenance, finish_provenance):
-                    raise RuntimeError("CAPTURE_SOURCE_PROVENANCE_CHANGED_DURING_RUN")
+                if not _same_frozen_source_revision(source_provenance, finish_provenance):
+                    raise RuntimeError("CAPTURE_CODE_REVISION_CHANGED_DURING_RUN")
                 validation = validate_paired_manifests(
                     kline_manifest_path=manifests["kline"][0],
                     bookticker_manifest_path=manifests["bookticker"][0],
-                    minimum_overlap_seconds=BOOK_TICKER_DURATION_SECONDS,
+                    minimum_overlap_seconds=duration_seconds,
                 )
                 if validation.get("status") != "VALID":
                     raise RuntimeError("PAIRED_CAPTURE_VALIDATION_NOT_VALID")
@@ -502,13 +553,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Run paired prospective Binance Spot Kline + bookTicker capture; no trading."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    capture = subparsers.add_parser("capture", help="wait for UTC midnight, capture paired datasets with overlap guard, then validate")
+    capture = subparsers.add_parser("capture", help="wait for UTC midnight, capture paired datasets for the requested duration, then validate")
     capture.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     capture.add_argument("--monitor-interval-seconds", type=float, default=DEFAULT_MONITOR_INTERVAL_SECONDS)
+    capture.add_argument("--duration-seconds", type=int, default=BOOK_TICKER_DURATION_SECONDS, help="requested overlap duration in seconds (24 hours to 500 days; data capture only)")
     args = parser.parse_args(argv)
     try:
         result = run_capture_pair(
             output_dir=args.output_dir,
+            duration_seconds=args.duration_seconds,
             monitor_interval_seconds=args.monitor_interval_seconds,
         )
     except (OSError, ValueError) as exc:

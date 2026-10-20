@@ -12,6 +12,7 @@ from bot_obrero.prospective_capture_pair import (
     _build_commands,
     _capture_source_provenance,
     _next_utc_start,
+    _same_frozen_source_revision,
     _same_source_revision,
     run_capture_pair,
 )
@@ -382,9 +383,93 @@ def test_pair_capture_blocks_if_source_revision_changes_after_children_finish(tm
     )
 
     assert result["status"] == "BLOCKED"
-    assert result["reason"] == "RuntimeError:CAPTURE_SOURCE_PROVENANCE_CHANGED_DURING_RUN"
+    assert result["reason"] == "RuntimeError:CAPTURE_CODE_REVISION_CHANGED_DURING_RUN"
     assert result["validation"] is None
     assert result["source_provenance_at_finish"]["git_head_sha"] == "b" * 40
     persisted = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
     assert persisted["status"] == "BLOCKED"
     assert persisted["validation"] is None
+
+
+def test_pair_commands_support_full_year_without_changing_24h_default(tmp_path):
+    duration = 365 * 24 * 60 * 60
+    commands = _build_commands(tmp_path / "year-pair", "python", duration)
+    assert commands["kline"][commands["kline"].index("--duration-seconds") + 1] == str(duration + 60)
+    assert commands["bookticker"][commands["bookticker"].index("--duration-seconds") + 1] == str(duration)
+
+
+def test_pair_commands_reject_duration_below_one_day_or_over_500_days(tmp_path):
+    with pytest.raises(ValueError, match="CAPTURE_DURATION_SECONDS_OUT_OF_RANGE"):
+        _build_commands(tmp_path / "short-pair", "python", 3600)
+    with pytest.raises(ValueError, match="CAPTURE_DURATION_SECONDS_OUT_OF_RANGE"):
+        _build_commands(tmp_path / "long-pair", "python", 501 * 24 * 60 * 60)
+
+
+def test_frozen_capture_source_allows_remote_main_to_advance_after_launch(tmp_path):
+    head = "a" * 40
+    live_main = "b" * 40
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout=live_main + "\trefs/heads/main\n"),
+        SimpleNamespace(returncode=0, stdout=""),
+    ])
+    observed = _capture_source_provenance(
+        tmp_path,
+        run_command=lambda _command, **_kwargs: next(outputs),
+        allow_live_main_advance=True,
+    )
+    expected = {
+        "status": "VALID", "reason": None,
+        "git_head_sha": head, "origin_main_sha": head, "live_main_sha": head,
+        "branch": "main", "source_status_entries": [],
+    }
+    assert observed["status"] == "VALID"
+    assert observed["reason"] == "REMOTE_MAIN_ADVANCED_DURING_CAPTURE"
+    assert observed["live_main_sha"] == live_main
+    assert _same_frozen_source_revision(expected, observed) is True
+
+    changed_head = dict(observed, git_head_sha="c" * 40)
+    assert _same_frozen_source_revision(expected, changed_head) is False
+
+
+def test_pair_manifest_hash_binds_v2_registration_context_on_blocked_run(tmp_path):
+    processes = iter([FakeProcess(2), FakeProcess(None)])
+
+    def fake_popen(_command, **_kwargs):
+        return next(processes)
+
+    fixed_now = datetime(2026, 10, 18, 0, 0, 1, tzinfo=UTC)
+    clean_provenance = {
+        "status": "VALID", "reason": None,
+        "git_head_sha": "a" * 40, "origin_main_sha": "a" * 40, "live_main_sha": "a" * 40,
+        "branch": "main", "source_status_entries": [],
+    }
+    context = {
+        "study": "BTC_ETH_PROSPECTIVE_STRATEGIES_V2",
+        "t0": "2026-10-20T00:00:00+00:00",
+        "t1_exclusive": "2027-10-20T00:00:00+00:00",
+        "filters_snapshot_sha256": "b" * 64,
+        "warmup_snapshot_sha256": "c" * 64,
+        "preregistration_sha256": "d" * 64,
+        "smoke_bundle_sha256": "e" * 64,
+    }
+    result = run_capture_pair(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        registration_context=context,
+        align_to_utc_midnight=False,
+        source_provenance_resolver=lambda _cwd: clean_provenance,
+        popen_factory=fake_popen,
+        clock=lambda: fixed_now,
+        sleep=lambda _seconds: None,
+    )
+    persisted = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
+    assert persisted["configuration"]["registration_context"] == context
+    from bot_obrero.prospective_capture_pair import _canonical_json
+    import hashlib
+    assert persisted["configuration_sha256"] == hashlib.sha256(
+        _canonical_json(persisted["configuration"])
+    ).hexdigest()

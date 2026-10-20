@@ -189,13 +189,23 @@ def test_bundle_refuses_unexpected_files_instead_of_packaging_them(tmp_path, mon
     assert not (root.parent / f"{root.name}-evidence.zip").exists()
 
 
-def test_bundle_rejects_changed_source_provenance_between_boundaries(tmp_path, monkeypatch):
+def test_bundle_allows_remote_main_to_advance_after_frozen_capture_launch(tmp_path, monkeypatch):
     root, _calls = _capture_tree(tmp_path, monkeypatch)
     pair_path = root / "pair-manifest.json"
     pair = json.loads(pair_path.read_text(encoding="utf-8"))
     pair["source_provenance_at_finish"]["live_main_sha"] = "b" * 40
     pair_path.write_text(json.dumps(pair), encoding="utf-8")
-    with pytest.raises(bundle.CaptureBundleError, match="SOURCE_PROVENANCE_CHANGED_DURING_CAPTURE"):
+    result = bundle.create_capture_bundle(root)
+    assert result["status"] == "VALID"
+
+
+def test_bundle_rejects_local_source_head_change_during_capture(tmp_path, monkeypatch):
+    root, _calls = _capture_tree(tmp_path, monkeypatch)
+    pair_path = root / "pair-manifest.json"
+    pair = json.loads(pair_path.read_text(encoding="utf-8"))
+    pair["source_provenance_at_finish"]["git_head_sha"] = "b" * 40
+    pair_path.write_text(json.dumps(pair), encoding="utf-8")
+    with pytest.raises(bundle.CaptureBundleError, match="CAPTURE_CODE_REVISION_CHANGED"):
         bundle.create_capture_bundle(root)
 
 
