@@ -459,7 +459,8 @@ def _indicator_series(
         for index in range(_BBMR_PERIOD - 1, count):
             window = closes[index - _BBMR_PERIOD + 1:index + 1]
             mean = sum(window, _ZERO) / Decimal(_BBMR_PERIOD)
-            variance = sum(((value - mean) * (value - mean) for value in window), _ZERO) / Decimal(_BBMR_PERIOD)
+            # Match pandas rolling(window=168).std() used by the candidate search (sample std, ddof=1).
+            variance = sum(((value - mean) * (value - mean) for value in window), _ZERO) / Decimal(_BBMR_PERIOD - 1)
             if variance > _ZERO:
                 bollinger_z[index] = (closes[index] - mean) / variance.sqrt()
 
