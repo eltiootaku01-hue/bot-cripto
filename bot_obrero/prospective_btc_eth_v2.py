@@ -306,7 +306,7 @@ def _parse_quote_line(raw_line: str, expected_symbol: str) -> Quote:
         raise ProspectiveV2Error("QUOTE_UPDATE_ID_INVALID")
     received, available = _dt(payload.get("received_at"), "quote_received_at"), _dt(payload.get("available_at"), "quote_available_at")
     observed = _dt(payload.get("observed_at"), "quote_observed_at")
-    if available < received:
+    if observed > received or available < received:
         raise ProspectiveV2Error("QUOTE_AVAILABILITY_ORDER_INVALID")
     bid, ask = _dec(payload.get("bid"), "quote_bid", positive=True), _dec(payload.get("ask"), "quote_ask", positive=True)
     if bid > ask:
@@ -1582,7 +1582,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(result, sort_keys=True, indent=2))
         return 0
-    except (ProspectiveV2Error, OSError, sqlite3.Error, ValueError) as exc:
+    except Exception as exc:
         print(json.dumps({
             "status": "INCOMPLETE",
             "economic_classification": "INCOMPLETE",
