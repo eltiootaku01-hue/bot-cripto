@@ -13,6 +13,7 @@ from bot_obrero import operator_cli
         ("analyze", "analysis_cli"),
         ("backtest", "virtual_backtest"),
         ("research-btc-eth", "btc_eth_follow_research"),
+        ("prospective-v2", "prospective_btc_eth_v2"),
     ],
 )
 def test_operator_cli_forwards_arguments_and_exit_code(
@@ -45,15 +46,15 @@ def test_capture_command_delegates_to_pair_capture(monkeypatch: pytest.MonkeyPat
     assert calls == [["capture", "--output-dir", "evidence/pair"]]
 
 
-def test_status_reports_no_trade_and_unfinished_prospective_gate(capsys: pytest.CaptureFixture[str]) -> None:
+def test_status_reports_no_trade_and_implemented_but_unrun_prospective_gate(capsys: pytest.CaptureFixture[str]) -> None:
     assert operator_cli.main(["status"]) == 0
 
     output = json.loads(capsys.readouterr().out)
     assert output["strategy_decision"] == "NO_TRADE"
-    assert output["v2_protocol"] == "DESIGNED / NOT RUN"
+    assert output["v2_protocol"] == "IMPLEMENTED / NOT RUN"
     assert output["candidate_verdict"] == "NO_ROBUST_EDGE_FOUND"
     assert output["live_execution"] == "DISABLED_BY_PROJECT_POLICY"
-    assert len(output["blocking_gates"]) >= 2
+    assert len(output["blocking_gates"]) >= 3
 
 
 def test_root_help_lists_operator_commands(capsys: pytest.CaptureFixture[str]) -> None:
@@ -64,4 +65,5 @@ def test_root_help_lists_operator_commands(capsys: pytest.CaptureFixture[str]) -
     output = capsys.readouterr().out
     assert "capture-24h" in output
     assert "research-btc-eth" in output
+    assert "prospective-v2" in output
     assert "backtest" in output
