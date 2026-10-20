@@ -274,3 +274,13 @@ def test_quote_parser_rejects_observed_timestamp_after_receive():
     raw["record_sha256"] = canonical(raw["quote"])
     with pytest.raises(v2.ProspectiveV2Error, match="AVAILABILITY_ORDER_INVALID"):
         v2._parse_quote_line(json.dumps(raw), "BTCUSDT")
+
+
+def test_safe_child_normalizes_windows_relative_manifest_paths(tmp_path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    manifest = nested / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    assert v2._safe_child(tmp_path.resolve(), r"nested\manifest.json", "TEST") == manifest.resolve()
+    with pytest.raises(v2.ProspectiveV2Error, match="PATH_UNSAFE"):
+        v2._safe_child(tmp_path.resolve(), r"..\manifest.json", "TEST")
