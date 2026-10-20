@@ -173,7 +173,7 @@ class BacktestConfig:
             raise BacktestError("max_entries_per_30d must be between 1 and 5")
         profile = _bbmr_parameters(self.strategy)
         if profile is not None:
-            bb_period, _, _, trend_period, required_interval = profile
+            _, _, _, trend_period, required_interval = profile
             if self.symbol != "ETHUSDT" or self.interval != required_interval:
                 raise BacktestError(
                     f"{self.strategy} is frozen for ETHUSDT on {required_interval} candles only"
@@ -779,14 +779,22 @@ def run_virtual_backtest(
                 zscore is not None
                 and (zscore > exit_z or candle.close <= current["slow_ema"])
             )
-            entry_reason = (
-                f"BBMR z-score below {entry_z} while close is above EMA{trend_period}"
-            )
-            exit_reason = (
-                f"BBMR z-score above {exit_z}"
-                if zscore is not None and zscore > exit_z
-                else f"close at/below EMA{trend_period} trend gate"
-            )
+            if config.strategy == _BBMR_STRATEGY:
+                entry_reason = "BBMR z-score below -2.5 while close is above EMA720"
+                exit_reason = (
+                    "BBMR z-score above +1.0"
+                    if zscore is not None and zscore > exit_z
+                    else "close at/below EMA720 trend gate"
+                )
+            else:
+                entry_reason = (
+                    f"BBMR z-score below {entry_z} while close is above EMA{trend_period}"
+                )
+                exit_reason = (
+                    f"BBMR z-score above {exit_z}"
+                    if zscore is not None and zscore > exit_z
+                    else f"close at/below EMA{trend_period} trend gate"
+                )
         else:
             crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
             crossed_down = previous["fast_ema"] >= previous["slow_ema"] and current["fast_ema"] < current["slow_ema"]
