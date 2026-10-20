@@ -50,6 +50,29 @@ def _series(prices=("10", "9", "8", "9", "10", "11", "12", "11", "10", "9", "8",
     return [_item(i, value) for i, value in enumerate(prices)]
 
 
+def _eth_hourly_item(index: int, close: str, *, open_price: str | None = None) -> MarketData:
+    start = _START + timedelta(hours=index)
+    end = start + timedelta(hours=1) - timedelta(milliseconds=1)
+    price = Decimal(close)
+    opening = Decimal(open_price) if open_price is not None else price
+    candle = Candle(
+        start=start, end=end, timeframe="1h",
+        open=opening, high=max(opening, price), low=min(opening, price), close=price,
+        volume=Decimal("1"), candle_state=CandleState.CLOSED,
+        completeness=DataCompleteness.COMPLETE, finality=CandleFinality.UNKNOWN,
+    )
+    instrument = InstrumentIdentity(
+        instrument_id="binance:SPOT:ETHUSDT", symbol="ETH/USDT", market="SPOT",
+        instrument_type=InstrumentType.CRYPTO_SPOT, base_asset="ETH", quote_asset="USDT",
+    )
+    source = SourceIdentity(source_id="binance-spot-rest", provider="binance", venue="BINANCE")
+    return MarketData(
+        instrument=instrument, source=source, data_type="CANDLE",
+        observed_at=start, received_at=end, available_at=None,
+        payload=candle, quality=DataQuality.VALID, completeness=DataCompleteness.UNKNOWN,
+    )
+
+
 def _config(**overrides):
     values = dict(
         symbol="BTCUSDT", interval="1m", candles=13, fast_ema_period=2, slow_ema_period=3,
@@ -457,3 +480,70 @@ def test_backtest_metrics_are_invariant_to_suffix_strictly_after_evaluation_wind
         changed_future, config, evaluation_start=start, evaluation_end=end,
     )
     assert baseline == perturbed
+
+
+
+def test_bbmr_top1_is_locked_to_eth_hourly_and_ema720():
+    config = BacktestConfig(
+        symbol="BTCUSDT", interval="1h", strategy="eth-bbmr-top1",
+        candles=3, slow_ema_period=720,
+    )
+    with pytest.raises(BacktestError, match="frozen for ETHUSDT on 1h"):
+        config.validate()
+
+
+def test_bbmr_top1_generates_causal_signal_and_fills_only_on_next_bar_open():
+    # The first 553 closes trend from 100 to 150; the next 167 closes are 200.
+    # At index 720, 170 is a >2.5-sigma dip but remains above EMA720.
+    baseline = [
+        str(Decimal("100") + Decimal(index) * Decimal("50") / Decimal("552"))
+        for index in range(553)
+    ] + ["200"] * 167
+    prices = baseline + ["170", "210", "210"]
+    items = [
+        _eth_hourly_item(
+            index, close,
+            open_price=("170" if index == 721 else "210" if index == 722 else close),
+        )
+        for index, close in enumerate(prices)
+    ]
+    config = BacktestConfig(
+        symbol="ETHUSDT", interval="1h", strategy="eth-bbmr-top1",
+        candles=3, fast_ema_period=12, slow_ema_period=720, rsi_period=14,
+        initial_quote_balance=Decimal("60"), position_fraction=Decimal("0.95"),
+        fee_rate=Decimal("0"), spread_bps=Decimal("0"), slippage_bps=Decimal("0"),
+    )
+    result = run_virtual_backtest(
+        items, config,
+        evaluation_start=items[720].payload.start,
+        evaluation_end=_START + timedelta(hours=723),
+    )
+    assert [fill.side for fill in result.fills] == ["BUY", "SELL"]
+    assert result.fills[0].timestamp == items[721].payload.start
+    assert result.fills[0].price == Decimal("170")
+    assert result.fills[0].reason.startswith("BBMR z-score below -2.5")
+    assert result.fills[1].timestamp == items[722].payload.start
+    assert result.fills[1].price == Decimal("210")
+    assert result.fills[1].reason == "BBMR z-score above +1.0"
+    assert result.final_quote_balance > Decimal("60")
+    assert result.final_base_position == Decimal("0")
+    assert result.final_bollinger_zscore is not None
+    assert result.unknown_finality_count == 3
+
+
+def test_bbmr_top1_constant_closes_do_not_divide_by_zero_or_trade():
+    prices = ["200"] * 723
+    items = [_eth_hourly_item(index, close) for index, close in enumerate(prices)]
+    config = BacktestConfig(
+        symbol="ETHUSDT", interval="1h", strategy="eth-bbmr-top1",
+        candles=3, slow_ema_period=720, initial_quote_balance=Decimal("60"),
+        position_fraction=Decimal("0.95"),
+    )
+    result = run_virtual_backtest(
+        items, config,
+        evaluation_start=items[720].payload.start,
+        evaluation_end=_START + timedelta(hours=723),
+    )
+    assert result.fills == ()
+    assert result.final_quote_balance == Decimal("60")
+    assert result.final_bollinger_zscore is None
