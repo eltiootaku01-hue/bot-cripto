@@ -35,7 +35,7 @@ Los spreads y el deslizamiento anteriores son supuestos, no cotizaciones histór
 ## Regla congelada
 
 1. Mercado `ETHUSDT Spot`, velas de una hora, long-only, sin margen ni apalancamiento.
-2. Calcular en el cierre completado el promedio simple y la desviación estándar poblacional de los últimos 168 cierres; `z = (close - mean168) / stddev168`.
+2. Calcular en el cierre completado el promedio simple y la desviación estándar muestral (`ddof=1`, como `pandas rolling().std()`) de los últimos 168 cierres; `z = (close - mean168) / stddev168`.
 3. Entrar cuando `z < -2.5` y `close > EMA720`.
 4. Salir cuando `z > +1.0` o `close <= EMA720`.
 5. Señales calculadas solo sobre barras cerradas; fill virtual en la apertura de la siguiente vela.
