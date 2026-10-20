@@ -13,6 +13,7 @@ import json
 import math
 import random
 import sqlite3
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -496,6 +497,299 @@ def load_filter_snapshot(path: Path, t0: datetime) -> tuple[dict[str, Filters], 
         if result[symbol].min_qty > result[symbol].max_qty:
             raise ProspectiveV2Error("FILTER_QUANTITY_BOUNDS_INVALID")
     return result, _sha256_bytes(raw)
+
+
+
+
+def capture_warmup_snapshot(t0: datetime, output_path: Path) -> dict[str, Any]:
+    """Freeze available public hourly candles for indicator warm-up, excluded from scoring."""
+    if output_path.exists():
+        raise ProspectiveV2Error("WARMUP_SNAPSHOT_REFUSES_OVERWRITE")
+    if t0.minute or t0.second or t0.microsecond:
+        raise ProspectiveV2Error("T0_MUST_ALIGN_TO_UTC_HOUR")
+    captured_at = datetime.now(timezone.utc)
+    if t0 <= captured_at:
+        raise ProspectiveV2Error("T0_MUST_BE_IN_THE_FUTURE_FOR_WARMUP_CAPTURE")
+    warm_start = t0 - timedelta(hours=WARMUP_HOURS)
+    # Do not query the currently open hour. The capture-period collector can
+    # fill any remaining pre-T0 bars from live observations before scoring starts.
+    current_hour = captured_at.replace(minute=0, second=0, microsecond=0)
+    end_exclusive = min(t0 - timedelta(hours=1), current_hour)
+    end_ms = int(end_exclusive.timestamp() * 1000) - 1
+    start_ms = int(warm_start.timestamp() * 1000)
+    if end_ms <= start_ms:
+        raise ProspectiveV2Error("WARMUP_WINDOW_HAS_NO_CLOSED_CANDLES")
+
+    rows_by_symbol: dict[str, list[dict[str, str]]] = {}
+    page_hashes: dict[str, list[str]] = {}
+    for symbol in SYMBOLS:
+        symbol_rows: list[dict[str, str]] = []
+        hashes: list[str] = []
+        cursor = start_ms
+        while cursor <= end_ms and len(symbol_rows) < WARMUP_HOURS:
+            query = urllib.parse.urlencode({
+                "symbol": symbol, "interval": "1h", "startTime": cursor,
+                "endTime": end_ms, "limit": min(1000, WARMUP_HOURS - len(symbol_rows)),
+            })
+            url = "https://api.binance.com/api/v3/klines?" + query
+            request = urllib.request.Request(url, headers={"User-Agent": "bot-cripto-prospective-v2/1.0"})
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    raw_bytes = response.read()
+            except Exception as exc:
+                raise ProspectiveV2Error(f"WARMUP_PUBLIC_KLINES_FETCH_FAILED:{symbol}:{type(exc).__name__}") from exc
+            page = _strict_json(raw_bytes, "WARMUP_KLINES")
+            if not isinstance(page, list):
+                raise ProspectiveV2Error("WARMUP_KLINES_RESPONSE_INVALID")
+            hashes.append(_sha256_bytes(_canonical_json(page)))
+            if not page:
+                break
+            last_open: int | None = None
+            for item in page:
+                if not isinstance(item, list) or len(item) < 6:
+                    raise ProspectiveV2Error("WARMUP_KLINE_ROW_INVALID")
+                opened = item[0]
+                closed = item[6] if len(item) > 6 else opened + 3_599_999
+                if type(opened) is not int or type(closed) is not int or opened < start_ms or opened > end_ms:
+                    raise ProspectiveV2Error("WARMUP_KLINE_TIMESTAMP_INVALID")
+                if closed >= int(captured_at.timestamp() * 1000):
+                    continue
+                stamp = datetime.fromtimestamp(opened / 1000, timezone.utc)
+                if stamp.minute or stamp.second or stamp.microsecond:
+                    raise ProspectiveV2Error("WARMUP_KLINE_NOT_HOURLY_ALIGNED")
+                if symbol_rows and _dt(symbol_rows[-1]["start"], "warmup_start") + timedelta(hours=1) != stamp:
+                    raise ProspectiveV2Error("WARMUP_KLINE_CHRONOLOGY_GAP")
+                candle = {
+                    "start": stamp.isoformat(),
+                    "end": (stamp + timedelta(hours=1)).isoformat(),
+                    "open": str(item[1]), "high": str(item[2]), "low": str(item[3]),
+                    "close": str(item[4]), "volume": str(item[5]),
+                }
+                values = {key: _dec(candle[key], f"warmup_{key}", positive=(key in {"open", "high", "low", "close"}), nonnegative=(key == "volume")) for key in ("open", "high", "low", "close", "volume")}
+                if values["high"] < max(values["open"], values["close"], values["low"]) or values["low"] > min(values["open"], values["close"], values["high"]):
+                    raise ProspectiveV2Error("WARMUP_KLINE_OHLC_INCONSISTENT")
+                symbol_rows.append(candle)
+                last_open = opened
+            if last_open is None:
+                break
+            next_cursor = last_open + 3_600_000
+            if next_cursor <= cursor:
+                raise ProspectiveV2Error("WARMUP_PAGINATION_DID_NOT_ADVANCE")
+            cursor = next_cursor
+            if len(page) < 1000:
+                break
+        if not symbol_rows:
+            raise ProspectiveV2Error(f"WARMUP_HISTORY_EMPTY:{symbol}")
+        if len(symbol_rows) > WARMUP_HOURS:
+            symbol_rows = symbol_rows[:WARMUP_HOURS]
+        if _dt(symbol_rows[0]["start"], "warmup_first_start") != warm_start:
+            raise ProspectiveV2Error(f"WARMUP_DOES_NOT_START_AT_T0_MINUS_90_DAYS:{symbol}")
+        rows_by_symbol[symbol] = symbol_rows
+        page_hashes[symbol] = hashes
+
+    if len(rows_by_symbol["BTCUSDT"]) != len(rows_by_symbol["ETHUSDT"]):
+        raise ProspectiveV2Error("WARMUP_PAIR_BAR_COUNTS_DIFFER")
+    for btc, eth in zip(rows_by_symbol["BTCUSDT"], rows_by_symbol["ETHUSDT"]):
+        if btc["start"] != eth["start"]:
+            raise ProspectiveV2Error("WARMUP_PAIR_TIMESTAMPS_NOT_ALIGNED")
+    payload: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "capture_kind": "PUBLIC_BINANCE_SPOT_KLINE_WARMUP_ONLY",
+        "captured_at": captured_at.isoformat(),
+        "t0": t0.isoformat(),
+        "warmup_hours_required": WARMUP_HOURS,
+        "warmup_start": warm_start.isoformat(),
+        "warmup_end_exclusive_expected": t0.isoformat(),
+        "symbols": rows_by_symbol,
+        "source_page_sha256_canonical": page_hashes,
+        "limitations": "Historical REST candles are warm-up only, excluded from all economic metrics, and are not evidence of historical point-in-time availability.",
+    }
+    payload["snapshot_sha256"] = _sha256_bytes(_canonical_json(payload))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("x", encoding="utf-8", newline="\n") as stream:
+        json.dump(payload, stream, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
+        stream.write("\n")
+    return {
+        "status": "VALID",
+        "path": str(output_path),
+        "snapshot_sha256": payload["snapshot_sha256"],
+        "captured_at": payload["captured_at"],
+        "t0": payload["t0"],
+        "bars_per_symbol": {symbol: len(rows) for symbol, rows in rows_by_symbol.items()},
+    }
+
+
+def load_warmup_snapshot(path: Path, t0: datetime) -> tuple[dict[str, dict[datetime, Candle]], str]:
+    raw = path.read_bytes()
+    payload = _strict_json(raw, "WARMUP_SNAPSHOT")
+    if not isinstance(payload, Mapping) or type(payload.get("schema_version")) is not int or payload.get("schema_version") != SCHEMA_VERSION:
+        raise ProspectiveV2Error("WARMUP_SNAPSHOT_SCHEMA_INVALID")
+    supplied_sha = payload.get("snapshot_sha256")
+    canonical_payload = dict(payload)
+    canonical_payload.pop("snapshot_sha256", None)
+    if supplied_sha != _sha256_bytes(_canonical_json(canonical_payload)):
+        raise ProspectiveV2Error("WARMUP_SNAPSHOT_HASH_MISMATCH")
+    if payload.get("capture_kind") != "PUBLIC_BINANCE_SPOT_KLINE_WARMUP_ONLY":
+        raise ProspectiveV2Error("WARMUP_SNAPSHOT_KIND_INVALID")
+    if _dt(payload.get("t0"), "warmup_t0") != t0:
+        raise ProspectiveV2Error("WARMUP_T0_MISMATCH")
+    captured_at = _dt(payload.get("captured_at"), "warmup_captured_at")
+    if captured_at >= t0:
+        raise ProspectiveV2Error("WARMUP_MUST_BE_CAPTURED_BEFORE_T0")
+    symbol_rows = payload.get("symbols")
+    if not isinstance(symbol_rows, Mapping) or set(symbol_rows) != set(SYMBOLS):
+        raise ProspectiveV2Error("WARMUP_SYMBOL_SET_INVALID")
+    result: dict[str, dict[datetime, Candle]] = {symbol: {} for symbol in SYMBOLS}
+    warm_start = t0 - timedelta(hours=WARMUP_HOURS)
+    for symbol in SYMBOLS:
+        rows = symbol_rows[symbol]
+        if not isinstance(rows, list) or not rows or len(rows) > WARMUP_HOURS:
+            raise ProspectiveV2Error(f"WARMUP_BAR_COUNT_INVALID:{symbol}")
+        previous: datetime | None = None
+        for row in rows:
+            if not isinstance(row, Mapping):
+                raise ProspectiveV2Error("WARMUP_BAR_SHAPE_INVALID")
+            start, end = _dt(row.get("start"), "warmup_start"), _dt(row.get("end"), "warmup_end")
+            if end - start != timedelta(hours=1) or start.minute or start.second or start.microsecond:
+                raise ProspectiveV2Error("WARMUP_BAR_ALIGNMENT_INVALID")
+            if start < warm_start or start >= t0 or end > captured_at:
+                raise ProspectiveV2Error("WARMUP_BAR_OUTSIDE_PRE_T0_CAPTURE")
+            if previous is None and start != warm_start:
+                raise ProspectiveV2Error(f"WARMUP_FIRST_BAR_NOT_T0_MINUS_90_DAYS:{symbol}")
+            if previous is not None and start != previous + timedelta(hours=1):
+                raise ProspectiveV2Error(f"WARMUP_INTERNAL_GAP:{symbol}")
+            values = {
+                key: _dec(row.get(key), f"warmup_{key}", positive=(key in {"open", "high", "low", "close"}), nonnegative=(key == "volume"))
+                for key in ("open", "high", "low", "close", "volume")
+            }
+            if values["high"] < max(values["open"], values["close"], values["low"]) or values["low"] > min(values["open"], values["close"], values["high"]):
+                raise ProspectiveV2Error("WARMUP_OHLC_INCONSISTENT")
+            result[symbol][start] = Candle(symbol, start, end, captured_at, **values)
+            previous = start
+    btc_starts, eth_starts = set(result["BTCUSDT"]), set(result["ETHUSDT"])
+    if btc_starts != eth_starts:
+        raise ProspectiveV2Error("WARMUP_PAIR_CHRONOLOGY_MISMATCH")
+    return result, _sha256_bytes(raw)
+
+
+def _code_fingerprints() -> dict[str, str]:
+    root = Path(__file__).resolve().parents[1]
+    paths = (
+        "bot_obrero/prospective_btc_eth_v2.py",
+        "bot_obrero/prospective_capture_pair.py",
+        "bot_obrero/prospective_capture.py",
+        "bot_obrero/prospective_book_ticker_capture.py",
+        "docs/research/BTC_ETH_STRATEGIES_V2_PROTOCOL.md",
+    )
+    return {name: _file_sha256(root / name) for name in paths}
+
+
+def create_preregistration(
+    *,
+    t0: datetime,
+    filters_path: Path,
+    warmup_path: Path,
+    output_path: Path,
+) -> dict[str, Any]:
+    if output_path.exists():
+        raise ProspectiveV2Error("PREREGISTRATION_REFUSES_OVERWRITE")
+    if t0.minute or t0.second or t0.microsecond or t0 <= datetime.now(timezone.utc):
+        raise ProspectiveV2Error("PREREGISTRATION_T0_MUST_BE_FUTURE_UTC_HOUR")
+    _, filter_sha = load_filter_snapshot(filters_path, t0)
+    _, warmup_sha = load_warmup_snapshot(warmup_path, t0)
+    root = Path(__file__).resolve().parents[1]
+    try:
+        relative_output = output_path.resolve(strict=False).relative_to(root.resolve()).as_posix()
+    except ValueError as exc:
+        raise ProspectiveV2Error("PREREGISTRATION_FILE_MUST_BE_INSIDE_REPOSITORY") from exc
+    if relative_output.startswith("../") or relative_output.startswith(".git/"):
+        raise ProspectiveV2Error("PREREGISTRATION_PATH_UNSAFE")
+    created_at = datetime.now(timezone.utc)
+    if created_at >= t0:
+        raise ProspectiveV2Error("PREREGISTRATION_MUST_PRECEDE_T0")
+    payload: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "study": "BTC_ETH_PROSPECTIVE_STRATEGIES_V2",
+        "created_at": created_at.isoformat(),
+        "t0": t0.isoformat(),
+        "t1_exclusive": (t0 + timedelta(days=365)).isoformat(),
+        "registration_path": relative_output,
+        "filters_snapshot_sha256": filter_sha,
+        "warmup_snapshot_sha256": warmup_sha,
+        "code_sha256": _code_fingerprints(),
+        "strategies": list(STRATEGIES),
+        "scenarios": {name: {"fee_rate": str(value["fee"]), "slippage_bps_per_side": str(value["slippage_bps"]), "spread_source": "OBSERVED_BID_ASK"} for name, value in SCENARIOS.items()},
+        "bootstrap": {"replicates": 10_000, "block_length_days": 7, "seed_base": 20261019, "adjustment": "HOLM_FAMILYWISE_5_PERCENT"},
+        "rules": {
+            "capital_usdt": "31",
+            "position_fraction": "0.95",
+            "maximum_entries_per_rolling_30_days": MAX_ENTRIES_30D,
+            "maximum_quote_age_seconds": MAX_QUOTE_AGE_SECONDS,
+            "spot_only": True,
+            "live_execution": False,
+            "promotion_decision": "CANDIDATE_FOR_SECOND_INDEPENDENT_REVIEW_ONLY",
+        },
+    }
+    payload["registration_sha256"] = _sha256_bytes(_canonical_json(payload))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("x", encoding="utf-8", newline="\n") as stream:
+        json.dump(payload, stream, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
+        stream.write("\n")
+    return {
+        "status": "VALID",
+        "path": str(output_path),
+        "registration_sha256": payload["registration_sha256"],
+        "t0": payload["t0"],
+        "t1_exclusive": payload["t1_exclusive"],
+        "instruction": "Commit this exact registration file to main before T0; do not start or score the evaluation before that commit.",
+    }
+
+
+def _validate_preregistration(
+    path: Path, t0: datetime, filters_sha: str, warmup_sha: str, capture_source_sha: str,
+) -> dict[str, Any]:
+    payload = _strict_json(path.read_bytes(), "PREREGISTRATION")
+    if not isinstance(payload, Mapping) or type(payload.get("schema_version")) is not int or payload.get("schema_version") != SCHEMA_VERSION:
+        raise ProspectiveV2Error("PREREGISTRATION_SCHEMA_INVALID")
+    supplied_sha = payload.get("registration_sha256")
+    body = dict(payload)
+    body.pop("registration_sha256", None)
+    if supplied_sha != _sha256_bytes(_canonical_json(body)):
+        raise ProspectiveV2Error("PREREGISTRATION_HASH_MISMATCH")
+    if payload.get("study") != "BTC_ETH_PROSPECTIVE_STRATEGIES_V2":
+        raise ProspectiveV2Error("PREREGISTRATION_STUDY_INVALID")
+    if _dt(payload.get("t0"), "registration_t0") != t0 or _dt(payload.get("t1_exclusive"), "registration_t1") != t0 + timedelta(days=365):
+        raise ProspectiveV2Error("PREREGISTRATION_WINDOW_MISMATCH")
+    if _dt(payload.get("created_at"), "registration_created_at") >= t0:
+        raise ProspectiveV2Error("PREREGISTRATION_CREATED_AFTER_T0")
+    if payload.get("filters_snapshot_sha256") != filters_sha or payload.get("warmup_snapshot_sha256") != warmup_sha:
+        raise ProspectiveV2Error("PREREGISTRATION_INPUT_HASH_MISMATCH")
+    if payload.get("code_sha256") != _code_fingerprints():
+        raise ProspectiveV2Error("PREREGISTERED_CODE_FINGERPRINT_MISMATCH")
+    if payload.get("strategies") != list(STRATEGIES):
+        raise ProspectiveV2Error("PREREGISTERED_STRATEGY_SET_MISMATCH")
+    current_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1],
+        capture_output=True, text=True, check=False,
+    )
+    if current_head.returncode != 0 or current_head.stdout.strip().lower() != capture_source_sha:
+        raise ProspectiveV2Error("CAPTURE_SOURCE_SHA_DIFFERS_FROM_CURRENT_CHECKOUT")
+    registration_path = payload.get("registration_path")
+    if type(registration_path) is not str or Path(registration_path).as_posix() != registration_path:
+        raise ProspectiveV2Error("PREREGISTRATION_GIT_PATH_INVALID")
+    committed = subprocess.run(
+        ["git", "cat-file", "-e", f"{capture_source_sha}:{registration_path}"],
+        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=False,
+    )
+    if committed.returncode != 0:
+        raise ProspectiveV2Error("PREREGISTRATION_NOT_IN_CAPTURE_SOURCE_COMMIT")
+    commit_time = subprocess.run(
+        ["git", "show", "-s", "--format=%ct", capture_source_sha],
+        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=False,
+    )
+    if commit_time.returncode != 0 or not commit_time.stdout.strip().isdigit() or int(commit_time.stdout.strip()) >= int(t0.timestamp()):
+        raise ProspectiveV2Error("CAPTURE_SOURCE_COMMIT_NOT_BEFORE_T0")
+    return dict(payload)
 
 
 def _ema(values: Sequence[Decimal], period: int) -> list[float | None]:
