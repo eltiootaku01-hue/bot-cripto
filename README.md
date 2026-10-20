@@ -73,7 +73,7 @@ All three cost runs must use the same exported dataset. The original grid result
 
 - `status` reports the current project policy and the still-open strategy evidence gates.
 - `analyze` is read-only and uses public Binance Spot data.
-- `backtest` executes a historical **virtual** EMA/RSI simulation or the frozen `eth-bbmr-top1` research profile with modeled costs; it does not submit exchange orders.
+- `backtest` executes a historical **virtual** EMA/RSI simulation or the frozen research-only profiles `eth-bbmr-top1` and `eth-bbmr-4h-research` with modeled costs; neither profile submits exchange orders.
 - `research-btc-eth` is historical BTC/ETH virtual research. It is not the prospective V2 holdout and cannot activate a strategy.
 - `prospective-v2` provides hash-bound filter/warm-up capture, pre-T0 registration, continuous one-year public-data capture and the final economic replay. Follow [the full V2 operator procedure](docs/research/BTC_ETH_PROSPECTIVE_V2_OPERATOR.md); the year-long collection must run on a persistent operator machine and cannot be performed by GitHub CI.
 
