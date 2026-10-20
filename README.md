@@ -37,6 +37,25 @@ After installation, use `.venv\Scripts\bot-cripto.exe` from PowerShell, or `pyth
 .\.venv\Scripts\bot-cripto.exe prospective-v2 --help
 ```
 
+### Periodic TOP 1 research candidate (virtual only)
+
+A frozen CLI profile is available for the historical candidate **ETH Bollinger mean reversion + EMA720**. It is signal-driven/periodic: it can stay in cash for long periods and must never force a daily or monthly entry.
+
+Run a one-year virtual replay with a fictitious 60 USDT balance:
+
+```powershell
+.\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-top1 --symbol ETHUSDT --interval 1h --candles 8760 --initial-quote-balance 60 --position-fraction 0.95 --liquidate-at-end --dataset-output evidence/eth-bbmr-top1-60usdt.json
+```
+
+The profile freezes the 168-hour Bollinger z-score entry `z < -2.5` when the close is above EMA720; it exits when `z > +1.0` or the close is at/below EMA720. Signals use completed hourly closes and virtual fills use the next hourly open with modeled costs. The CLI defaults to a 0.10% fee per fill, assumed 10 bps full spread and 5 bps slippage per fill. Stress reruns are:
+
+```powershell
+.\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-top1 --symbol ETHUSDT --interval 1h --candles 8760 --initial-quote-balance 60 --position-fraction 0.95 --fee-rate 0.001 --spread-bps 25 --slippage-bps 10 --liquidate-at-end
+.\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-top1 --symbol ETHUSDT --interval 1h --candles 8760 --initial-quote-balance 60 --position-fraction 0.95 --fee-rate 0.002 --spread-bps 50 --slippage-bps 20 --liquidate-at-end
+```
+
+**This is not a winning-strategy declaration.** This candidate was selected after prior inspection of the same historical data; the isolated October 2026 trade lost under all three cost models and it has not passed independent out-of-sample validation. Output from this profile remains historical virtual research. Project strategy decision remains `NO_TRADE`; it never sends exchange orders or grants PAPER/LIVE promotion.
+
 - `status` reports the current project policy and the still-open strategy evidence gates.
 - `analyze` is read-only and uses public Binance Spot data.
 - `backtest` executes a historical **virtual** EMA/RSI simulation with modeled costs; it does not submit exchange orders.
