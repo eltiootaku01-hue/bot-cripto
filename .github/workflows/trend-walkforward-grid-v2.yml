@@ -1,0 +1,124 @@
+name: Trend Mode Walk-forward Grid V2
+
+on:
+  pull_request:
+    paths:
+      - "research/trend_walkforward_v2.py"
+      - "research/test_trend_walkforward_v2.py"
+      - "docs/research/TREND_MODE_WALKFORWARD_GRID_V2_PROTOCOL.md"
+      - ".github/workflows/trend-walkforward-grid-v2.yml"
+  push:
+    branches: [main]
+    paths:
+      - "research/trend_walkforward_v2.py"
+      - "research/test_trend_walkforward_v2.py"
+      - "docs/research/TREND_MODE_WALKFORWARD_GRID_V2_PROTOCOL.md"
+      - ".github/workflows/trend-walkforward-grid-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  masked-monthly-walk-forward:
+    name: 2,880-configuration masked trend walk-forward, Jan-Oct 2026
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned research and test dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Test grid size, causality, costs, stops and non-overlapping execution
+        run: python -m pytest -q research/test_trend_walkforward_v2.py
+      - name: Download pinned archived BTC ETH source dataset
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: btc-eth-follow-365d-f8b9c36768f68ee754f1cb217f920dea25ef445e
+          run-id: 39062915950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Run fixed grid with month-by-month future masking
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python research/trend_walkforward_v2.py \
+            --dataset input/btc-eth-follow-365d-dataset.json \
+            --output-dir evidence/trend-walkforward-grid-v2 \
+            --source-sha "$SOURCE_SHA"
+      - name: Independently verify pinned data, scan coverage, OOS result and all hashes
+        run: |
+          python - <<'PY'
+          import csv, hashlib, json, math
+          from pathlib import Path
+          root = Path("evidence/trend-walkforward-grid-v2")
+          result = json.loads((root / "results.json").read_text())
+          winner = json.loads((root / "winner.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          with (root / "grid-scan-audit.csv").open(newline="") as f:
+              audit = list(csv.DictReader(f))
+          with (root / "monthly-selections.csv").open(newline="") as f:
+              selections = list(csv.DictReader(f))
+          with (root / "monthly-returns.csv").open(newline="") as f:
+              monthly = list(csv.DictReader(f))
+          assert result["decision"] == "NO_TRADE"
+          assert result["winner_eligible"] is False
+          assert result["status"] == "WALK_FORWARD_HISTORICAL_RESEARCH_NOT_FUTURE_HOLDOUT"
+          assert result["dataset_logical_sha256"] == "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
+          assert result["dataset_configuration_sha256"] == "2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a"
+          assert result["dataset_raw_file_sha256"] == "3851a560aafbaa44f7d57081bd12f7dfdae070c2abff3d65e122ad8fcbd6df36"
+          assert result["oos_start"] == "2026-01-01T00:00:00+00:00"
+          assert result["oos_end_exclusive"] == "2026-10-18T00:00:00+00:00"
+          assert result["hourly_bars_per_asset"] == {"BTCUSDT": 15360, "ETHUSDT": 15360}
+          assert result["four_hour_bars_per_asset"] == {"BTCUSDT": 3839, "ETHUSDT": 3839}
+          assert result["missing_available_at_count_by_asset"] == {"BTCUSDT": 15360, "ETHUSDT": 15360}
+          assert result["unknown_finality_count_by_asset"] == {"BTCUSDT": 15360, "ETHUSDT": 15360}
+          assert result["grid_configurations"] == 2880
+          assert result["candidate_month_screenings"] == 28800
+          assert result["grid_audit_rows"] == 28800
+          assert result["exact_replay_count"] == 680
+          assert len(audit) == 28800 and len(selections) == 10
+          assert sum(r["exact_replay_performed"] == "True" for r in audit) == 680
+          assert sum(r["selected_for_next_month"] == "True" for r in audit) == 8
+          assert sum(r["status"] == "NO_TRADE_NO_TRAINING_CANDIDATE_PASSED_GATES" for r in selections) == 2
+          assert len(monthly) == 30
+          expected = {
+              "BASE": (-12.7278311456, -23.8767196987, 27.0543723448, 11),
+              "STRESS_1": (-14.9766233522, -25.1291421376, 26.3572467608, 11),
+              "STRESS_2": (-20.5548081845, -28.6663725999, 24.6280094628, 11),
+          }
+          for name, (ret, dd, final, trades) in expected.items():
+              m = result["oos_summary"][name]
+              assert abs(m["return_pct"] - ret) < 1e-7, (name, m["return_pct"])
+              assert abs(m["max_drawdown_pct"] - dd) < 1e-7, (name, m["max_drawdown_pct"])
+              assert abs(m["final_usdt"] - final) < 1e-7, (name, m["final_usdt"])
+              assert m["closed_trades"] == trades
+          assert winner["status"] == "NO_WINNER_PASSED_FROZEN_GATE"
+          assert all(v is False for v in result["winner_gate_results"].values())
+          assert manifest["decision"] == "NO_TRADE"
+          for name, meta in manifest["files"].items():
+              data = (root / name).read_bytes()
+              assert len(data) == meta["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(data).hexdigest() == meta["sha256"], f"hash mismatch: {name}"
+          print("CONFIGURATIONS:", result["grid_configurations"])
+          print("CONFIG_MONTH_SCREENINGS:", result["candidate_month_screenings"])
+          print("EXACT_STOP_CHANNEL_REPLAYS:", result["exact_replay_count"])
+          for name, m in result["oos_summary"].items():
+              print(f"{name}: final={m['final_usdt']:.4f} return={m['return_pct']:+.4f}% DD={m['max_drawdown_pct']:+.4f}% trades={m['closed_trades']}")
+          print("WINNER_ELIGIBLE: False")
+          print("DECISION: NO_TRADE")
+          PY
+      - name: Upload full grid audit, losing candidates, trades and equity hashes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trend-walkforward-grid-v2-${{ github.sha }}
+          path: evidence/trend-walkforward-grid-v2/
+          if-no-files-found: error
+          retention-days: 90
