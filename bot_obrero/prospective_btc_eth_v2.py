@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import random
+import re
 import sqlite3
 import subprocess
 import sys
