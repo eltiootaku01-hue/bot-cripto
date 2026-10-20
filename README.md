@@ -1,8 +1,8 @@
 # BOT-CRIPTO
 
-BOT-CRIPTO is a public-market-data research and local PAPER-simulation project for Binance Spot. It includes market-data validation, SMA/EMA/RSI analysis, virtual backtests, BTC/ETH research, a paired prospective capture tool, and an isolated SQLite-backed PAPER execution path.
+BOT-CRIPTO is a public-market-data research and local PAPER-simulation project for Binance Spot. It includes market-data validation, SMA/EMA/RSI analysis, virtual backtests, a hash-verified BTC/ETH prospective V2 economic replay, paired Kline/bookTicker capture, and an isolated SQLite-backed PAPER execution path.
 
-**Current economic decision: `NO_TRADE`.** No strategy has passed the required independent robustness gate. `ETH_TSMOM_168H` is a historical research candidate, not a proven winner. The prospective `BTC_ETH_STRATEGIES_V2` protocol remains `DESIGNED / NOT RUN` until a real Kline + bookTicker capture is accepted and a new 365-day holdout is completed. Do not infer profitability from green software tests.
+**Current economic decision: `NO_TRADE`.** No strategy has passed the required independent robustness gate. `ETH_TSMOM_168H` is a historical research candidate, not a proven winner. The prospective `BTC_ETH_STRATEGIES_V2` executor is `IMPLEMENTED / NOT RUN`; no real smoke bundle has been accepted for the frozen V2 protocol and no prospective 365-day holdout has completed. Do not infer profitability from green software tests.
 
 ## Install on Windows
 
@@ -34,12 +34,14 @@ After installation, use `.venv\Scripts\bot-cripto.exe` from PowerShell, or `pyth
 .\.venv\Scripts\bot-cripto.exe analyze --symbol ETHUSDT --interval 4h --candles 100
 .\.venv\Scripts\bot-cripto.exe backtest --symbol ETHUSDT --interval 1h --candles 500 --liquidate-at-end
 .\.venv\Scripts\bot-cripto.exe research-btc-eth --days 365 --initial-usdt 31
+.\.venv\Scripts\bot-cripto.exe prospective-v2 --help
 ```
 
 - `status` reports the current project policy and the still-open strategy evidence gates.
 - `analyze` is read-only and uses public Binance Spot data.
 - `backtest` executes a historical **virtual** EMA/RSI simulation with modeled costs; it does not submit exchange orders.
 - `research-btc-eth` is historical BTC/ETH virtual research. It is not the prospective V2 holdout and cannot activate a strategy.
+- `prospective-v2` provides hash-bound filter/warm-up capture, pre-T0 registration, continuous one-year public-data capture and the final economic replay. Follow [the full V2 operator procedure](docs/research/BTC_ETH_PROSPECTIVE_V2_OPERATOR.md); the year-long collection must run on a persistent operator machine and cannot be performed by GitHub CI.
 
 ### Required real-data smoke capture
 
