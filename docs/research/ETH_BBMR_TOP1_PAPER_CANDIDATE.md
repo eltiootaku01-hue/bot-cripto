@@ -39,10 +39,12 @@ Los spreads y el deslizamiento anteriores son supuestos, no cotizaciones histór
 3. Entrar cuando `z < -2.5` y `close > EMA720`.
 4. Salir cuando `z > +1.0` o `close <= EMA720`.
 5. Señales calculadas solo sobre barras cerradas; fill virtual en la apertura de la siguiente vela.
-6. Usar como máximo el 95 % del saldo USDT por entrada, aplicar los filtros de cantidad que aporte el adaptador de metadatos y mantener el límite de cinco nuevas entradas por ventana móvil de 30 días.
+6. Usar como máximo el 95 % del saldo USDT por entrada y mantener el límite de cinco nuevas entradas por ventana móvil de 30 días. El CLI acepta filtros fijos opcionales mediante `--min-qty`, `--quantity-step`, `--min-notional` y `--max-qty`; no reconstruye automáticamente los filtros históricos de Binance.
 7. Si la desviación estándar es cero o faltan indicadores, no producir una señal.
 
 Los umbrales son constantes del perfil; el perfil exige exactamente `ETHUSDT` en `1h` y el filtro EMA720 para impedir cambios silenciosos. El perfil está implementado en el motor de backtest virtual; no crea un bot de ejecución ni conecta con órdenes.
+
+Si el reporte muestra `None` para step/minimum/min-notional, los tamaños simulados no garantizan que Binance acepte las órdenes. Para fijar un supuesto explícito pueden añadirse, tras comprobar los filtros de ExchangeInfo del mercado, por ejemplo `--min-qty 0.0001 --quantity-step 0.0001 --min-notional 5`. Estos filtros actuales no prueban que las mismas reglas fueran vigentes durante todo el histórico; el reporte lo advierte y la promoción económica sigue bloqueada.
 
 ## Evidencia histórica conocida (no es evidencia prospectiva)
 
