@@ -1497,12 +1497,15 @@ def run_study(
         }
     finally:
         store.close()
-        try:
-            store_path.unlink(missing_ok=True)
-        Path(str(store_path) + "-wal").unlink(missing_ok=True)
-        Path(str(store_path) + "-shm").unlink(missing_ok=True)
-        except OSError:
-            pass
+        for temporary_path in (
+            store_path,
+            Path(str(store_path) + "-wal"),
+            Path(str(store_path) + "-shm"),
+        ):
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _parser() -> argparse.ArgumentParser:
