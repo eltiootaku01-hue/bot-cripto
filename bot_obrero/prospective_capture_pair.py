@@ -346,6 +346,7 @@ def run_capture_pair(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     python_executable: str = sys.executable,
     duration_seconds: int = BOOK_TICKER_DURATION_SECONDS,
+    registration_context: Mapping[str, Any] | None = None,
     monitor_interval_seconds: float = DEFAULT_MONITOR_INTERVAL_SECONDS,
     align_to_utc_midnight: bool = True,
     popen_factory: PopenFactory = subprocess.Popen,
@@ -391,6 +392,8 @@ def run_capture_pair(
         "source_provenance": source_provenance,
         "trading_enabled": False,
     }
+    if registration_context is not None:
+        configuration["registration_context"] = dict(registration_context)
     scheduled_start = _next_utc_start(now) if align_to_utc_midnight else now
     summary: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
