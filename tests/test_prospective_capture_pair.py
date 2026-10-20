@@ -12,6 +12,7 @@ from bot_obrero.prospective_capture_pair import (
     _build_commands,
     _capture_source_provenance,
     _next_utc_start,
+    _same_frozen_source_revision,
     _same_source_revision,
     run_capture_pair,
 )
@@ -382,7 +383,7 @@ def test_pair_capture_blocks_if_source_revision_changes_after_children_finish(tm
     )
 
     assert result["status"] == "BLOCKED"
-    assert result["reason"] == "RuntimeError:CAPTURE_SOURCE_PROVENANCE_CHANGED_DURING_RUN"
+    assert result["reason"] == "RuntimeError:CAPTURE_CODE_REVISION_CHANGED_DURING_RUN"
     assert result["validation"] is None
     assert result["source_provenance_at_finish"]["git_head_sha"] == "b" * 40
     persisted = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
@@ -402,3 +403,33 @@ def test_pair_commands_reject_duration_below_one_day_or_over_500_days(tmp_path):
         _build_commands(tmp_path / "short-pair", "python", 3600)
     with pytest.raises(ValueError, match="CAPTURE_DURATION_SECONDS_OUT_OF_RANGE"):
         _build_commands(tmp_path / "long-pair", "python", 501 * 24 * 60 * 60)
+
+
+def test_frozen_capture_source_allows_remote_main_to_advance_after_launch(tmp_path):
+    head = "a" * 40
+    live_main = "b" * 40
+    outputs = iter([
+        SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout="main\n"),
+        SimpleNamespace(returncode=0, stdout=head + "\n"),
+        SimpleNamespace(returncode=0, stdout=live_main + "\trefs/heads/main\n"),
+        SimpleNamespace(returncode=0, stdout=""),
+    ])
+    observed = _capture_source_provenance(
+        tmp_path,
+        run_command=lambda _command, **_kwargs: next(outputs),
+        allow_live_main_advance=True,
+    )
+    expected = {
+        "status": "VALID", "reason": None,
+        "git_head_sha": head, "origin_main_sha": head, "live_main_sha": head,
+        "branch": "main", "source_status_entries": [],
+    }
+    assert observed["status"] == "VALID"
+    assert observed["reason"] == "REMOTE_MAIN_ADVANCED_DURING_CAPTURE"
+    assert observed["live_main_sha"] == live_main
+    assert _same_frozen_source_revision(expected, observed) is True
+
+    changed_head = dict(observed, git_head_sha="c" * 40)
+    assert _same_frozen_source_revision(expected, changed_head) is False
