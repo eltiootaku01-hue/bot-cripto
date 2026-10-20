@@ -1,8 +1,8 @@
 """Single operator entry point for the BOT-CRIPTO research/PAPER toolchain.
 
 This command composes existing, independently tested entry points. It does not
-add an order path. Financial execution remains PAPER-only and the economic gate
-stays NO_TRADE until preregistered prospective evidence proves otherwise.
+add a live-order path. Financial execution remains PAPER-only and the economic
+gate stays NO_TRADE until preregistered prospective evidence proves otherwise.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from typing import Sequence
 from . import (
     analysis_cli,
     btc_eth_follow_research,
+    prospective_btc_eth_v2,
     prospective_capture_pair,
     virtual_backtest,
 )
@@ -21,14 +22,15 @@ from . import (
 _STATUS = {
     "mode": "PUBLIC_DATA_RESEARCH_AND_LOCAL_PAPER_ONLY",
     "strategy_decision": "NO_TRADE",
-    "v2_protocol": "DESIGNED / NOT RUN",
+    "v2_protocol": "IMPLEMENTED / NOT RUN",
     "historical_leader_candidate": "ETH_TSMOM_168H",
     "candidate_verdict": "NO_ROBUST_EDGE_FOUND",
     "live_execution": "DISABLED_BY_PROJECT_POLICY",
     "blocking_gates": [
-        "No accepted real BTCUSDT + ETHUSDT Kline/bookTicker capture with at least 86400 seconds of overlap.",
-        "No independent prospective 365-day holdout has been completed.",
+        "No accepted real BTCUSDT + ETHUSDT Kline/bookTicker evidence set covering the preregistered warm-up and 365-day evaluation.",
+        "No independent prospective 365-day replay has been completed.",
         "The historical ETH_TSMOM_168H candidate failed the preregistered robustness criteria.",
+        "V2 requires a frozen public Spot exchangeInfo filter snapshot captured before T0.",
     ],
     "important_limit": (
         "This status is the versioned project policy, not a live inspection of local evidence. "
@@ -42,7 +44,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="bot-cripto",
         description=(
             "One command entry point for BOT-CRIPTO public-data analysis, virtual backtests, "
-            "BTC/ETH research and paired 24-hour capture. No LIVE trading."
+            "BTC/ETH research, prospective V2 replay and paired capture. No LIVE trading."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -65,6 +67,11 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "capture-24h",
         help="capture and validate public BTC/ETH Kline + bookTicker streams for at least 24 h",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "prospective-v2",
+        help="capture pre-T0 public filters or run the registered 365-day economic replay",
         add_help=False,
     )
     return parser
@@ -93,9 +100,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return btc_eth_follow_research.main(forwarded)
     if parsed.command == "capture-24h":
         return prospective_capture_pair.main(["capture", *forwarded])
+    if parsed.command == "prospective-v2":
+        return prospective_btc_eth_v2.main(forwarded)
 
-    # The root parser's required subcommand protects this path; retain a
-    # defensive failure in case the dispatcher is extended incorrectly.
     parser.error(f"unsupported command: {parsed.command!r}")
     return 2
 
