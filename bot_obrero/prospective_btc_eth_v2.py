@@ -338,6 +338,25 @@ def _load_pair_evidence(root: Path, store: QuoteStore) -> tuple[dict[str, dict[d
         if _sha256_bytes(_canonical_json(configuration)) != pair.get("configuration_sha256"):
             raise ProspectiveV2Error("PAIR_CONFIGURATION_HASH_MISMATCH")
         sha = _validate_source_provenance(pair)
+        if pair.get("source_provenance") != configuration.get("source_provenance"):
+            raise ProspectiveV2Error("PAIR_SOURCE_PROVENANCE_MISMATCH")
+        launch_provenance = pair.get("source_provenance_at_launch")
+        finish_provenance = pair.get("source_provenance_at_finish")
+        if not isinstance(launch_provenance, Mapping) or launch_provenance != pair.get("source_provenance"):
+            raise ProspectiveV2Error("PAIR_LAUNCH_PROVENANCE_MISMATCH")
+        if not isinstance(finish_provenance, Mapping):
+            raise ProspectiveV2Error("PAIR_FINISH_PROVENANCE_MISSING")
+        if (
+            finish_provenance.get("status") != "VALID"
+            or finish_provenance.get("branch") != "main"
+            or finish_provenance.get("git_head_sha") != sha
+            or finish_provenance.get("source_status_entries") != []
+        ):
+            raise ProspectiveV2Error("PAIR_FROZEN_SOURCE_REVISION_CHANGED")
+        for key in ("git_head_sha", "origin_main_sha", "live_main_sha"):
+            value = finish_provenance.get(key)
+            if type(value) is not str or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value):
+                raise ProspectiveV2Error("PAIR_FINISH_PROVENANCE_SHA_INVALID")
         provenance_shas.add(sha)
         kline_manifest = _safe_child(pair_dir, pair.get("kline_manifest"), "KLINE_MANIFEST")
         quote_manifest = _safe_child(pair_dir, pair.get("bookticker_manifest"), "BOOKTICKER_MANIFEST")
@@ -358,6 +377,7 @@ def _load_pair_evidence(root: Path, store: QuoteStore) -> tuple[dict[str, dict[d
             "source_sha": sha,
             "overlap_seconds": pair_validation.get("overlap_seconds"),
             "registration_context": configuration.get("registration_context"),
+            "source_provenance_at_finish": dict(finish_provenance),
         })
         for symbol in SYMBOLS:
             candle_path = kline_manifest.parent / f"{symbol}.jsonl"
@@ -1694,6 +1714,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "preregistration_sha256": preregistration["registration_sha256"],
                 "smoke_bundle_sha256": smoke["sha256"],
             }
+            now = datetime.now(timezone.utc)
+            if now >= t0:
+                raise ProspectiveV2Error("CAPTURE_PERIOD_MUST_START_BEFORE_T0")
             duration = math.ceil((t1 - now).total_seconds())
             if duration < 24 * 60 * 60 or duration > 500 * 24 * 60 * 60:
                 raise ProspectiveV2Error("CAPTURE_PERIOD_DURATION_OUT_OF_RANGE")
