@@ -284,3 +284,15 @@ def test_safe_child_normalizes_windows_relative_manifest_paths(tmp_path):
     assert v2._safe_child(tmp_path.resolve(), r"nested\manifest.json", "TEST") == manifest.resolve()
     with pytest.raises(v2.ProspectiveV2Error, match="PATH_UNSAFE"):
         v2._safe_child(tmp_path.resolve(), r"..\manifest.json", "TEST")
+
+
+def test_quote_store_rejects_quote_available_at_exact_decision_timestamp():
+    store = v2.QuoteStore()
+    try:
+        t0 = START + timedelta(days=1)
+        store.add(v2.Quote("BTCUSDT", 7, t0, t0, Decimal("100"), Decimal("101")))
+        store.commit()
+        with pytest.raises(v2.ProspectiveV2Error, match="FRESH_QUOTE_MISSING"):
+            store.first_at_or_after("BTCUSDT", t0)
+    finally:
+        store.close()
