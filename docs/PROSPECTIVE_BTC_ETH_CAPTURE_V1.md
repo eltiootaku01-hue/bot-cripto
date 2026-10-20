@@ -20,18 +20,18 @@ These external reports establish known failure patterns; they do not establish t
 
 ### Atajo para Windows: arranque y verificación en un solo script
 
-Si no tenés un clon del repositorio, después de que este script esté integrado en \`main\`, abrí PowerShell y ejecutá:
+Si no tenés un clon del repositorio, después de que este script esté integrado en `main`, abrí PowerShell y ejecutá:
 
-\`\`\`powershell
+```powershell
 $runner = Join-Path $env:TEMP "INICIAR_CAPTURA_PROSPECTIVA.ps1"
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/eltiootaku01-hue/bot-cripto/main/tools/windows-handoff/INICIAR_CAPTURA_PROSPECTIVA.ps1" -OutFile $runner
 Get-Content -LiteralPath $runner
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner
-\`\`\`
+```
 
-Leé el script descargado antes de ejecutarlo. El lanzador crea un clon nuevo (no sobrescribe una carpeta existente), verifica que \`HEAD\`, \`origin/main\` y el SHA remoto vivo coincidan, instala el entorno Python, muestra la política del operador y pide escribir \`CAPTURAR\` antes de iniciar tráfico de mercado. Espera al siguiente inicio de medianoche UTC, supervisa Kline + bookTicker por más de 24 horas, conserva los artefactos incluso si la corrida queda bloqueada y, únicamente si la pareja pasa, genera y verifica un ZIP con su sidecar SHA-256.
+Leé el script descargado antes de ejecutarlo. El lanzador crea un clon nuevo (no sobrescribe una carpeta existente), verifica que `HEAD`, `origin/main` y el SHA remoto vivo coincidan, instala el entorno Python, muestra la política del operador y pide escribir `CAPTURAR` antes de iniciar tráfico de mercado. Espera al siguiente inicio de medianoche UTC, supervisa Kline + bookTicker por más de 24 horas, conserva los artefactos incluso si la corrida queda bloqueada y, únicamente si la pareja pasa, genera y verifica un ZIP con su sidecar SHA-256.
 
-**Requisito físico:** la PC debe permanecer encendida, despierta y conectada; no cierres esa ventana de PowerShell. El proceso recopila datos públicos y no usa claves privadas ni manda órdenes. Si la aceptación falla, no edites el manifiesto para hacer que pase. Una captura aceptada solamente abre la revisión del estudio: no cambia automáticamente la decisión económica \`NO_TRADE\` ni sustituye el holdout prospectivo preregistrado de 365 días.
+**Requisito físico:** la PC debe permanecer encendida, despierta y conectada; no cierres esa ventana de PowerShell. El proceso recopila datos públicos y no usa claves privadas ni manda órdenes. Si la aceptación falla, no edites el manifiesto para hacer que pase. Una captura aceptada solamente abre la revisión del estudio: no cambia automáticamente la decisión económica `NO_TRADE` ni sustituye el holdout prospectivo preregistrado de 365 días.
 
 
 ### First-time setup on Windows (PowerShell)
