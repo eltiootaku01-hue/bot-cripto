@@ -55,11 +55,20 @@ jobs:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python - <<'PY'
-          import hashlib, json
+          import csv, hashlib, json
           from pathlib import Path
           root = Path("evidence/trend-mode-practice-v1")
           result = json.loads((root / "result.json").read_text())
           manifest = json.loads((root / "manifest.json").read_text())
+          with (root / "monthly-returns.csv").open(newline="") as f:
+              monthly_rows = list(csv.DictReader(f))
+          with (root / "monthly-summary.csv").open(newline="") as f:
+              monthly_summary = {r["cost_scenario"]: r for r in csv.DictReader(f)}
+          assert len(monthly_rows) == 66
+          assert sum(r["cost_scenario"] == "BASE" and r["is_complete_calendar_month"] == "True" for r in monthly_rows) == 20
+          assert set(monthly_summary) == {"BASE", "STRESS_1", "STRESS_2"}
+          assert monthly_summary["BASE"]["positive_strategy_months"] == "4"
+          assert monthly_summary["STRESS_2"]["positive_strategy_months"] == "4"
           assert result["decision"] == "NO_TRADE"
           assert result["status"] == "HISTORICAL_OHLC_ENGINE_REPLAY_NOT_EXECUTABLE_PAPER_PROOF"
           assert result["source_git_sha"] == "${{ github.event.pull_request.head.sha || github.sha }}"
