@@ -14,18 +14,33 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Parse the PAPER installer without executing it
+      - name: Parse Windows setup and prospective capture scripts without executing them
         shell: powershell
         run: |
-          $installer = (Resolve-Path '.\tools\windows-handoff\INSTALAR_BOTCRIPTO_PAPER.ps1').Path
-          $tokens = $null
-          $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile($installer, [ref]$tokens, [ref]$parseErrors) | Out-Null
-          if ($parseErrors.Count -gt 0) {
-            $parseErrors | ForEach-Object { Write-Error $_.Message }
-            throw 'PAPER installer contains PowerShell syntax errors.'
+          $scripts = @(
+            @{ Path = '.\tools\windows-handoff\INSTALAR_BOTCRIPTO_PAPER.ps1'; Label = 'PAPER installer' },
+            @{ Path = '.\tools\windows-handoff\INICIAR_CAPTURA_PROSPECTIVA.ps1'; Label = 'prospective capture launcher' }
+          )
+          foreach ($script in $scripts) {
+            $source = (Resolve-Path $script.Path).Path
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | ForEach-Object { Write-Error $_.Message }
+              throw "$($script.Label) contains PowerShell syntax errors."
+            }
+            Write-Host "$($script.Label) PowerShell syntax passed."
           }
-          Write-Host 'PAPER installer PowerShell syntax passed.'
+          $runnerText = Get-Content -LiteralPath '.\tools\windows-handoff\INICIAR_CAPTURA_PROSPECTIVA.ps1' -Raw
+          foreach ($requiredText in @('OPERATOR_DID_NOT_CONFIRM', 'prospective_capture_pair', 'prospective_capture_bundle', 'DISABLED_BY_PROJECT_POLICY')) {
+            if ($runnerText -notmatch [regex]::Escape($requiredText)) {
+              throw "Prospective capture launcher is missing safety or acceptance check: $requiredText"
+            }
+          }
+          if ($runnerText -match '(?i)(api[_-]?secret|api[_-]?key|/api/v3/order|new_order)') {
+            throw 'Prospective capture launcher must not reference private credentials or order submission.'
+          }
       - name: Download and extract the pinned source on Windows
         shell: powershell
         run: |
