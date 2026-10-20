@@ -528,7 +528,7 @@ def test_bbmr_top1_generates_causal_signal_and_fills_only_on_next_bar_open():
     assert result.final_quote_balance > Decimal("60")
     assert result.final_base_position == Decimal("0")
     assert result.final_bollinger_zscore is not None
-    assert result.unknown_finality_count == 3
+    assert result.unknown_finality_count == len(items)
 
 
 def test_bbmr_top1_constant_closes_do_not_divide_by_zero_or_trade():
