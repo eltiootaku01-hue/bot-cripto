@@ -388,3 +388,17 @@ def test_pair_capture_blocks_if_source_revision_changes_after_children_finish(tm
     persisted = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
     assert persisted["status"] == "BLOCKED"
     assert persisted["validation"] is None
+
+
+def test_pair_commands_support_full_year_without_changing_24h_default(tmp_path):
+    duration = 365 * 24 * 60 * 60
+    commands = _build_commands(tmp_path / "year-pair", "python", duration)
+    assert commands["kline"][commands["kline"].index("--duration-seconds") + 1] == str(duration + 60)
+    assert commands["bookticker"][commands["bookticker"].index("--duration-seconds") + 1] == str(duration)
+
+
+def test_pair_commands_reject_duration_below_one_day_or_over_500_days(tmp_path):
+    with pytest.raises(ValueError, match="CAPTURE_DURATION_SECONDS_OUT_OF_RANGE"):
+        _build_commands(tmp_path / "short-pair", "python", 3600)
+    with pytest.raises(ValueError, match="CAPTURE_DURATION_SECONDS_OUT_OF_RANGE"):
+        _build_commands(tmp_path / "long-pair", "python", 501 * 24 * 60 * 60)
