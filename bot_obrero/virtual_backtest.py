@@ -72,7 +72,7 @@ def _decimal_arg(value: str) -> Decimal:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run a long-only virtual EMA-crossover backtest on public Binance Spot history."
+        description="Run a virtual Binance Spot backtest using EMA/RSI or the frozen research-only ETH BBMR profile."
     )
     parser.add_argument("--symbol", required=True, help="Binance Spot symbol, e.g. BTCUSDT")
     parser.add_argument("--interval", required=True, help="Binance kline interval, e.g. 1m")
@@ -114,7 +114,6 @@ def _parser() -> argparse.ArgumentParser:
 class BacktestConfig:
     symbol: str
     interval: str
-    strategy: str = "ema-rsi"
     candles: int = 500
     fast_ema_period: int = 12
     slow_ema_period: int = 26
@@ -132,6 +131,7 @@ class BacktestConfig:
     min_notional: Decimal | None = None
     liquidate_at_end: bool = False
     max_qty: Decimal | None = None
+    strategy: str = "ema-rsi"
 
     def validate(self) -> None:
         if self.strategy not in ("ema-rsi", _BBMR_STRATEGY):
@@ -157,7 +157,7 @@ class BacktestConfig:
                 raise BacktestError("eth-bbmr-top1 requires the frozen EMA720 trend gate")
             if self.candles < 2:
                 raise BacktestError("eth-bbmr-top1 requires at least two evaluation candles")
-            if self.candles + _BBMR_TREND_EMA_PERIOD > _MAX_CANDLES:
+            if self.candles + _BBMR_TREND_EMA_PERIOD + 2 > _MAX_CANDLES:
                 raise BacktestError("evaluation plus EMA720 warm-up exceeds the 10000-candle acquisition limit")
         else:
             warmup = max(self.slow_ema_period, self.rsi_period + 1)
@@ -374,8 +374,8 @@ def _indicators(observations: Sequence[MarketObservation], config: BacktestConfi
 
 def _indicator_series(
     observations: Sequence[MarketObservation], config: BacktestConfig
-) -> list[dict[str, Decimal] | None]:
-    """Compute existing SMA/EMA/Wilder-RSI definitions in one linear pass.
+) -> list[dict[str, Decimal | None] | None]:
+    """Compute causal EMA/RSI features and, for BBMR, its frozen Bollinger z-score.
 
     Recurrences and Decimal operation order match the canonical algorithms used
     by _indicators(). None marks prefixes without enough observations for all
@@ -455,12 +455,12 @@ def _indicator_series(
             if variance > _ZERO:
                 bollinger_z[index] = (closes[index] - mean) / variance.sqrt()
 
-    result: list[dict[str, Decimal] | None] = []
+    result: list[dict[str, Decimal | None] | None] = []
     for index in range(count):
         if sma[index] is None or fast[index] is None or slow[index] is None or rsi[index] is None:
             result.append(None)
         else:
-            row = {
+            row: dict[str, Decimal | None] = {
                 "sma": sma[index], "fast_ema": fast[index],
                 "slow_ema": slow[index], "rsi": rsi[index],
             }
