@@ -255,8 +255,15 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def _build_commands(run_dir: Path, python_executable: str = sys.executable) -> dict[str, list[str]]:
-    """Build fixed, public-data-only commands for the canonical BTC/ETH pair."""
+def _build_commands(
+    run_dir: Path,
+    python_executable: str = sys.executable,
+    duration_seconds: int = BOOK_TICKER_DURATION_SECONDS,
+) -> dict[str, list[str]]:
+    """Build public-data-only commands for a fixed-duration BTC/ETH pair."""
+    if isinstance(duration_seconds, bool) or type(duration_seconds) is not int or not BOOK_TICKER_DURATION_SECONDS <= duration_seconds <= 500 * 24 * 60 * 60:
+        raise ValueError("CAPTURE_DURATION_SECONDS_OUT_OF_RANGE")
+    kline_duration_seconds = duration_seconds + PAIR_OVERLAP_GUARD_SECONDS
     root = Path(run_dir).resolve()
     kline_dir = root / "kline"
     quote_dir = root / "bookticker"
@@ -265,7 +272,7 @@ def _build_commands(run_dir: Path, python_executable: str = sys.executable) -> d
         "--output-dir", str(kline_dir),
         "--symbols", "BTCUSDT", "ETHUSDT",
         "--interval", "1h",
-        "--duration-seconds", str(KLINE_DURATION_SECONDS),
+        "--duration-seconds", str(kline_duration_seconds),
         "--grace-seconds", str(KLINE_GRACE_SECONDS),
         "--no-align-next-utc-midnight",
     ]
@@ -273,7 +280,7 @@ def _build_commands(run_dir: Path, python_executable: str = sys.executable) -> d
         python_executable, "-m", "bot_obrero.prospective_book_ticker_capture", "capture",
         "--output-dir", str(quote_dir),
         "--symbols", "BTCUSDT", "ETHUSDT",
-        "--duration-seconds", str(BOOK_TICKER_DURATION_SECONDS),
+        "--duration-seconds", str(duration_seconds),
         "--grace-seconds", str(DEFAULT_CAPTURE_GRACE_SECONDS),
         "--no-align-next-utc-midnight",
     ]
@@ -305,6 +312,7 @@ def run_capture_pair(
     *,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     python_executable: str = sys.executable,
+    duration_seconds: int = BOOK_TICKER_DURATION_SECONDS,
     monitor_interval_seconds: float = DEFAULT_MONITOR_INTERVAL_SECONDS,
     align_to_utc_midnight: bool = True,
     popen_factory: PopenFactory = subprocess.Popen,
@@ -315,6 +323,8 @@ def run_capture_pair(
     """Run both collectors and return a durable pair manifest and validation result."""
     if type(python_executable) is not str or not python_executable.strip():
         raise ValueError("PYTHON_EXECUTABLE_INVALID")
+    if isinstance(duration_seconds, bool) or type(duration_seconds) is not int or not BOOK_TICKER_DURATION_SECONDS <= duration_seconds <= 500 * 24 * 60 * 60:
+        raise ValueError("CAPTURE_DURATION_SECONDS_OUT_OF_RANGE")
     if not isinstance(monitor_interval_seconds, (int, float)) or isinstance(monitor_interval_seconds, bool):
         raise ValueError("MONITOR_INTERVAL_INVALID")
     if not 0 < monitor_interval_seconds <= 30:
@@ -330,19 +340,19 @@ def run_capture_pair(
     logs_dir.mkdir()
     pair_manifest_path = run_dir / "pair-manifest.json"
 
-    commands = _build_commands(run_dir, python_executable)
+    commands = _build_commands(run_dir, python_executable, duration_seconds)
     configuration = {
         "schema_version": SCHEMA_VERSION,
         "capture_kind": "PROSPECTIVE_BINANCE_SPOT_KLINE_AND_BOOK_TICKER_PAIR",
         "symbols": ["BTCUSDT", "ETHUSDT"],
         "interval": "1h",
-        "target_duration_seconds": BOOK_TICKER_DURATION_SECONDS,
-        "kline_duration_seconds": KLINE_DURATION_SECONDS,
-        "bookticker_duration_seconds": BOOK_TICKER_DURATION_SECONDS,
+        "target_duration_seconds": duration_seconds,
+        "kline_duration_seconds": duration_seconds + PAIR_OVERLAP_GUARD_SECONDS,
+        "bookticker_duration_seconds": duration_seconds,
         "pair_overlap_guard_seconds": PAIR_OVERLAP_GUARD_SECONDS,
         "kline_grace_seconds": KLINE_GRACE_SECONDS,
         "bookticker_grace_seconds": DEFAULT_CAPTURE_GRACE_SECONDS,
-        "minimum_overlap_seconds": BOOK_TICKER_DURATION_SECONDS,
+        "minimum_overlap_seconds": duration_seconds,
         "source": "binance-public:spot-websocket",
         "source_provenance": source_provenance,
         "trading_enabled": False,
@@ -451,7 +461,7 @@ def run_capture_pair(
                 validation = validate_paired_manifests(
                     kline_manifest_path=manifests["kline"][0],
                     bookticker_manifest_path=manifests["bookticker"][0],
-                    minimum_overlap_seconds=BOOK_TICKER_DURATION_SECONDS,
+                    minimum_overlap_seconds=duration_seconds,
                 )
                 if validation.get("status") != "VALID":
                     raise RuntimeError("PAIRED_CAPTURE_VALIDATION_NOT_VALID")
@@ -502,13 +512,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Run paired prospective Binance Spot Kline + bookTicker capture; no trading."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    capture = subparsers.add_parser("capture", help="wait for UTC midnight, capture paired datasets with overlap guard, then validate")
+    capture = subparsers.add_parser("capture", help="wait for UTC midnight, capture paired datasets for the requested duration, then validate")
     capture.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     capture.add_argument("--monitor-interval-seconds", type=float, default=DEFAULT_MONITOR_INTERVAL_SECONDS)
+    capture.add_argument("--duration-seconds", type=int, default=BOOK_TICKER_DURATION_SECONDS, help="requested overlap duration in seconds (24 hours to 500 days; data capture only)")
     args = parser.parse_args(argv)
     try:
         result = run_capture_pair(
             output_dir=args.output_dir,
+            duration_seconds=args.duration_seconds,
             monitor_interval_seconds=args.monitor_interval_seconds,
         )
     except (OSError, ValueError) as exc:
