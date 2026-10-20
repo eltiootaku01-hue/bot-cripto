@@ -17,6 +17,7 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, localcontext
@@ -672,13 +673,83 @@ def load_warmup_snapshot(path: Path, t0: datetime) -> tuple[dict[str, dict[datet
     return result, _sha256_bytes(raw)
 
 
+def _validate_smoke_archive(path: Path) -> dict[str, Any]:
+    """Verify an accepted 24-hour smoke bundle and prove relevant source did not drift."""
+    from .prospective_capture_bundle import verify_capture_bundle
+
+    archive_path = Path(path)
+    try:
+        verified = verify_capture_bundle(archive_path)
+    except Exception as exc:
+        raise ProspectiveV2Error(f"SMOKE_BUNDLE_VALIDATION_FAILED:{type(exc).__name__}:{exc}") from exc
+    if verified.get("status") != "VALID" or verified.get("trading_enabled") is not False:
+        raise ProspectiveV2Error("SMOKE_BUNDLE_NOT_VALID_OR_TRADING_DISABLED_NOT_PROVEN")
+    try:
+        with zipfile.ZipFile(archive_path, mode="r") as archive:
+            pair = _strict_json(archive.read("pair-manifest.json"), "SMOKE_PAIR_MANIFEST")
+    except (OSError, KeyError, zipfile.BadZipFile) as exc:
+        raise ProspectiveV2Error("SMOKE_PAIR_MANIFEST_UNREADABLE") from exc
+    if not isinstance(pair, Mapping):
+        raise ProspectiveV2Error("SMOKE_PAIR_MANIFEST_SHAPE_INVALID")
+    provenance = pair.get("source_provenance")
+    if not isinstance(provenance, Mapping):
+        raise ProspectiveV2Error("SMOKE_SOURCE_PROVENANCE_MISSING")
+    smoke_sha = provenance.get("git_head_sha")
+    if (
+        provenance.get("status") != "VALID"
+        or provenance.get("branch") != "main"
+        or type(smoke_sha) is not str
+        or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", smoke_sha)
+        or provenance.get("origin_main_sha") != smoke_sha
+        or provenance.get("live_main_sha") != smoke_sha
+    ):
+        raise ProspectiveV2Error("SMOKE_SOURCE_PROVENANCE_INVALID")
+
+    root = Path(__file__).resolve().parents[1]
+    head_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=False,
+    )
+    if head_result.returncode != 0:
+        raise ProspectiveV2Error("CURRENT_SOURCE_HEAD_UNAVAILABLE")
+    current_head = head_result.stdout.strip().lower()
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", smoke_sha, current_head],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    if ancestor.returncode != 0:
+        raise ProspectiveV2Error("SMOKE_SOURCE_IS_NOT_ANCESTOR_OF_FROZEN_MAIN")
+    unchanged = subprocess.run(
+        [
+            "git", "diff", "--quiet", smoke_sha, current_head, "--",
+            "bot_obrero/", "pyproject.toml", "docs/research/BTC_ETH_STRATEGIES_V2_PROTOCOL.md",
+        ],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    if unchanged.returncode != 0:
+        raise ProspectiveV2Error("CODE_OR_V2_PROTOCOL_CHANGED_AFTER_SMOKE_CAPTURE")
+    return {
+        "sha256": verified["sha256"],
+        "run_id": verified.get("run_id"),
+        "source_sha": smoke_sha,
+        "archive": str(archive_path.resolve()),
+        "overlap_seconds": verified.get("overlap_seconds"),
+    }
+
+
 def _code_fingerprints() -> dict[str, str]:
     root = Path(__file__).resolve().parents[1]
     paths = (
+        "bot_obrero/operator_cli.py",
         "bot_obrero/prospective_btc_eth_v2.py",
         "bot_obrero/prospective_capture_pair.py",
         "bot_obrero/prospective_capture.py",
         "bot_obrero/prospective_book_ticker_capture.py",
+        "bot_obrero/prospective_capture_bundle.py",
+        "bot_obrero/binance_book_ticker.py",
+        "bot_obrero/binance_websocket.py",
+        "bot_obrero/market_data.py",
+        "bot_obrero/virtual_backtest.py",
+        "pyproject.toml",
         "docs/research/BTC_ETH_STRATEGIES_V2_PROTOCOL.md",
     )
     return {name: _file_sha256(root / name) for name in paths}
@@ -689,6 +760,7 @@ def create_preregistration(
     t0: datetime,
     filters_path: Path,
     warmup_path: Path,
+    smoke_archive_path: Path,
     output_path: Path,
 ) -> dict[str, Any]:
     if output_path.exists():
@@ -697,6 +769,7 @@ def create_preregistration(
         raise ProspectiveV2Error("PREREGISTRATION_T0_MUST_BE_FUTURE_UTC_HOUR")
     _, filter_sha = load_filter_snapshot(filters_path, t0)
     _, warmup_sha = load_warmup_snapshot(warmup_path, t0)
+    smoke = _validate_smoke_archive(smoke_archive_path)
     root = Path(__file__).resolve().parents[1]
     try:
         relative_output = output_path.resolve(strict=False).relative_to(root.resolve()).as_posix()
@@ -716,6 +789,9 @@ def create_preregistration(
         "registration_path": relative_output,
         "filters_snapshot_sha256": filter_sha,
         "warmup_snapshot_sha256": warmup_sha,
+        "smoke_bundle_sha256": smoke["sha256"],
+        "smoke_source_sha": smoke["source_sha"],
+        "smoke_run_id": smoke["run_id"],
         "code_sha256": _code_fingerprints(),
         "strategies": list(STRATEGIES),
         "scenarios": {name: {"fee_rate": str(value["fee"]), "slippage_bps_per_side": str(value["slippage_bps"]), "spread_source": "OBSERVED_BID_ASK"} for name, value in SCENARIOS.items()},
@@ -741,12 +817,18 @@ def create_preregistration(
         "registration_sha256": payload["registration_sha256"],
         "t0": payload["t0"],
         "t1_exclusive": payload["t1_exclusive"],
+        "smoke_bundle_sha256": smoke["sha256"],
         "instruction": "Commit this exact registration file to main before T0; do not start or score the evaluation before that commit.",
     }
 
 
 def _validate_preregistration(
-    path: Path, t0: datetime, filters_sha: str, warmup_sha: str, capture_source_sha: str,
+    path: Path,
+    t0: datetime,
+    filters_sha: str,
+    warmup_sha: str,
+    capture_source_sha: str,
+    smoke: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = _strict_json(path.read_bytes(), "PREREGISTRATION")
     if not isinstance(payload, Mapping) or type(payload.get("schema_version")) is not int or payload.get("schema_version") != SCHEMA_VERSION:
@@ -764,13 +846,15 @@ def _validate_preregistration(
         raise ProspectiveV2Error("PREREGISTRATION_CREATED_AFTER_T0")
     if payload.get("filters_snapshot_sha256") != filters_sha or payload.get("warmup_snapshot_sha256") != warmup_sha:
         raise ProspectiveV2Error("PREREGISTRATION_INPUT_HASH_MISMATCH")
+    if payload.get("smoke_bundle_sha256") != smoke.get("sha256") or payload.get("smoke_source_sha") != smoke.get("source_sha"):
+        raise ProspectiveV2Error("PREREGISTRATION_SMOKE_BUNDLE_MISMATCH")
     if payload.get("code_sha256") != _code_fingerprints():
         raise ProspectiveV2Error("PREREGISTERED_CODE_FINGERPRINT_MISMATCH")
     if payload.get("strategies") != list(STRATEGIES):
         raise ProspectiveV2Error("PREREGISTERED_STRATEGY_SET_MISMATCH")
+    root = Path(__file__).resolve().parents[1]
     current_head = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1],
-        capture_output=True, text=True, check=False,
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=False,
     )
     if current_head.returncode != 0 or current_head.stdout.strip().lower() != capture_source_sha:
         raise ProspectiveV2Error("CAPTURE_SOURCE_SHA_DIFFERS_FROM_CURRENT_CHECKOUT")
@@ -779,17 +863,18 @@ def _validate_preregistration(
         raise ProspectiveV2Error("PREREGISTRATION_GIT_PATH_INVALID")
     committed = subprocess.run(
         ["git", "cat-file", "-e", f"{capture_source_sha}:{registration_path}"],
-        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=False,
+        cwd=root, capture_output=True, text=True, check=False,
     )
     if committed.returncode != 0:
         raise ProspectiveV2Error("PREREGISTRATION_NOT_IN_CAPTURE_SOURCE_COMMIT")
     commit_time = subprocess.run(
         ["git", "show", "-s", "--format=%ct", capture_source_sha],
-        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=False,
+        cwd=root, capture_output=True, text=True, check=False,
     )
     if commit_time.returncode != 0 or not commit_time.stdout.strip().isdigit() or int(commit_time.stdout.strip()) >= int(t0.timestamp()):
         raise ProspectiveV2Error("CAPTURE_SOURCE_COMMIT_NOT_BEFORE_T0")
     return dict(payload)
+
 
 
 def _ema(values: Sequence[Decimal], period: int) -> list[float | None]:
