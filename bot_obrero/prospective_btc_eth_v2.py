@@ -1287,6 +1287,8 @@ def run_study(
     *,
     capture_root: Path,
     filters_path: Path,
+    warmup_path: Path,
+    preregistration_path: Path,
     t0: datetime,
     output_dir: Path,
     initial_usdt: Decimal = INITIAL_USDT,
@@ -1306,6 +1308,25 @@ def run_study(
     try:
         candle_map, capture_evidence = _load_pair_evidence(capture_root.resolve(strict=True), store)
         filters, filter_sha = load_filter_snapshot(filters_path, t0)
+        warmup_map, warmup_sha = load_warmup_snapshot(warmup_path, t0)
+        preregistration = _validate_preregistration(
+            preregistration_path, t0, filter_sha, warmup_sha, capture_evidence["source_sha"],
+        )
+        for symbol in SYMBOLS:
+            for stamp, warmup_candle in warmup_map[symbol].items():
+                captured = candle_map[symbol].get(stamp)
+                if captured is not None:
+                    same = (
+                        captured.open, captured.high, captured.low, captured.close,
+                        captured.volume, captured.end,
+                    ) == (
+                        warmup_candle.open, warmup_candle.high, warmup_candle.low,
+                        warmup_candle.close, warmup_candle.volume, warmup_candle.end,
+                    )
+                    if not same:
+                        raise ProspectiveV2Error(f"WARMUP_CAPTURE_CONFLICT:{symbol}:{stamp.isoformat()}")
+                else:
+                    candle_map[symbol][stamp] = warmup_candle
         if allow_short_test_window:
             raise ProspectiveV2Error("SHORT_TEST_WINDOW_MODE_IS_NOT_EXPOSED_BY_CLI")
         candles, eval_starts = _capture_window(candle_map, t0, t1)
@@ -1405,6 +1426,10 @@ def run_study(
             "capture_manifests": capture_evidence["capture_manifests"],
             "input_file_sha256": capture_evidence["input_file_sha256"],
             "filters_snapshot_sha256": filter_sha,
+            "warmup_snapshot_sha256": warmup_sha,
+            "preregistration_sha256": preregistration["registration_sha256"],
+            "preregistered_code_sha256": preregistration["code_sha256"],
+            "preregistration_path": preregistration.get("registration_path"),
             "t0": t0.isoformat(),
             "t1_exclusive": t1.isoformat(),
             "warmup_hours": WARMUP_HOURS,
@@ -1442,6 +1467,10 @@ def run_study(
             "t1_exclusive": t1.isoformat(),
             "source_sha": capture_evidence["source_sha"],
             "filters_snapshot_sha256": filter_sha,
+            "warmup_snapshot_sha256": warmup_sha,
+            "preregistration_sha256": preregistration["registration_sha256"],
+            "preregistration_path": preregistration.get("registration_path"),
+            "capture_manifest_fingerprints": capture_evidence["capture_manifests"],
             "artifacts_sha256": artifacts,
             "economic_classification": decision,
             "operational_decision": "NO_TRADE",
@@ -1484,9 +1513,22 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     filters = sub.add_parser("capture-filters", help="capture and hash public Spot exchangeInfo filters before T0")
     filters.add_argument("--output", type=Path, required=True)
+    warmup = sub.add_parser("capture-warmup", help="freeze 90 days of warm-up candles, excluded from scoring")
+    warmup.add_argument("--t0", required=True, help="future preregistered UTC hour")
+    warmup.add_argument("--output", type=Path, required=True)
+    prereg = sub.add_parser("preregister", help="write the hash-bound V2 registration to commit before T0")
+    prereg.add_argument("--t0", required=True)
+    prereg.add_argument("--filters-json", type=Path, required=True)
+    prereg.add_argument("--warmup-json", type=Path, required=True)
+    prereg.add_argument("--output", type=Path, required=True, help="path inside the repository; commit this file to main before T0")
+    capture = sub.add_parser("capture-period", help="capture public Kline + bookTicker continuously until T1; no performance output")
+    capture.add_argument("--t0", required=True, help="T0 from the committed preregistration")
+    capture.add_argument("--output-dir", type=Path, required=True)
     run = sub.add_parser("replay", help="validate paired captures and replay the preregistered 365-day interval")
     run.add_argument("--capture-root", type=Path, required=True, help="directory tree containing accepted pair-manifest.json captures")
     run.add_argument("--filters-json", type=Path, required=True, help="filter snapshot captured before T0")
+    run.add_argument("--warmup-json", type=Path, required=True, help="hash-bound 90-day warm-up snapshot")
+    run.add_argument("--preregistration-json", type=Path, required=True, help="exact preregistration committed to source main before T0")
     run.add_argument("--t0", required=True, help="preregistered UTC hour, ISO-8601 with Z or +00:00")
     run.add_argument("--output-dir", type=Path, required=True)
     run.add_argument("--initial-usdt", default="31")
@@ -1499,10 +1541,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "capture-filters":
             print(json.dumps(capture_filter_snapshot(args.output), sort_keys=True, indent=2))
             return 0
+        if args.command == "capture-warmup":
+            print(json.dumps(capture_warmup_snapshot(_dt(args.t0, "T0"), args.output), sort_keys=True, indent=2))
+            return 0
+        if args.command == "preregister":
+            print(json.dumps(create_preregistration(
+                t0=_dt(args.t0, "T0"),
+                filters_path=args.filters_json,
+                warmup_path=args.warmup_json,
+                output_path=args.output,
+            ), sort_keys=True, indent=2))
+            return 0
+        if args.command == "capture-period":
+            t0 = _dt(args.t0, "T0")
+            now = datetime.now(timezone.utc)
+            if now >= t0:
+                raise ProspectiveV2Error("CAPTURE_PERIOD_MUST_START_BEFORE_T0")
+            t1 = t0 + timedelta(days=365)
+            duration = math.ceil((t1 - now).total_seconds())
+            if duration < 24 * 60 * 60 or duration > 500 * 24 * 60 * 60:
+                raise ProspectiveV2Error("CAPTURE_PERIOD_DURATION_OUT_OF_RANGE")
+            from .prospective_capture_pair import run_capture_pair
+            result = run_capture_pair(
+                output_dir=args.output_dir,
+                duration_seconds=duration,
+                align_to_utc_midnight=False,
+            )
+            result = {**result, "t0": t0.isoformat(), "t1_exclusive": t1.isoformat(), "requested_duration_seconds": duration}
+            print(json.dumps(result, sort_keys=True, indent=2))
+            return 0 if result.get("status") == "VALID" else 2
         t0 = _dt(args.t0, "T0")
         result = run_study(
             capture_root=args.capture_root,
             filters_path=args.filters_json,
+            warmup_path=args.warmup_json,
+            preregistration_path=args.preregistration_json,
             t0=t0,
             output_dir=args.output_dir,
             initial_usdt=_dec(args.initial_usdt, "initial_usdt", positive=True),
