@@ -47,7 +47,7 @@ Run a one-year virtual replay with a fictitious 60 USDT balance:
 .\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-top1 --symbol ETHUSDT --interval 1h --candles 8760 --initial-quote-balance 60 --position-fraction 0.95 --liquidate-at-end --dataset-output evidence/eth-bbmr-top1-60usdt.json
 ```
 
-The profile freezes the 168-hour Bollinger z-score entry `z < -2.5` when the close is above EMA720; it exits when `z > +1.0` or the close is at/below EMA720. Signals use completed hourly closes and virtual fills use the next hourly open with modeled costs. The CLI defaults to a 0.10% fee per fill, assumed 10 bps full spread and 5 bps slippage per fill. Stress reruns are:
+The profile freezes the 168-hour Bollinger z-score entry `z < -2.5` when the close is above EMA720; it exits when `z > +1.0` or the close is at/below EMA720. Signals use completed hourly closes and virtual fills use the next hourly open with modeled costs. The CLI defaults to a 0.10% fee per fill, assumed 10 bps full spread and 5 bps slippage per fill. The command warns if minimum quantity, lot step or notional filters are not supplied; the generic REST metadata resolver does not reconstruct historical order filters. To apply explicitly checked fixed assumptions, add `--min-qty`, `--quantity-step`, `--min-notional` and optionally `--max-qty`. The exchange's current filters are not proof of the filters that applied over the full history. Stress reruns against the exact same saved candles are:
 
 ```powershell
 .\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-top1 --symbol ETHUSDT --interval 1h --candles 8760 --initial-quote-balance 60 --position-fraction 0.95 --fee-rate 0.001 --spread-bps 25 --slippage-bps 10 --liquidate-at-end --dataset-input evidence/eth-bbmr-top1-60usdt.json
@@ -58,7 +58,7 @@ The profile freezes the 168-hour Bollinger z-score entry `z < -2.5` when the clo
 
 - `status` reports the current project policy and the still-open strategy evidence gates.
 - `analyze` is read-only and uses public Binance Spot data.
-- `backtest` executes a historical **virtual** EMA/RSI simulation with modeled costs; it does not submit exchange orders.
+- `backtest` executes a historical **virtual** EMA/RSI simulation or the frozen `eth-bbmr-top1` research profile with modeled costs; it does not submit exchange orders.
 - `research-btc-eth` is historical BTC/ETH virtual research. It is not the prospective V2 holdout and cannot activate a strategy.
 - `prospective-v2` provides hash-bound filter/warm-up capture, pre-T0 registration, continuous one-year public-data capture and the final economic replay. Follow [the full V2 operator procedure](docs/research/BTC_ETH_PROSPECTIVE_V2_OPERATOR.md); the year-long collection must run on a persistent operator machine and cannot be performed by GitHub CI.
 
