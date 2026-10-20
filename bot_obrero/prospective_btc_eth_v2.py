@@ -216,7 +216,7 @@ class QuoteStore:
     def first_at_or_after(self, symbol: str, instant: datetime, *, max_age_seconds: int = MAX_QUOTE_AGE_SECONDS) -> Quote:
         row = self.connection.execute(
             """SELECT symbol, update_id, received_at, available_at, bid, ask
-               FROM quotes WHERE symbol=? AND available_ts>=?
+               FROM quotes WHERE symbol=? AND available_ts>?
                ORDER BY available_ts, update_id LIMIT 1""",
             (symbol, instant.timestamp()),
         ).fetchone()
@@ -227,9 +227,9 @@ class QuoteStore:
             available_at=_dt(row[3], "quote_available_at"), bid=Decimal(row[4]), ask=Decimal(row[5]),
         )
         delay = (quote.available_at - instant).total_seconds()
-        if delay < 0 or delay > max_age_seconds:
+        if delay <= 0 or delay > max_age_seconds:
             raise ProspectiveV2Error(f"FRESH_QUOTE_NOT_WITHIN_{max_age_seconds}_SECONDS:{symbol}:{instant.isoformat()}")
-        if quote.received_at < instant or quote.available_at < quote.received_at:
+        if quote.received_at <= instant or quote.available_at < quote.received_at:
             raise ProspectiveV2Error("QUOTE_TEMPORAL_ORDER_INVALID")
         return quote
 
