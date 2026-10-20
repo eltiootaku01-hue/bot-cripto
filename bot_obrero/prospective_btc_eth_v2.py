@@ -108,9 +108,12 @@ def _dec(value: Any, label: str, *, positive: bool = False, nonnegative: bool = 
 
 
 def _safe_child(root: Path, raw: Any, label: str) -> Path:
-    if type(raw) is not str or not raw or "\\" in raw:
+    if type(raw) is not str or not raw.strip():
         raise ProspectiveV2Error(f"{label}_PATH_INVALID")
-    relative = PurePosixPath(raw)
+    # Pair manifests created on Windows serialize relative paths with backslashes.
+    # Normalize separators first, then apply POSIX traversal/symlink checks.
+    normalized = raw.replace("\\", "/")
+    relative = PurePosixPath(normalized)
     if relative.is_absolute() or any(p in {"", ".", ".."} for p in relative.parts):
         raise ProspectiveV2Error(f"{label}_PATH_UNSAFE")
     current = root
