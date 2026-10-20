@@ -359,7 +359,7 @@ def simulate_oos(feat,cache,idx,grid_by_month,start,end):
         for t in trades:
             buy,fb=adverse_price(float(t["entry_ref"]),COSTS[scen],"BUY");sell,fs=adverse_price(float(t["exit_ref"]),COSTS[scen],"SELL")
             trade_r.append(100*(sell*(1-fs)/(buy*(1+fb))-1))
-        summary[scen]={"initial_usdt":INITIAL_USDT,"final_usdt":float(cash[scen],"return_pct":100*(float(cash[scen])/INITIAL_USDT-1),
+        summary[scen]={"initial_usdt":INITIAL_USDT,"final_usdt":float(cash[scen]),"return_pct":100*(float(cash[scen])/INITIAL_USDT-1),
             "max_drawdown_pct":float(np.min(100*(q/peak-1))) if len(q) else 0,"closed_trades":len(trades),
             "positive_trades":sum(r>0 for r in trade_r),"win_rate_pct":100*sum(r>0 for r in trade_r)/len(trade_r) if trade_r else 0.0,
             "mean_trade_return_pct":float(np.mean(trade_r)) if trade_r else None,"median_trade_return_pct":float(np.median(trade_r)) if trade_r else None}
