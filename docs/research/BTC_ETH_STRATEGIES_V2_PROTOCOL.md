@@ -2,10 +2,10 @@
 
 **Versión del protocolo:** 1.0  
 **Fecha de diseño:** 2026-10-17 UTC  
-**Estado:** `DESIGNED / NOT RUN`  
+**Estado:** `IMPLEMENTED / NOT RUN`  
 **Decisión operativa:** `NO_TRADE`  
 **Autoridad:** CEREBRO / IA-CHAN  
-**Tipo de trabajo:** diseño de investigación; no modifica runtime ni habilita órdenes. Incorporado en `main` como protocolo de referencia; la ejecución económica V2 continúa sin iniciar.
+**Tipo de trabajo:** protocolo preregistrado y ejecutor de investigación implementado; no habilita órdenes. La ejecución económica prospectiva V2 continúa sin iniciar hasta que exista evidencia real aceptada y un T0 congelado en GitHub.
 
 ## 1. Objetivo y regla principal
 
@@ -13,7 +13,7 @@ Evaluar si una familia pequeña de estrategias BTC/ETH conserva una ventaja econ
 
 V1 ya exploró partes del histórico disponible, comparó siete reglas y probó una partición walk-forward; aun así, parte de la evaluación V1 se solapa con la evaluación previa de EMA/RSI y BTC-gated. El dataset histórico termina con la vela horaria que comienza a las 2026-10-17 18:00 UTC; su identidad SHA-256 es `13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8`. En consecuencia, **V2 no puntuará como evaluación principal ninguna vela anterior al inicio prospectivo T0**.
 
-Este documento solo pre-registra el protocolo. Todavía no existe resultado V2, no comenzó la captura prospectiva y no se ha demostrado que el año futuro tenga integridad suficiente. No trasladar estimaciones de V1 como si fueran resultados V2.
+El protocolo y el ejecutor de replay están versionados, pero todavía no existe resultado V2 y no se ha iniciado/aceptado el período prospectivo de 365 días. No trasladar estimaciones de V1 como si fueran resultados V2. El procedimiento operativo y los comandos están en [BTC_ETH_PROSPECTIVE_V2_OPERATOR.md](BTC_ETH_PROSPECTIVE_V2_OPERATOR.md).
 
 ## 2. Cómo se fija el periodo nuevo sin elegirlo tras ver los precios
 
@@ -131,9 +131,11 @@ Si ninguna estrategia cumple todo, el resultado es `NO_ROBUST_EDGE_FOUND / NO_TR
 
 ## 10. Estado actual
 
-`DESIGNED / NOT RUN`. No hay T0 fijado: tanto el colector prospectivo de klines como el de bookTicker, los validadores individuales y el comando `validate-pair` están implementados y cuentan con pruebas sintéticas, pero todavía no se han ejecutado/aceptado las capturas reales de 24 h en una ventana común. No se adquirió ni se puntuó ningún dato V2, no se modificaron estrategias operativas y no se habilitaron órdenes.
+`IMPLEMENTED / NOT RUN`. El capturador de Kline y bookTicker, los validadores, el empaquetador de evidencia y el ejecutor económico V2 están implementados con pruebas sintéticas y CI. Eso no equivale a una captura aceptada ni a un resultado económico: no hay T0 registrado, no se ha completado la captura de humo real como evidencia aceptada para esta versión congelada y no se ha evaluado un período prospectivo de 365 días. No se ha habilitado ninguna ruta de órdenes por este trabajo.
 
-La siguiente etapa técnica es ejecutar las dos capturas reales en paralelo desde una máquina persistente y validar cada manifiesto por separado. Después ejecutar el validador de solapamiento:
+La secuencia operativa está especificada en [BTC_ETH_PROSPECTIVE_V2_OPERATOR.md](BTC_ETH_PROSPECTIVE_V2_OPERATOR.md). En resumen: ejecutar y verificar el humo real de 24 h, congelar filtros y warm-up, crear el preregistro con hashes y T0, integrar ese archivo mediante una PR antes de T0, iniciar la captura continua emparejada desde un clon limpio y mantenerlo durante el intervalo; tras el cierre, ejecutar el replay desde el SHA de código congelado. El manifest de captura está vinculado al preregistro y al SHA de los insumos; los avances remotos posteriores de main no invalidan la captura si el HEAD local congelado y los archivos de código fuente permanecen iguales.
+
+La siguiente etapa es ejecutar la captura real de humo de 24 h y aceptar sus dos manifiestos y su solapamiento común:
 
 ```powershell
 python -m bot_obrero.prospective_book_ticker_capture validate-pair --kline-manifest evidence/prospective-btc-eth/<kline-run-id>/manifest.json --bookticker-manifest evidence/prospective-btc-eth-bookticker/<bookticker-run-id>/manifest.json
