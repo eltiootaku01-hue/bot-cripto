@@ -95,7 +95,7 @@ def _validate_source_provenance(pair: Mapping[str, Any]) -> None:
     if any(not isinstance(record, Mapping) for record in records):
         raise CaptureBundleError("SOURCE_PROVENANCE_SNAPSHOTS_MISSING")
     first = records[0]
-    for index, record in enumerate(records):
+    for record in records:
         if record.get("status") != "VALID" or record.get("branch") != "main":
             raise CaptureBundleError("SOURCE_PROVENANCE_NOT_VALID")
         for sha_key in ("git_head_sha", "origin_main_sha", "live_main_sha"):
@@ -103,11 +103,22 @@ def _validate_source_provenance(pair: Mapping[str, Any]) -> None:
                 raise CaptureBundleError("SOURCE_PROVENANCE_SHA_INVALID")
         if record.get("source_status_entries") != []:
             raise CaptureBundleError("SOURCE_WORKTREE_NOT_CLEAN")
-        if index and any(record.get(key) != first.get(key) for key in keys):
-            raise CaptureBundleError("SOURCE_PROVENANCE_CHANGED_DURING_CAPTURE")
+
+    # Capture start and launch must prove that this frozen source was the exact
+    # main revision before streaming began.
     if not (first["git_head_sha"] == first["origin_main_sha"] == first["live_main_sha"]):
         raise CaptureBundleError("SOURCE_PROVENANCE_REVISION_MISMATCH")
+    launch = records[1]
+    if any(launch.get(key) != first.get(key) for key in keys):
+        raise CaptureBundleError("SOURCE_PROVENANCE_CHANGED_BEFORE_CAPTURE_LAUNCH")
 
+    # A year-long capture pins the actual local code SHA, not a promise that
+    # nobody can merge unrelated changes to remote main for twelve months.
+    # The local HEAD/worktree must remain frozen. Local origin/main and live
+    # origin/main at finish are retained as context and may legitimately advance.
+    finish = records[2]
+    if finish.get("git_head_sha") != first.get("git_head_sha"):
+        raise CaptureBundleError("CAPTURE_CODE_REVISION_CHANGED")
 
 def _list_bundle_files(root: Path, expected_files: set[str]) -> list[Path]:
     files: list[Path] = []
