@@ -24,6 +24,14 @@ _STATUS = {
     "strategy_decision": "NO_TRADE",
     "v2_protocol": "IMPLEMENTED / NOT RUN",
     "historical_leader_candidate": "ETH_TSMOM_168H",
+    "periodic_top1_research_candidate": {
+        "identity": "ETH_BBMR_168_EMA720",
+        "cli_profile": "eth-bbmr-top1",
+        "cadence": "SIGNAL_DRIVEN_PERIODIC_NOT_FORCED",
+        "historical_result": "NOT_ROBUSTLY_VALIDATED",
+        "october_2026_isolated_stress2_return_pct": -1.78,
+        "runtime_promotion": "NOT_ALLOWED",
+    },
     "candidate_verdict": "NO_ROBUST_EDGE_FOUND",
     "live_execution": "DISABLED_BY_PROJECT_POLICY",
     "blocking_gates": [

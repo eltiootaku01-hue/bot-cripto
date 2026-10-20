@@ -53,6 +53,11 @@ def test_status_reports_no_trade_and_implemented_but_unrun_prospective_gate(caps
     assert output["strategy_decision"] == "NO_TRADE"
     assert output["v2_protocol"] == "IMPLEMENTED / NOT RUN"
     assert output["candidate_verdict"] == "NO_ROBUST_EDGE_FOUND"
+    top1 = output["periodic_top1_research_candidate"]
+    assert top1["cli_profile"] == "eth-bbmr-top1"
+    assert top1["cadence"] == "SIGNAL_DRIVEN_PERIODIC_NOT_FORCED"
+    assert top1["runtime_promotion"] == "NOT_ALLOWED"
+    assert top1["october_2026_isolated_stress2_return_pct"] == -1.78
     assert output["live_execution"] == "DISABLED_BY_PROJECT_POLICY"
     assert len(output["blocking_gates"]) >= 3
 
