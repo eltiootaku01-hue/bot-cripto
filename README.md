@@ -56,9 +56,24 @@ The profile freezes the 168-hour Bollinger z-score entry `z < -2.5` when the clo
 
 **This is not a winning-strategy declaration.** This candidate was selected after prior inspection of the same historical data; the isolated October 2026 trade lost under all three cost models and it has not passed independent out-of-sample validation. Output from this profile remains historical virtual research. Project strategy decision remains `NO_TRADE`; it never sends exchange orders or grants PAPER/LIVE promotion.
 
+### ETH BBMR 4h research alternative (virtual only; not promoted)
+
+A second, separately named frozen profile is available for an exploratory grid candidate: ETHUSDT on 4h, rolling z-score over 48 bars, entry `z < -0.75` while the close is above EMA180, exit `z > +2.0` or close at/below EMA180. It is a **research-only alternative**, not the winning strategy and not the project's TOP1 runtime selection.
+
+Replay approximately the same historical span as the grid screen with a fictitious 60 USDT balance and explicit fixed quantity-filter assumptions (check them before use; these do not prove historical Binance rules):
+
+```powershell
+.\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-4h-research --symbol ETHUSDT --interval 4h --candles 3839 --initial-quote-balance 60 --position-fraction 0.95 --min-qty 0.0001 --quantity-step 0.0001 --min-notional 5 --liquidate-at-end --dataset-output evidence/eth-bbmr-4h-research-60usdt.json
+.\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-4h-research --symbol ETHUSDT --interval 4h --candles 3839 --initial-quote-balance 60 --position-fraction 0.95 --min-qty 0.0001 --quantity-step 0.0001 --min-notional 5 --fee-rate 0.001 --spread-bps 25 --slippage-bps 10 --liquidate-at-end --dataset-input evidence/eth-bbmr-4h-research-60usdt.json
+.\.venv\Scripts\bot-cripto.exe backtest --strategy eth-bbmr-4h-research --symbol ETHUSDT --interval 4h --candles 3839 --initial-quote-balance 60 --position-fraction 0.95 --min-qty 0.0001 --quantity-step 0.0001 --min-notional 5 --fee-rate 0.002 --spread-bps 50 --slippage-bps 20 --liquidate-at-end --dataset-input evidence/eth-bbmr-4h-research-60usdt.json
+```
+
+All three cost runs must use the same exported dataset. The original grid result (~640 days, starting 60 USDT) was +43.65% BASE, +32.85% STRESS_1 and +8.31% STRESS_2 with a −19.11% drawdown, but it was selected after searching thousands of variants on the same archived data; the stricter three-fold gate found **zero** candidates with at least three round-trips per fold. The result is not a guarantee and is not a clean holdout. Keep `NO_TRADE`.
+
+
 - `status` reports the current project policy and the still-open strategy evidence gates.
 - `analyze` is read-only and uses public Binance Spot data.
-- `backtest` executes a historical **virtual** EMA/RSI simulation or the frozen `eth-bbmr-top1` research profile with modeled costs; it does not submit exchange orders.
+- `backtest` executes a historical **virtual** EMA/RSI simulation or the frozen research-only profiles `eth-bbmr-top1` and `eth-bbmr-4h-research` with modeled costs; neither profile submits exchange orders.
 - `research-btc-eth` is historical BTC/ETH virtual research. It is not the prospective V2 holdout and cannot activate a strategy.
 - `prospective-v2` provides hash-bound filter/warm-up capture, pre-T0 registration, continuous one-year public-data capture and the final economic replay. Follow [the full V2 operator procedure](docs/research/BTC_ETH_PROSPECTIVE_V2_OPERATOR.md); the year-long collection must run on a persistent operator machine and cannot be performed by GitHub CI.
 
