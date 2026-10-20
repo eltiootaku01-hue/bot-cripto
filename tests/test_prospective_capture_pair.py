@@ -433,3 +433,43 @@ def test_frozen_capture_source_allows_remote_main_to_advance_after_launch(tmp_pa
 
     changed_head = dict(observed, git_head_sha="c" * 40)
     assert _same_frozen_source_revision(expected, changed_head) is False
+
+
+def test_pair_manifest_hash_binds_v2_registration_context_on_blocked_run(tmp_path):
+    processes = iter([FakeProcess(2), FakeProcess(None)])
+
+    def fake_popen(_command, **_kwargs):
+        return next(processes)
+
+    fixed_now = datetime(2026, 10, 18, 0, 0, 1, tzinfo=UTC)
+    clean_provenance = {
+        "status": "VALID", "reason": None,
+        "git_head_sha": "a" * 40, "origin_main_sha": "a" * 40, "live_main_sha": "a" * 40,
+        "branch": "main", "source_status_entries": [],
+    }
+    context = {
+        "study": "BTC_ETH_PROSPECTIVE_STRATEGIES_V2",
+        "t0": "2026-10-20T00:00:00+00:00",
+        "t1_exclusive": "2027-10-20T00:00:00+00:00",
+        "filters_snapshot_sha256": "b" * 64,
+        "warmup_snapshot_sha256": "c" * 64,
+        "preregistration_sha256": "d" * 64,
+        "smoke_bundle_sha256": "e" * 64,
+    }
+    result = run_capture_pair(
+        output_dir=tmp_path,
+        duration_seconds=86400,
+        registration_context=context,
+        align_to_utc_midnight=False,
+        source_provenance_resolver=lambda _cwd: clean_provenance,
+        popen_factory=fake_popen,
+        clock=lambda: fixed_now,
+        sleep=lambda _seconds: None,
+    )
+    persisted = json.loads(Path(result["pair_manifest_path"]).read_text(encoding="utf-8"))
+    assert persisted["configuration"]["registration_context"] == context
+    from bot_obrero.prospective_capture_pair import _canonical_json
+    import hashlib
+    assert persisted["configuration_sha256"] == hashlib.sha256(
+        _canonical_json(persisted["configuration"])
+    ).hexdigest()
