@@ -100,7 +100,7 @@ $pairRoot = Join-Path $installPath "evidence\prospective-btc-eth-pair"
 New-Item -ItemType Directory -Path $pairRoot -Force | Out-Null
 Write-Host ""
 Write-Host "Starting paired Kline + bookTicker capture. Leave this window open until it finishes."
-$captureOutput = & $venvPython -m bot_obrero.operator_cli capture-24h --output-dir $pairRoot 2>&1
+$captureOutput = & $venvPython -m bot_obrero.prospective_capture_pair capture --output-dir $pairRoot 2>&1
 $captureExitCode = $LASTEXITCODE
 $captureText = Convert-OutputToText $captureOutput
 Write-Output $captureText
