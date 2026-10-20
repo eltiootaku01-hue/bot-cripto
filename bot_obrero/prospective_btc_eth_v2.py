@@ -298,6 +298,8 @@ def _parse_quote_line(raw_line: str, expected_symbol: str) -> Quote:
         raise ProspectiveV2Error("QUOTE_SYMBOL_OR_SCHEMA_INVALID")
     if payload.get("venue") != "BINANCE" or payload.get("market") != "SPOT":
         raise ProspectiveV2Error("QUOTE_SOURCE_OR_MARKET_INVALID")
+    if payload.get("source") != "binance-public:spot-websocket-bookTicker" or payload.get("observation_type") != "BINANCE_SPOT_BOOK_TICKER":
+        raise ProspectiveV2Error("QUOTE_SOURCE_TYPE_INVALID")
     update_id = payload.get("update_id")
     if type(update_id) is not int or update_id < 0:
         raise ProspectiveV2Error("QUOTE_UPDATE_ID_INVALID")
@@ -714,7 +716,7 @@ def _daily_log_returns(equities: Sequence[Decimal]) -> list[float]:
 
 
 def _run_one(
-    strategy: str | None,
+    strategy: str,
     scenario: str,
     candles: Mapping[str, Sequence[Candle]],
     eval_starts: Sequence[datetime],
@@ -751,7 +753,7 @@ def _run_one(
         total_fees += fee_amount
         modeled_slippage += quantity * quote.bid * slip
         fills.append({
-            "sequence": len(fills) + 1, "strategy": strategy or "BUY_AND_HOLD",
+            "sequence": len(fills) + 1, "strategy": strategy,
             "scenario": scenario, "symbol": asset, "side": "SELL",
             "decision_at": decision_at.isoformat(), "available_at": quote.available_at.isoformat(),
             "update_id": quote.update_id, "bid": str(quote.bid), "ask": str(quote.ask),
@@ -790,7 +792,7 @@ def _run_one(
         total_fees += fee_amount
         modeled_slippage += qty * quote.ask * slip
         fills.append({
-            "sequence": len(fills) + 1, "strategy": strategy or "BUY_AND_HOLD",
+            "sequence": len(fills) + 1, "strategy": strategy,
             "scenario": scenario, "symbol": symbol, "side": "BUY",
             "decision_at": decision_at.isoformat(), "available_at": quote.available_at.isoformat(),
             "update_id": quote.update_id, "bid": str(quote.bid), "ask": str(quote.ask),
@@ -800,9 +802,6 @@ def _run_one(
         })
         buy_count += 1
 
-    if strategy is None:
-        # Matched passive comparator: begin in cash at T0, buy at the first fresh quote.
-        buy_at("BTCUSDT" if scenario == "__NEVER__" else "ETHUSDT", t0, t0 + timedelta(hours=1), ONE)
     for offset, stamp in enumerate(eval_starts):
         candle_index = index_by_start[stamp]
         boundary = stamp + timedelta(hours=1)
@@ -812,8 +811,6 @@ def _run_one(
         equity_curve.append(marked)
         if (offset + 1) % 24 == 0:
             daily_equities.append(marked)
-        if strategy is None:
-            continue
         if boundary >= t1:
             continue
         buy_signal, sell_signal, rotation_target = _strategy_conditions(strategy, candle_index, candles, features)
@@ -914,8 +911,6 @@ def _run_buy_hold(
     mark_quotes: Mapping[str, Sequence[Quote]],
 ) -> dict[str, Any]:
     # Buy-and-hold uses the same event-time, quote, fee, and liquidation rules.
-    result = _run_one(None, scenario, candles, eval_starts, t0, t1, filters, store, initial, mark_quotes)
-    # _run_one(None) is the cash benchmark; replace it with a dedicated single-asset replay.
     cost = SCENARIOS[scenario]
     fee, slip = cost["fee"], cost["slippage_bps"] / Decimal("10000")
     cash, quantity = initial, ZERO
@@ -1181,6 +1176,8 @@ def run_study(
         store.close()
         try:
             store_path.unlink(missing_ok=True)
+        Path(str(store_path) + "-wal").unlink(missing_ok=True)
+        Path(str(store_path) + "-shm").unlink(missing_ok=True)
         except OSError:
             pass
 
