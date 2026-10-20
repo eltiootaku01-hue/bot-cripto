@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use the installed `bot-cripto` command as the single entry point for the existing analysis, virtual backtest, research and prospective-capture modules. This is an operator facade over the versioned package, not a new financial execution engine.
+Use the installed `bot-cripto` command as the single entry point for analysis, virtual backtests, research, paired prospective capture and the registered BTC/ETH V2 economic replay. V2 is implemented but not run; it requires a real accepted smoke capture and a locally sustained prospective 365-day holdout.
 
 ## First run
 
@@ -12,9 +12,10 @@ Use the installed `bot-cripto` command as the single entry point for the existin
 .\.venv\Scripts\bot-cripto.exe backtest --help
 .\.venv\Scripts\bot-cripto.exe research-btc-eth --help
 .\.venv\Scripts\bot-cripto.exe capture-24h --help
+.\.venv\Scripts\bot-cripto.exe prospective-v2 --help
 ```
 
-The status report intentionally keeps `NO_TRADE`: the historical leader `ETH_TSMOM_168H` failed the registered robustness criteria, and V2 has not started. No code path in this command changes that decision.
+The status report intentionally keeps `NO_TRADE`: the historical leader `ETH_TSMOM_168H` failed the registered robustness criteria, and V2 is `IMPLEMENTED / NOT RUN`. The prospective engine does not change that decision. Follow [the V2 operator procedure](research/BTC_ETH_PROSPECTIVE_V2_OPERATOR.md) for smoke capture, T0 preregistration, full-year collection and final replay.
 
 ## Historical virtual simulation
 
@@ -48,7 +49,7 @@ git pull --ff-only origin main
 
 The paired collector itself enforces the source-provenance gate: repository root, branch `main`, clean relevant source paths, and exact equality among `HEAD`, `origin/main`, and live remote `main`. Do not edit source while the capture is waiting or running. The collector runs the independent Kline and bookTicker validators and the joint overlap validator. It must finish with `status: VALID`; otherwise keep the artifacts and logs for diagnosis.
 
-A valid 24-hour smoke capture establishes acquisition/temporal integrity only. It does not demonstrate profitability. The 365-day prospective holdout must be preregistered and separately completed before changing the decision from `NO_TRADE`.
+A valid 24-hour smoke capture establishes acquisition/temporal integrity only. It does not demonstrate profitability. The 365-day prospective holdout must be preregistered, separately completed, and pass every registered gate before a candidate can even enter second independent review. The V2 process never enables `TRADE` automatically.
 
 ## Failure and safety policy
 
