@@ -40,6 +40,19 @@ _BBMR_ENTRY_Z = Decimal("-2.5")
 _BBMR_EXIT_Z = Decimal("1.0")
 _BBMR_TREND_EMA_PERIOD = 720
 _BBMR_STRATEGY = "eth-bbmr-top1"
+_BBMR_4H_PERIOD = 48
+_BBMR_4H_ENTRY_Z = Decimal("-0.75")
+_BBMR_4H_EXIT_Z = Decimal("2.0")
+_BBMR_4H_TREND_EMA_PERIOD = 180
+_BBMR_4H_STRATEGY = "eth-bbmr-4h-research"
+
+
+def _bbmr_parameters(strategy: str) -> tuple[int, Decimal, Decimal, int, str] | None:
+    if strategy == _BBMR_STRATEGY:
+        return (_BBMR_PERIOD, _BBMR_ENTRY_Z, _BBMR_EXIT_Z, _BBMR_TREND_EMA_PERIOD, "1h")
+    if strategy == _BBMR_4H_STRATEGY:
+        return (_BBMR_4H_PERIOD, _BBMR_4H_ENTRY_Z, _BBMR_4H_EXIT_Z, _BBMR_4H_TREND_EMA_PERIOD, "4h")
+    return None
 
 
 class BacktestError(ValueError):
@@ -72,13 +85,13 @@ def _decimal_arg(value: str) -> Decimal:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run a virtual Binance Spot backtest using EMA/RSI or the frozen research-only ETH BBMR profile."
+        description="Run a virtual Binance Spot backtest using EMA/RSI or a frozen research-only ETH BBMR profile."
     )
     parser.add_argument("--symbol", required=True, help="Binance Spot symbol, e.g. BTCUSDT")
     parser.add_argument("--interval", required=True, help="Binance kline interval, e.g. 1m")
     parser.add_argument(
-        "--strategy", choices=("ema-rsi", _BBMR_STRATEGY), default="ema-rsi",
-        help="fixed virtual profile; eth-bbmr-top1 is research-only and requires ETHUSDT/1h",
+        "--strategy", choices=("ema-rsi", _BBMR_STRATEGY, _BBMR_4H_STRATEGY), default="ema-rsi",
+        help="fixed virtual profile; ETH BBMR profiles are research-only and locked to ETHUSDT on their defined timeframe",
     )
     parser.add_argument("--candles", type=_positive_int, default=500,
                         help="evaluation candles to simulate (default: 500; maximum: 10000)")
@@ -95,11 +108,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--rsi-sell-at", type=_decimal_arg, default=Decimal("70"))
     parser.add_argument(
         "--initial-quote-balance", type=_decimal_arg, default=None,
-        help="starting quote balance (defaults to 60 USDT for eth-bbmr-top1; 10000 otherwise)",
+        help="starting quote balance (defaults to 60 USDT for either ETH BBMR research profile; 10000 otherwise)",
     )
     parser.add_argument(
         "--position-fraction", type=_decimal_arg, default=None,
-        help="fraction per entry (defaults to 0.95 for eth-bbmr-top1; 1 otherwise)",
+        help="fraction per entry (defaults to 0.95 for either ETH BBMR research profile; 1 otherwise)",
     )
     parser.add_argument("--fee-rate", type=_decimal_arg, default=Decimal("0.001"))
     parser.add_argument("--slippage-bps", type=_decimal_arg, default=Decimal("5"))
@@ -142,7 +155,7 @@ class BacktestConfig:
     strategy: str = "ema-rsi"
 
     def validate(self) -> None:
-        if self.strategy not in ("ema-rsi", _BBMR_STRATEGY):
+        if self.strategy not in ("ema-rsi", _BBMR_STRATEGY, _BBMR_4H_STRATEGY):
             raise BacktestError("unsupported virtual strategy profile")
         if not isinstance(self.symbol, str) or not _SYMBOL_RE.fullmatch(self.symbol):
             raise BacktestError("invalid symbol format; use an uppercase Binance Spot symbol")
@@ -158,15 +171,23 @@ class BacktestConfig:
             raise BacktestError("RSI period must be positive")
         if isinstance(self.max_entries_per_30d, bool) or not 1 <= self.max_entries_per_30d <= 5:
             raise BacktestError("max_entries_per_30d must be between 1 and 5")
-        if self.strategy == _BBMR_STRATEGY:
-            if self.symbol != "ETHUSDT" or self.interval != "1h":
-                raise BacktestError("eth-bbmr-top1 is frozen for ETHUSDT on 1h candles only")
-            if self.slow_ema_period != _BBMR_TREND_EMA_PERIOD:
-                raise BacktestError("eth-bbmr-top1 requires the frozen EMA720 trend gate")
+        profile = _bbmr_parameters(self.strategy)
+        if profile is not None:
+            bb_period, _, _, trend_period, required_interval = profile
+            if self.symbol != "ETHUSDT" or self.interval != required_interval:
+                raise BacktestError(
+                    f"{self.strategy} is frozen for ETHUSDT on {required_interval} candles only"
+                )
+            if self.slow_ema_period != trend_period:
+                raise BacktestError(
+                    f"{self.strategy} requires the frozen EMA{trend_period} trend gate"
+                )
             if self.candles < 2:
-                raise BacktestError("eth-bbmr-top1 requires at least two evaluation candles")
-            if self.candles + _BBMR_TREND_EMA_PERIOD + 2 > _MAX_CANDLES:
-                raise BacktestError("evaluation plus EMA720 warm-up exceeds the 10000-candle acquisition limit")
+                raise BacktestError(f"{self.strategy} requires at least two evaluation candles")
+            if self.candles + trend_period + 2 > _MAX_CANDLES:
+                raise BacktestError(
+                    f"evaluation plus EMA{trend_period} warm-up exceeds the 10000-candle acquisition limit"
+                )
         else:
             warmup = max(self.slow_ema_period, self.rsi_period + 1)
             if self.candles < warmup + 2:
@@ -455,12 +476,14 @@ def _indicator_series(
             rsi[index] = value
 
     bollinger_z: list[Decimal | None] = [None] * count
-    if config.strategy == _BBMR_STRATEGY:
-        for index in range(_BBMR_PERIOD - 1, count):
-            window = closes[index - _BBMR_PERIOD + 1:index + 1]
-            mean = sum(window, _ZERO) / Decimal(_BBMR_PERIOD)
-            # Match pandas rolling(window=168).std() used by the candidate search (sample std, ddof=1).
-            variance = sum(((value - mean) * (value - mean) for value in window), _ZERO) / Decimal(_BBMR_PERIOD - 1)
+    profile = _bbmr_parameters(config.strategy)
+    if profile is not None:
+        bb_period, _, _, _, _ = profile
+        for index in range(bb_period - 1, count):
+            window = closes[index - bb_period + 1:index + 1]
+            mean = sum(window, _ZERO) / Decimal(bb_period)
+            # Match pandas rolling().std() from the candidate search (sample standard deviation, ddof=1).
+            variance = sum(((value - mean) * (value - mean) for value in window), _ZERO) / Decimal(bb_period - 1)
             if variance > _ZERO:
                 bollinger_z[index] = (closes[index] - mean) / variance.sqrt()
 
@@ -473,7 +496,7 @@ def _indicator_series(
                 "sma": sma[index], "fast_ema": fast[index],
                 "slow_ema": slow[index], "rsi": rsi[index],
             }
-            if config.strategy == _BBMR_STRATEGY:
+            if _bbmr_parameters(config.strategy) is not None:
                 row["zscore"] = bollinger_z[index]
             result.append(row)
     return result
@@ -515,10 +538,10 @@ def _configuration_record(config: BacktestConfig) -> dict[str, object]:
     return {
         "schema_version": 1, "symbol": config.symbol, "interval": config.interval,
         "strategy": config.strategy,
-        "bbmr_period": _BBMR_PERIOD if config.strategy == _BBMR_STRATEGY else None,
-        "bbmr_entry_z": str(_BBMR_ENTRY_Z) if config.strategy == _BBMR_STRATEGY else None,
-        "bbmr_exit_z": str(_BBMR_EXIT_Z) if config.strategy == _BBMR_STRATEGY else None,
-        "bbmr_trend_ema_period": _BBMR_TREND_EMA_PERIOD if config.strategy == _BBMR_STRATEGY else None,
+        "bbmr_period": _bbmr_parameters(config.strategy)[0] if _bbmr_parameters(config.strategy) else None,
+        "bbmr_entry_z": str(_bbmr_parameters(config.strategy)[1]) if _bbmr_parameters(config.strategy) else None,
+        "bbmr_exit_z": str(_bbmr_parameters(config.strategy)[2]) if _bbmr_parameters(config.strategy) else None,
+        "bbmr_trend_ema_period": _bbmr_parameters(config.strategy)[3] if _bbmr_parameters(config.strategy) else None,
         "candles": config.candles, "fast_ema_period": config.fast_ema_period,
         "slow_ema_period": config.slow_ema_period, "rsi_period": config.rsi_period,
         "rsi_buy_min": str(config.rsi_buy_min), "rsi_sell_at": str(config.rsi_sell_at),
@@ -743,22 +766,26 @@ def run_virtual_backtest(
         if current is None or previous is None:
             raise BacktestError("indicator history is insufficient at an evaluation decision")
 
-        if config.strategy == _BBMR_STRATEGY:
+        profile = _bbmr_parameters(config.strategy)
+        if profile is not None:
+            bb_period, entry_z, exit_z, trend_period, _ = profile
             zscore = current.get("zscore")
             buy_signal = (
                 zscore is not None
-                and zscore < _BBMR_ENTRY_Z
+                and zscore < entry_z
                 and candle.close > current["slow_ema"]
             )
             sell_signal = (
                 zscore is not None
-                and (zscore > _BBMR_EXIT_Z or candle.close <= current["slow_ema"])
+                and (zscore > exit_z or candle.close <= current["slow_ema"])
             )
-            entry_reason = "BBMR z-score below -2.5 while close is above EMA720"
+            entry_reason = (
+                f"BBMR z-score below {entry_z} while close is above EMA{trend_period}"
+            )
             exit_reason = (
-                "BBMR z-score above +1.0"
-                if zscore is not None and zscore > _BBMR_EXIT_Z
-                else "close at/below EMA720 trend gate"
+                f"BBMR z-score above {exit_z}"
+                if zscore is not None and zscore > exit_z
+                else f"close at/below EMA{trend_period} trend gate"
             )
         else:
             crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
@@ -861,11 +888,17 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Interval: {result.interval}")
     print(f"Candles simulated: {result.candle_count}")
     print(f"Historical range: {result.first_candle.isoformat()} .. {result.last_candle.isoformat()}")
-    if cfg.strategy == _BBMR_STRATEGY:
-        print("Strategy: ETH Bollinger mean reversion + EMA720 gate (TOP1 historical candidate; NOT PROMOTED)")
-        print(f"Bollinger window / entry z / exit z: {_BBMR_PERIOD} / {_BBMR_ENTRY_Z} / {_BBMR_EXIT_Z}")
-        print(f"Trend gate: close above EMA{_BBMR_TREND_EMA_PERIOD} to enter; close at/below EMA{_BBMR_TREND_EMA_PERIOD} to exit")
-        print(f"Final EMA({_BBMR_TREND_EMA_PERIOD}): {result.final_slow_ema}")
+    profile = _bbmr_parameters(cfg.strategy)
+    if profile is not None:
+        bb_period, entry_z, exit_z, trend_period, required_interval = profile
+        if cfg.strategy == _BBMR_STRATEGY:
+            profile_label = "TOP1 historical candidate"
+        else:
+            profile_label = "additional 4h research candidate; not promoted"
+        print(f"Strategy: ETH Bollinger mean reversion + EMA{trend_period} gate ({profile_label}; NOT PROMOTED)")
+        print(f"Bollinger window / entry z / exit z: {bb_period} / {entry_z} / {exit_z}")
+        print(f"Trend gate: close above EMA{trend_period} to enter; close at/below EMA{trend_period} to exit")
+        print(f"Final EMA({trend_period}): {result.final_slow_ema}")
         print(f"Final Bollinger z-score: {result.final_bollinger_zscore}")
         print("Cadence: signal-driven/periodic; never force a daily or monthly entry")
         print("Promotion status: RESEARCH_ONLY; strategy decision remains NO_TRADE")
@@ -884,7 +917,7 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Assumed full spread: {cfg.spread_bps} bps (half charged per fill; historical spread is not available)")
     print(f"Maximum entries per rolling 30 days: {cfg.max_entries_per_30d}")
     print(f"Instrument min quantity / step / min notional: {cfg.min_qty} / {cfg.quantity_step} / {cfg.min_notional}")
-    if cfg.strategy == _BBMR_STRATEGY and (
+    if _bbmr_parameters(cfg.strategy) is not None and (
         cfg.min_qty is None or cfg.quantity_step is None or cfg.min_notional is None
     ):
         print("WARNING: quantity step/minimum/min-notional filters are incomplete; virtual quantities may not match executable Binance order rules.")
@@ -916,11 +949,13 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    is_bbmr = args.strategy == _BBMR_STRATEGY
+    profile = _bbmr_parameters(args.strategy)
+    is_bbmr = profile is not None
+    trend_period = profile[3] if profile is not None else args.slow_ema_period
     config = BacktestConfig(
         symbol=args.symbol, interval=args.interval, strategy=args.strategy, candles=args.candles,
         fast_ema_period=args.fast_ema_period,
-        slow_ema_period=_BBMR_TREND_EMA_PERIOD if is_bbmr else args.slow_ema_period,
+        slow_ema_period=trend_period,
         rsi_period=args.rsi_period, rsi_buy_min=args.rsi_buy_min, rsi_sell_at=args.rsi_sell_at,
         initial_quote_balance=(
             args.initial_quote_balance
