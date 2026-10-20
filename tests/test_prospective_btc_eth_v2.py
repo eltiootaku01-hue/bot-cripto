@@ -221,3 +221,56 @@ def test_capture_window_rejects_missing_year_instead_of_filling_gaps():
     t0 = datetime(2027, 1, 1, tzinfo=UTC)
     with pytest.raises(v2.ProspectiveV2Error, match="INCOMPLETE_KLINE_COVERAGE"):
         v2._capture_window(empty, t0, t0 + timedelta(days=365))
+
+
+def test_load_warmup_snapshot_verifies_hash_and_uses_only_pre_t0_closed_bars(tmp_path):
+    t0 = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
+    warm_start = t0 - timedelta(hours=v2.WARMUP_HOURS)
+    captured_at = warm_start + timedelta(hours=1)
+    row = {
+        "start": warm_start.isoformat(),
+        "end": (warm_start + timedelta(hours=1)).isoformat(),
+        "open": "100", "high": "102", "low": "99", "close": "101", "volume": "10",
+    }
+    payload = {
+        "schema_version": 1,
+        "capture_kind": "PUBLIC_BINANCE_SPOT_KLINE_WARMUP_ONLY",
+        "captured_at": captured_at.isoformat(),
+        "t0": t0.isoformat(),
+        "warmup_hours_required": v2.WARMUP_HOURS,
+        "warmup_start": warm_start.isoformat(),
+        "warmup_end_exclusive_expected": t0.isoformat(),
+        "symbols": {"BTCUSDT": [row], "ETHUSDT": [row]},
+        "source_page_sha256_canonical": {"BTCUSDT": [], "ETHUSDT": []},
+        "limitations": "Warm-up only.",
+    }
+    payload["snapshot_sha256"] = canonical(payload)
+    path = tmp_path / "warmup.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    rows, digest = v2.load_warmup_snapshot(path, t0)
+    assert set(rows) == set(v2.SYMBOLS)
+    assert set(rows["BTCUSDT"]) == {warm_start}
+    assert rows["ETHUSDT"][warm_start].available_at == captured_at
+    assert len(digest) == 64
+
+    payload["symbols"]["BTCUSDT"][0]["close"] = "999"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(v2.ProspectiveV2Error, match="HASH_MISMATCH"):
+        v2.load_warmup_snapshot(path, t0)
+
+
+def test_preregistered_v2_cli_help_exposes_capture_warmup_period_and_replay():
+    parser = v2._parser()
+    commands = parser._subparsers._group_actions[0].choices
+    assert {"capture-filters", "capture-warmup", "preregister", "capture-period", "replay"} <= set(commands)
+
+
+def test_quote_parser_rejects_observed_timestamp_after_receive():
+    raw = json.loads(make_quote_line())
+    raw["quote"]["observed_at"] = (START + timedelta(hours=1, seconds=3)).isoformat()
+    raw["quote"]["received_at"] = (START + timedelta(hours=1, seconds=1)).isoformat()
+    raw["quote"]["available_at"] = (START + timedelta(hours=1, seconds=4)).isoformat()
+    raw["record_sha256"] = canonical(raw["quote"])
+    with pytest.raises(v2.ProspectiveV2Error, match="AVAILABILITY_ORDER_INVALID"):
+        v2._parse_quote_line(json.dumps(raw), "BTCUSDT")
