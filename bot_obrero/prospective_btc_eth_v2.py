@@ -357,6 +357,7 @@ def _load_pair_evidence(root: Path, store: QuoteStore) -> tuple[dict[str, dict[d
             "bookticker_manifest_sha256": _sha256_bytes(quote_manifest.read_bytes()),
             "source_sha": sha,
             "overlap_seconds": pair_validation.get("overlap_seconds"),
+            "registration_context": configuration.get("registration_context"),
         })
         for symbol in SYMBOLS:
             candle_path = kline_manifest.parent / f"{symbol}.jsonl"
@@ -1374,6 +1375,7 @@ def run_study(
     filters_path: Path,
     warmup_path: Path,
     preregistration_path: Path,
+    smoke_archive_path: Path,
     t0: datetime,
     output_dir: Path,
     initial_usdt: Decimal = INITIAL_USDT,
@@ -1394,9 +1396,22 @@ def run_study(
         candle_map, capture_evidence = _load_pair_evidence(capture_root.resolve(strict=True), store)
         filters, filter_sha = load_filter_snapshot(filters_path, t0)
         warmup_map, warmup_sha = load_warmup_snapshot(warmup_path, t0)
+        smoke = _validate_smoke_archive(smoke_archive_path)
         preregistration = _validate_preregistration(
-            preregistration_path, t0, filter_sha, warmup_sha, capture_evidence["source_sha"],
+            preregistration_path, t0, filter_sha, warmup_sha, capture_evidence["source_sha"], smoke,
         )
+        expected_context = {
+            "study": "BTC_ETH_PROSPECTIVE_STRATEGIES_V2",
+            "t0": t0.isoformat(),
+            "t1_exclusive": t1.isoformat(),
+            "filters_snapshot_sha256": filter_sha,
+            "warmup_snapshot_sha256": warmup_sha,
+            "preregistration_sha256": preregistration["registration_sha256"],
+            "smoke_bundle_sha256": smoke["sha256"],
+        }
+        for captured_manifest in capture_evidence["capture_manifests"]:
+            if captured_manifest.get("registration_context") != expected_context:
+                raise ProspectiveV2Error("CAPTURE_REGISTRATION_CONTEXT_MISMATCH")
         for symbol in SYMBOLS:
             for stamp, warmup_candle in warmup_map[symbol].items():
                 captured = candle_map[symbol].get(stamp)
@@ -1515,6 +1530,8 @@ def run_study(
             "preregistration_sha256": preregistration["registration_sha256"],
             "preregistered_code_sha256": preregistration["code_sha256"],
             "preregistration_path": preregistration.get("registration_path"),
+            "smoke_bundle_sha256": smoke["sha256"],
+            "smoke_source_sha": smoke["source_sha"],
             "t0": t0.isoformat(),
             "t1_exclusive": t1.isoformat(),
             "warmup_hours": WARMUP_HOURS,
@@ -1555,6 +1572,8 @@ def run_study(
             "warmup_snapshot_sha256": warmup_sha,
             "preregistration_sha256": preregistration["registration_sha256"],
             "preregistration_path": preregistration.get("registration_path"),
+            "smoke_bundle_sha256": smoke["sha256"],
+            "smoke_source_sha": smoke["source_sha"],
             "capture_manifest_fingerprints": capture_evidence["capture_manifests"],
             "artifacts_sha256": artifacts,
             "economic_classification": decision,
@@ -1608,15 +1627,21 @@ def _parser() -> argparse.ArgumentParser:
     prereg.add_argument("--t0", required=True)
     prereg.add_argument("--filters-json", type=Path, required=True)
     prereg.add_argument("--warmup-json", type=Path, required=True)
+    prereg.add_argument("--smoke-archive", type=Path, required=True, help="accepted 24-hour public-data smoke ZIP with SHA-256 sidecar")
     prereg.add_argument("--output", type=Path, required=True, help="path inside the repository; commit this file to main before T0")
     capture = sub.add_parser("capture-period", help="capture public Kline + bookTicker continuously until T1; no performance output")
     capture.add_argument("--t0", required=True, help="T0 from the committed preregistration")
+    capture.add_argument("--filters-json", type=Path, required=True)
+    capture.add_argument("--warmup-json", type=Path, required=True)
+    capture.add_argument("--preregistration-json", type=Path, required=True)
+    capture.add_argument("--smoke-archive", type=Path, required=True)
     capture.add_argument("--output-dir", type=Path, required=True)
     run = sub.add_parser("replay", help="validate paired captures and replay the preregistered 365-day interval")
     run.add_argument("--capture-root", type=Path, required=True, help="directory tree containing accepted pair-manifest.json captures")
     run.add_argument("--filters-json", type=Path, required=True, help="filter snapshot captured before T0")
     run.add_argument("--warmup-json", type=Path, required=True, help="hash-bound 90-day warm-up snapshot")
     run.add_argument("--preregistration-json", type=Path, required=True, help="exact preregistration committed to source main before T0")
+    run.add_argument("--smoke-archive", type=Path, required=True, help="same verified smoke ZIP recorded in preregistration")
     run.add_argument("--t0", required=True, help="preregistered UTC hour, ISO-8601 with Z or +00:00")
     run.add_argument("--output-dir", type=Path, required=True)
     run.add_argument("--initial-usdt", default="31")
@@ -1637,6 +1662,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 t0=_dt(args.t0, "T0"),
                 filters_path=args.filters_json,
                 warmup_path=args.warmup_json,
+                smoke_archive_path=args.smoke_archive,
                 output_path=args.output,
             ), sort_keys=True, indent=2))
             return 0
@@ -1646,6 +1672,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             if now >= t0:
                 raise ProspectiveV2Error("CAPTURE_PERIOD_MUST_START_BEFORE_T0")
             t1 = t0 + timedelta(days=365)
+            filter_rows, filter_sha = load_filter_snapshot(args.filters_json, t0)
+            warmup_rows, warmup_sha = load_warmup_snapshot(args.warmup_json, t0)
+            smoke = _validate_smoke_archive(args.smoke_archive)
+            root = Path(__file__).resolve().parents[1]
+            head_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=False,
+            )
+            if head_result.returncode != 0:
+                raise ProspectiveV2Error("CURRENT_SOURCE_HEAD_UNAVAILABLE")
+            frozen_head = head_result.stdout.strip().lower()
+            preregistration = _validate_preregistration(
+                args.preregistration_json, t0, filter_sha, warmup_sha, frozen_head, smoke,
+            )
+            registration_context = {
+                "study": "BTC_ETH_PROSPECTIVE_STRATEGIES_V2",
+                "t0": t0.isoformat(),
+                "t1_exclusive": t1.isoformat(),
+                "filters_snapshot_sha256": filter_sha,
+                "warmup_snapshot_sha256": warmup_sha,
+                "preregistration_sha256": preregistration["registration_sha256"],
+                "smoke_bundle_sha256": smoke["sha256"],
+            }
             duration = math.ceil((t1 - now).total_seconds())
             if duration < 24 * 60 * 60 or duration > 500 * 24 * 60 * 60:
                 raise ProspectiveV2Error("CAPTURE_PERIOD_DURATION_OUT_OF_RANGE")
@@ -1653,6 +1701,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = run_capture_pair(
                 output_dir=args.output_dir,
                 duration_seconds=duration,
+                registration_context=registration_context,
                 align_to_utc_midnight=False,
             )
             result = {**result, "t0": t0.isoformat(), "t1_exclusive": t1.isoformat(), "requested_duration_seconds": duration}
@@ -1664,6 +1713,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             filters_path=args.filters_json,
             warmup_path=args.warmup_json,
             preregistration_path=args.preregistration_json,
+            smoke_archive_path=args.smoke_archive,
             t0=t0,
             output_dir=args.output_dir,
             initial_usdt=_dec(args.initial_usdt, "initial_usdt", positive=True),
