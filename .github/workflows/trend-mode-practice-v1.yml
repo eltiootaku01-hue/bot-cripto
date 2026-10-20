@@ -1,0 +1,116 @@
+name: Trend Mode Practice V1 historical replay
+
+on:
+  pull_request:
+    paths:
+      - "research/trend_mode_practice_v1.py"
+      - "research/test_trend_mode_practice_v1.py"
+      - ".github/workflows/trend-mode-practice-v1.yml"
+  push:
+    branches: [main]
+    paths:
+      - "research/trend_mode_practice_v1.py"
+      - "research/test_trend_mode_practice_v1.py"
+      - ".github/workflows/trend-mode-practice-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  trend-practice-replay:
+    name: Frozen Donchian trend rule, 21-month OHLC replay, integrity gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout tested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned research/test dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Test trend strategy timing, fills, stop-gap policy, costs, no-overlap and anti-lookahead
+        run: python -m pytest -q research/test_trend_mode_practice_v1.py
+      - name: Download immutable BTC/ETH historical source artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: btc-eth-follow-365d-f8b9c36768f68ee754f1cb217f920dea25ef445e
+          run-id: 39062915950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Run the one frozen trend practice rule in three cost scenarios
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python research/trend_mode_practice_v1.py \
+            --dataset input/btc-eth-follow-365d-dataset.json \
+            --output-dir evidence/trend-mode-practice-v1 \
+            --source-sha "$SOURCE_SHA"
+      - name: Independently verify pinned input, counts, metrics and every output hash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python - <<'PY'
+          import csv, hashlib, json
+          from pathlib import Path
+          root = Path("evidence/trend-mode-practice-v1")
+          result = json.loads((root / "result.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          with (root / "monthly-returns.csv").open(newline="") as f:
+              monthly_rows = list(csv.DictReader(f))
+          with (root / "monthly-summary.csv").open(newline="") as f:
+              monthly_summary = {r["cost_scenario"]: r for r in csv.DictReader(f)}
+          assert len(monthly_rows) == 66
+          assert sum(r["cost_scenario"] == "BASE" and r["is_complete_calendar_month"] == "True" for r in monthly_rows) == 20
+          assert set(monthly_summary) == {"BASE", "STRESS_1", "STRESS_2"}
+          assert monthly_summary["BASE"]["positive_strategy_months"] == "4"
+          assert monthly_summary["STRESS_2"]["positive_strategy_months"] == "4"
+          assert result["decision"] == "NO_TRADE"
+          assert result["status"] == "HISTORICAL_OHLC_ENGINE_REPLAY_NOT_EXECUTABLE_PAPER_PROOF"
+          assert result["source_git_sha"] == "${{ github.event.pull_request.head.sha || github.sha }}"
+          assert result["dataset_logical_sha256"] == "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
+          assert result["dataset_configuration_sha256"] == "2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a"
+          assert result["dataset_raw_file_sha256"] == "3851a560aafbaa44f7d57081bd12f7dfdae070c2abff3d65e122ad8fcbd6df36"
+          assert result["hourly_bars_per_asset"] == {"BTCUSDT": 15360, "ETHUSDT": 15360}
+          assert result["four_hour_bars_after_drop_partial"] == {"BTCUSDT": 3839, "ETHUSDT": 3839}
+          assert result["missing_available_at_count_by_asset"] == {"BTCUSDT": 15360, "ETHUSDT": 15360}
+          assert result["unknown_finality_count_by_asset"] == {"BTCUSDT": 15360, "ETHUSDT": 15360}
+          expected = {
+              "BASE": (4.3094874984, -34.3036380098, 28),
+              "STRESS_1": (-2.4006531515, -36.5994373604, 28),
+              "STRESS_2": (-17.8923768107, -42.1988013893, 28),
+          }
+          assert set(result["scenario_results"]) == set(expected)
+          for name, (ret, dd, entries) in expected.items():
+              metrics = result["scenario_results"][name]["metrics"]
+              assert abs(metrics["net_return_pct"] - ret) < 1e-7, (name, metrics["net_return_pct"])
+              assert abs(metrics["max_drawdown_pct"] - dd) < 1e-7, (name, metrics["max_drawdown_pct"])
+              assert metrics["entries"] == entries
+              assert metrics["open_position_at_end"] is False
+          assert manifest["decision"] == "NO_TRADE"
+          assert manifest["source_git_sha"] == result["source_git_sha"]
+          assert manifest["files"]
+          for name, meta in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == meta["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == meta["sha256"], f"hash mismatch: {name}"
+          print("HISTORICAL_BARS_PER_ASSET:", result["hourly_bars_per_asset"])
+          print("FOUR_HOUR_COMPLETE_BARS_PER_ASSET:", result["four_hour_bars_after_drop_partial"])
+          for name, (ret, dd, count) in expected.items():
+              print(f"{name}: net_return={ret:+.4f}% max_drawdown={dd:+.4f}% trades={count}")
+          print("MONTHLY_COMPARISON_ROWS:", 66)
+          print("AVAILABLE_AT_UNKNOWN:", 30720)
+          print("DECISION: NO_TRADE")
+          PY
+      - name: Upload complete practice evidence with checksums
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trend-mode-practice-v1-${{ github.sha }}
+          path: evidence/trend-mode-practice-v1/
+          if-no-files-found: error
+          retention-days: 90
