@@ -107,6 +107,14 @@ def _parser() -> argparse.ArgumentParser:
                         help="assumed full spread in basis points; half is charged at each fill")
     parser.add_argument("--max-entries-per-30d", type=_positive_int, default=5,
                         help="maximum virtual BUY entries in any rolling 30-day window (maximum: 5)")
+    parser.add_argument("--min-qty", type=_decimal_arg, default=None,
+                        help="optional fixed lot minimum; verify against the market's current ExchangeInfo")
+    parser.add_argument("--quantity-step", type=_decimal_arg, default=None,
+                        help="optional fixed lot step; rounded down before each virtual BUY")
+    parser.add_argument("--min-notional", type=_decimal_arg, default=None,
+                        help="optional minimum quote notional; verify against the market's current ExchangeInfo")
+    parser.add_argument("--max-qty", type=_decimal_arg, default=None,
+                        help="optional fixed lot maximum; verify against the market's current ExchangeInfo")
     return parser
 
 
@@ -875,6 +883,11 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
     print(f"Assumed full spread: {cfg.spread_bps} bps (half charged per fill; historical spread is not available)")
     print(f"Maximum entries per rolling 30 days: {cfg.max_entries_per_30d}")
     print(f"Instrument min quantity / step / min notional: {cfg.min_qty} / {cfg.quantity_step} / {cfg.min_notional}")
+    if cfg.strategy == _BBMR_STRATEGY and (
+        cfg.min_qty is None or cfg.quantity_step is None or cfg.min_notional is None
+    ):
+        print("WARNING: quantity step/minimum/min-notional filters are incomplete; virtual quantities may not match executable Binance order rules.")
+    print("Historical lot-filter provenance: current rules are not stored per historical candle; any supplied filter values are fixed assumptions.")
     print(f"Terminal liquidation: {'ENABLED (SELL fill is booked at the last close, including modeled exit costs)' if cfg.liquidate_at_end else 'DISABLED (open position is marked at last-close net liquidation value; no SELL fill is booked)'}")
     print("Quote balance is denominated in the pair quote asset; it is not an ARS balance or an ARS-to-USDT conversion.")
     print("Execution model: signal at candle close; fill at next candle open with configured slippage")
@@ -920,6 +933,8 @@ def run(args: argparse.Namespace) -> int:
         ),
         fee_rate=args.fee_rate, slippage_bps=args.slippage_bps, spread_bps=args.spread_bps,
         max_entries_per_30d=args.max_entries_per_30d,
+        min_qty=args.min_qty, quantity_step=args.quantity_step,
+        min_notional=args.min_notional, max_qty=args.max_qty,
         liquidate_at_end=args.liquidate_at_end,
     )
     config.validate()
