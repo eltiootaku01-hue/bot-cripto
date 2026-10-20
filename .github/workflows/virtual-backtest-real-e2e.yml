@@ -85,7 +85,7 @@ jobs:
           grep -F "Strategy: EMA crossover with RSI filter" virtual-backtest-report.txt
           grep -F "Virtual fills:" virtual-backtest-report.txt
           grep -F "Final quote balance:" virtual-backtest-report.txt
-          grep -F "Final equity (last close mark):" virtual-backtest-report.txt
+          grep -F "Final equity (last-close net-liquidation mark):" virtual-backtest-report.txt
           grep -F "Total fees:" virtual-backtest-report.txt
           grep -F "Realized PnL:" virtual-backtest-report.txt
           grep -F "Return:" virtual-backtest-report.txt
