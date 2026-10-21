@@ -7,11 +7,13 @@ on:
     paths:
       - "research/test_tp_sl_economic_contract_golden_v1.py"
       - "docs/research/TP_SL_NET_ECONOMIC_GOLDEN_SPEC_V1.md"
+      - "research/tp_sl_barrier_backtest_v1.py"
       - ".github/workflows/tp-sl-economic-golden-v1.yml"
   pull_request:
     paths:
       - "research/test_tp_sl_economic_contract_golden_v1.py"
       - "docs/research/TP_SL_NET_ECONOMIC_GOLDEN_SPEC_V1.md"
+      - "research/tp_sl_barrier_backtest_v1.py"
       - ".github/workflows/tp-sl-economic-golden-v1.yml"
   workflow_dispatch:
 

@@ -71,6 +71,21 @@ The production module supplies the frozen scenario configuration; the following 
 
 Golden values use tolerance `1e-8` for reported money and net-return outputs, and tighter tolerances for entry/exit trigger levels. This tolerates binary floating-point representation without permitting meaningful accounting drift. The values are tied to the current float-based research simulator; they do not establish exchange-grade decimal rounding.
 
+## Portfolio return versus trade return
+
+The six synthetic cases separately pin the **portfolio-level** `summary.return_pct` with starting equity of 1,000 USDT. The trade return still divides the same PnL by the 950 USDT entry outlay; the portfolio return divides it by the full initial capital. The values are deliberately different and both are asserted:
+
+| Scenario | Outcome | Trade net return on 950 USDT | Portfolio return on 1,000 USDT |
+|---|---|---:|---:|
+| BASE | TP | +0.6974035964% | +0.6625334166% |
+| BASE | SL | −0.7981023976% | −0.7581972777% |
+| STRESS_1 | TP | +0.5714058442% | +0.5428355519% |
+| STRESS_1 | SL | −0.9222288961% | −0.8761174513% |
+| STRESS_2 | TP | +0.1441207585% | +0.1369147206% |
+| STRESS_2 | SL | −1.3431681637% | −1.2760097555% |
+
+This distinction matters because `summary.return_pct` is `100 × (final_equity_usdt − initial_capital_usdt) / initial_capital_usdt`. It must not accidentally reuse `net_return_on_entry_outlay_pct`.
+
 ## Acceptance checks
 
 The suite executes a one-signal, one-trade synthetic replay per combination (three cost cases × TP/SL), and asserts:
@@ -83,10 +98,11 @@ The suite executes a one-signal, one-trade synthetic replay per combination (thr
 6. Gross return from entry fill is exactly the TP/SL contract (+1.00% / −0.50%) while the legacy field matches the raw-open basis and differs from the fill basis.
 7. Net PnL agrees both with the golden result and with the accounting identity; net return uses the actual entry cash outlay.
 8. Portfolio exit counts, fee totals, final equity and net PnL reconcile to the single trade.
+9. Portfolio `summary.return_pct` matches a literal golden based on initial capital and is explicitly distinct from trade return on entry outlay.
 
 ## CI isolation
 
-The dedicated workflow `.github/workflows/tp-sl-economic-golden-v1.yml` runs only this synthetic test file on the research branch when the specification, test, or test-only workflow changes. It does not download historical data, invoke the full replay, generate research performance tables, or upload backtest artifacts.
+The dedicated workflow `.github/workflows/tp-sl-economic-golden-v1.yml` runs only this synthetic test file on the research branch when the specification, test, workflow, **or simulator source** changes. It does not download historical data, invoke the full replay, generate research performance tables, or upload backtest artifacts.
 
 Command executed by the workflow:
 

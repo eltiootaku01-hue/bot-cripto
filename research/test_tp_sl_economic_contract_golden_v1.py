@@ -42,6 +42,7 @@ GOLDEN = {
             "total_fees_usdt": 1.9066338661338667,
             "net_pnl_usdt": 6.625334165834147,
             "net_return_on_entry_outlay_pct": 0.6974035964035943,
+            "portfolio_return_pct": 0.6625334165834147,
             "gross_price_return_pct": 1.101000000000,
             "gross_return_from_entry_fill_pct": 1.000000000000,
         },
@@ -52,6 +53,7 @@ GOLDEN = {
             "total_fees_usdt": 1.8924123376623383,
             "net_pnl_usdt": -7.581972777222745,
             "net_return_on_entry_outlay_pct": -0.7981023976023940,
+            "portfolio_return_pct": -0.7581972777222745,
             "gross_price_return_pct": -0.400500000000,
             "gross_return_from_entry_fill_pct": -0.500000000000,
         },
@@ -68,6 +70,7 @@ GOLDEN = {
             "total_fees_usdt": 1.9054356893106896,
             "net_pnl_usdt": 5.428355519480533,
             "net_return_on_entry_outlay_pct": 0.5714058441558455,
+            "portfolio_return_pct": 0.5428355519480533,
             "gross_price_return_pct": 1.227250000000,
             "gross_return_from_entry_fill_pct": 1.000000000000,
         },
@@ -78,6 +81,7 @@ GOLDEN = {
             "total_fees_usdt": 1.8912319555444560,
             "net_pnl_usdt": -8.761174512987054,
             "net_return_on_entry_outlay_pct": -0.9222288961039004,
+            "portfolio_return_pct": -0.8761174512987054,
             "gross_price_return_pct": -0.276125000000,
             "gross_return_from_entry_fill_pct": -0.500000000000,
         },
@@ -94,6 +98,7 @@ GOLDEN = {
             "total_fees_usdt": 3.8027589820359280,
             "net_pnl_usdt": 1.3691472055890017,
             "net_return_on_entry_outlay_pct": 0.1441207584830528,
+            "portfolio_return_pct": 0.13691472055890017,
             "gross_price_return_pct": 1.454500000000,
             "gross_return_from_entry_fill_pct": 1.000000000000,
         },
@@ -104,6 +109,7 @@ GOLDEN = {
             "total_fees_usdt": 3.7744438622754490,
             "net_pnl_usdt": -12.760097554890194,
             "net_return_on_entry_outlay_pct": -1.3431681636726522,
+            "portfolio_return_pct": -1.2760097554890194,
             "gross_price_return_pct": -0.052250000000,
             "gross_return_from_entry_fill_pct": -0.500000000000,
         },
@@ -226,6 +232,15 @@ def test_tp_sl_net_accounting_matches_golden_vectors(scenario: str, outcome: str
     assert summary["time_exits"] == 0
     assert summary["total_fees_usdt"] == pytest.approx(trade["total_fees_usdt"], abs=1e-9)
     assert summary["net_pnl_usdt"] == pytest.approx(trade["net_pnl_usdt"], abs=1e-8)
+    # Portfolio return uses initial capital (1,000 USDT), not only the 950 USDT trade outlay.
+    assert summary["initial_capital_usdt"] == pytest.approx(1000.0, abs=1e-10)
+    assert summary["return_pct"] == pytest.approx(expected_outcome["portfolio_return_pct"], abs=1e-8)
+    assert summary["return_pct"] == pytest.approx(
+        100.0 * summary["net_pnl_usdt"] / summary["initial_capital_usdt"], abs=1e-8
+    )
+    assert summary["return_pct"] != pytest.approx(
+        trade["net_return_on_entry_outlay_pct"], abs=1e-5
+    )
     assert summary["final_equity_usdt"] - summary["initial_capital_usdt"] == pytest.approx(
         summary["net_pnl_usdt"], abs=1e-8
     )
