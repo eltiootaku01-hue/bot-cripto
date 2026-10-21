@@ -1,4 +1,4 @@
-# Updated trigger: the run verifies prefix-only accounting against the reference engine before publishing results; underscore-named cost scenarios are checked exactly.
+# Comparison run: three frozen tactics, six capital/cost variants each, shared dataset, cash and ETH buy-and-hold benchmarks; all decisions are prefix-only and reference-parity gated.
 name: ETH BBMR clock-driven walk-forward replay (research only)
 
 on:
@@ -36,14 +36,18 @@ jobs:
           grep -F '"future_candles_passed_to_decision": 0' evidence-walk-forward-console.txt
           grep -F '"operational_decision": "NO_TRADE"' evidence-walk-forward-console.txt
           grep -F 'Dataset SHA-256:' evidence-walk-forward-console.txt
-          grep -F 'RESULT capital=60 scenario=BASE' evidence-walk-forward-console.txt
-          grep -F 'RESULT capital=60 scenario=STRESS_2' evidence-walk-forward-console.txt
-          grep -F 'RESULT capital=100 scenario=BASE' evidence-walk-forward-console.txt
-          grep -F 'RESULT capital=100 scenario=STRESS_2' evidence-walk-forward-console.txt
+          grep -F 'RESULT strategy=eth-bbmr-4h-research capital=60 scenario=BASE' evidence-walk-forward-console.txt
+          grep -F 'RESULT strategy=eth-bbmr-4h-research capital=100 scenario=STRESS_2' evidence-walk-forward-console.txt
+          grep -F 'RESULT strategy=ema-rsi capital=60 scenario=BASE' evidence-walk-forward-console.txt
+          grep -F 'RESULT strategy=ema-rsi capital=100 scenario=STRESS_2' evidence-walk-forward-console.txt
+          grep -F 'RESULT strategy=donchian-20-10-research capital=60 scenario=BASE' evidence-walk-forward-console.txt
+          grep -F 'RESULT strategy=donchian-20-10-research capital=100 scenario=STRESS_2' evidence-walk-forward-console.txt
+          grep -F 'cash_final=60 cash_return_pct=0' evidence-walk-forward-console.txt
           test -s evidence/eth-bbmr-walk-forward/market-data-bundle.json
           test -s evidence/eth-bbmr-walk-forward/RESULT_INDEX.json
-          test -s evidence/eth-bbmr-walk-forward/timeline-60-base.jsonl
-          test -s evidence/eth-bbmr-walk-forward/timeline-100-stress_2.jsonl
+          test -s evidence/eth-bbmr-walk-forward/timeline-eth-bbmr-4h-research-60-base.jsonl
+          test -s evidence/eth-bbmr-walk-forward/timeline-ema-rsi-60-base.jsonl
+          test -s evidence/eth-bbmr-walk-forward/timeline-donchian-20-10-research-100-stress_2.jsonl
       - name: Upload market data, clock trace and all capital/cost reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
