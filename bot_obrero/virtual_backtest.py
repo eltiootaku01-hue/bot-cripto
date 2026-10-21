@@ -776,9 +776,9 @@ def run_virtual_backtest(
 
         profile = _bbmr_parameters(config.strategy)
         if config.strategy == _DONCHIAN_STRATEGY:
-            prior_highs = [observations[i].values["high"] for i in range(history_index - 20, history_index)]
-            prior_lows = [observations[i].values["low"] for i in range(history_index - 10, history_index)]
-            if not prior_highs or not prior_lows:
+            prior_highs = [history[i].payload.high for i in range(history_index - 20, history_index)]
+            prior_lows = [history[i].payload.low for i in range(history_index - 10, history_index)]
+            if len(prior_highs) != 20 or len(prior_lows) != 10:
                 raise BacktestError("Donchian history is insufficient at a simulated decision")
             buy_signal = candle.close > max(prior_highs)
             sell_signal = candle.close < min(prior_lows)
