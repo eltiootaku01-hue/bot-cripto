@@ -1,4 +1,4 @@
-# Comparison run: three frozen tactics, six capital/cost variants each, shared dataset, cash and ETH buy-and-hold benchmarks; all decisions are prefix-only and reference-parity gated. Re-run after Donchian high/low source correction.
+# Comparison run: three frozen tactics, six capital/cost variants each, shared dataset, cash and ETH buy-and-hold benchmarks; all decisions are prefix-only and reference-parity gated. Re-run after Donchian high/low source correction and EMA-RSI reason parity alignment.
 name: ETH BBMR clock-driven walk-forward replay (research only)
 
 on:
