@@ -147,8 +147,8 @@ def _signal_flags(
     return (
         buy,
         sell,
-        "EMA12/26 bullish crossover with RSI14 >= 50",
-        "EMA12/26 bearish crossover" if crossed_down else "RSI14 >= 70",
+        "fast EMA crossed above slow EMA and RSI filter passed",
+        "fast EMA crossed below slow EMA" if crossed_down else "RSI reached sell threshold",
     )
 
 
