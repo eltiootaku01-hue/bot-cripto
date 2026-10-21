@@ -29,12 +29,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
-          CANDLES=1758
+          CANDLES=1759
           DATASET=evidence/eth-bbmr-4h-2026-ytd-dataset.json
           cat > evidence/README.txt <<'EOF'
           BOT-CRIPTO virtual-only research replay
           Strategy: eth-bbmr-4h-research (frozen; ETHUSDT Spot 4h, z48 entry -0.75, exit +2.0, EMA180 gate)
-          Evaluation length: 1758 completed 4h candles, intended to span 2026-01-01 through the latest closed 4h candle near workflow capture time.
+          Evaluation length: 1759 completed 4h candles, intended to span 2026-01-01 through the latest closed 4h candle near workflow capture time.
           Initial quote balances: 60 and 100 USDT, fictional only.
           BASE: fee 0.10% per fill, full spread assumption 10 bps, slippage 5 bps.
           STRESS_1: fee 0.10%, full spread 25 bps, slippage 10 bps.
