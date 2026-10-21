@@ -317,12 +317,16 @@ def _build_timeline(
         fills_by_time.setdefault(fill.timestamp, []).append(fill)
     rejected_by_time: dict[datetime, list[str]] = {}
     for reason in result.entry_rejections:
-        timestamp_text, _, detail = reason.partition(":")
+        timestamp_text, marker, detail = reason.partition(":ORDER_REJECTED")
+        if not marker:
+            # Non-order admission rejections have a separate schema and do not
+            # correspond to an exchange-like simulated open fill.
+            continue
         try:
             timestamp = datetime.fromisoformat(timestamp_text)
         except ValueError:
             continue
-        rejected_by_time.setdefault(timestamp, []).append(detail)
+        rejected_by_time.setdefault(timestamp, []).append(marker + detail)
 
     position = ZERO
     quote = config.initial_quote_balance
@@ -391,10 +395,7 @@ def _build_timeline(
                 warmup_ready=warmup_ready,
             )
 
-        pending = action in ("BUY_NEXT_OPEN", "SELL_NEXT_OPEN")
         previous_action = timeline[-1]["decision"] if timeline else ""
-        if pending and previous_action in ("BUY_NEXT_OPEN", "SELL_NEXT_OPEN"):
-            raise BacktestError("overlapping virtual order decisions detected")
         prior_signal = previous_action if previous_action in ("BUY_NEXT_OPEN", "SELL_NEXT_OPEN") else ""
         open_status = "NO_PENDING_ORDER"
         if prior_signal:
@@ -404,7 +405,9 @@ def _build_timeline(
             elif candle.start in rejected_by_time:
                 open_status = "REJECTED_AT_THIS_OPEN"
             else:
-                open_status = "NO_FILL_OBSERVED_AT_THIS_OPEN"
+                raise BacktestError(
+                    f"previous {prior_signal} decision had neither a fill nor a recorded rejection at next open"
+                )
 
         equity = quote + _net_liquidation_value(position, candle.close, config)
         peak = max(peak, equity)
