@@ -1,0 +1,153 @@
+
+name: TP SL loss decomposition against zero-cost counterfactual V1
+
+on:
+  push:
+    branches:
+      - research/tp-sl-wave-simulation-2026-01-to-10
+    paths:
+      - "research/tp_sl_loss_decomposition_v1.py"
+      - "research/test_tp_sl_loss_decomposition_v1.py"
+      - "docs/research/TP_SL_LOSS_DECOMPOSITION_V1_PREREGISTRATION.md"
+      - ".github/workflows/tp-sl-loss-decomposition-v1.yml"
+  pull_request:
+    paths:
+      - "research/tp_sl_loss_decomposition_v1.py"
+      - "research/test_tp_sl_loss_decomposition_v1.py"
+      - "docs/research/TP_SL_LOSS_DECOMPOSITION_V1_PREREGISTRATION.md"
+      - ".github/workflows/tp-sl-loss-decomposition-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnose-signal-versus-cost:
+    name: Frozen-signal costless counterfactual and trade-ledger reconciliation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout diagnostic revision with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned research dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Run accounting and counterfactual unit tests
+        run: python -m pytest -q research/test_tp_sl_loss_decomposition_v1.py research/test_tp_sl_barrier_backtest_v1.py
+      - name: Verify diagnostic preregistration precedes the decomposition code
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROTOCOL_SHA="$(git log -1 --format=%H -- docs/research/TP_SL_LOSS_DECOMPOSITION_V1_PREREGISTRATION.md)"
+          CODE_SHA="$(git log -1 --format=%H -- research/tp_sl_loss_decomposition_v1.py)"
+          test -n "$PROTOCOL_SHA"
+          test -n "$CODE_SHA"
+          git merge-base --is-ancestor "$PROTOCOL_SHA" "$CODE_SHA"
+          echo "protocol_commit=$PROTOCOL_SHA" >> "$GITHUB_OUTPUT"
+          echo "code_commit=$CODE_SHA" >> "$GITHUB_OUTPUT"
+          echo "PREREGISTRATION_COMMIT: $PROTOCOL_SHA"
+          echo "DIAGNOSTIC_CODE_COMMIT: $CODE_SHA"
+      - name: Download immutable original costed TP SL backtest artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: tp-sl-wave-backtest-v1-35879844f9801d2d79d52eceebf97cd6cf29a369
+          run-id: 39618059542
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: costed-results
+      - name: Download immutable frozen V1 forecast ledger
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: wave-prediction-accuracy-v1-c3ca941ea8acc1c5b1bdf6adbb6c4111ee0f2b94
+          run-id: 39611639871
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: forecasts
+      - name: Download immutable paired BTC ETH dataset
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: btc-eth-follow-365d-f8b9c36768f68ee754f1cb217f920dea25ef445e
+          run-id: 39062915950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Run the zero-cost counterfactual and reconcile costed trade paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python research/tp_sl_loss_decomposition_v1.py \
+            --dataset input/btc-eth-follow-365d-dataset.json \
+            --predictions forecasts/wave-prediction-v1/predictions.csv \
+            --prediction-manifest forecasts/wave-prediction-v1/manifest.json \
+            --costed-summary costed-results/tp-sl-wave-v1/summary.csv \
+            --costed-trades costed-results/tp-sl-wave-v1/trades.csv \
+            --costed-manifest costed-results/tp-sl-wave-v1/manifest.json \
+            --output-dir evidence/tp-sl-loss-decomposition-v1 \
+            > evidence/tp-sl-loss-decomposition-v1-console.txt
+      - name: Independently verify counts, paired portfolios, outputs, and hashes
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, hashlib, json
+          from pathlib import Path
+
+          root = Path("evidence/tp-sl-loss-decomposition-v1")
+          result = json.loads((root / "summary.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert result["decision"] == "NO_TRADE"
+          assert result["status"] == "POST_HOC_DIAGNOSTIC_FIXED_SIGNALS_COSTLESS_COUNTERFACTUAL"
+          assert result["dataset_sha256"] == "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
+          assert result["forecast_ledger_sha256"] == "b8f555028791d0a9d2f93dc428acf3882d5ec3488ac56221df3136e4841c3d00"
+          assert result["source_trade_count_reconciled"] == 395600
+          assert result["costless_portfolios"] == 114
+          assert result["costed_portfolios"] == 342
+          assert len(result["aggregate_rows"]) == 4
+          scenarios = {r["scenario"]: r for r in result["aggregate_rows"]}
+          assert set(scenarios) == {"COSTLESS", "BASE", "STRESS_1", "STRESS_2"}
+          assert scenarios["COSTLESS"]["total_fees_usdt"] == 0
+          assert scenarios["COSTLESS"]["portfolio_count"] == 114
+          assert scenarios["BASE"]["portfolio_count"] == 114
+          assert scenarios["STRESS_1"]["portfolio_count"] == 114
+          assert scenarios["STRESS_2"]["portfolio_count"] == 114
+          with (root / "cost_vs_costless_by_portfolio.csv").open(newline="") as handle:
+              rows = list(csv.DictReader(handle))
+          assert len(rows) == 342
+          keys = [(r["asset"],r["strategy"],r["horizon_hours"],r["initial_capital_usdt"],r["cost_scenario"]) for r in rows]
+          assert len(set(keys)) == 342
+          with (root / "costless_counterfactual.csv").open(newline="") as handle:
+              zero = list(csv.DictReader(handle))
+          assert len(zero) == 114
+          with (root / "trade_execution_decomposition.csv").open(newline="") as handle:
+              overall = {r["cost_scenario"]:r for r in csv.DictReader(handle)}
+          assert set(overall) == {"BASE", "STRESS_1", "STRESS_2"}
+          assert sum(int(overall[s]["trades"]) for s in overall) == 395600
+          assert all(int(overall[s]["sl_gap"]) == 0 for s in overall)
+          assert overall["BASE"]["both_barriers_same_candle"] == "2958"
+          assert overall["STRESS_1"]["both_barriers_same_candle"] == "3144"
+          assert overall["STRESS_2"]["both_barriers_same_candle"] == "5556"
+          assert manifest["decision"] == "NO_TRADE"
+          for name, metadata in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == metadata["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == metadata["sha256"], f"hash mismatch: {name}"
+          print("COSTLESS_PORTFOLIOS:", len(zero))
+          print("PAIRED_COSTED_ROWS:", len(rows))
+          print("TRADE_ROWS_RECONCILED:", result["source_trade_count_reconciled"])
+          for name, row in scenarios.items():
+              print(f"SCENARIO_{name}: trades={row['trades']} pnl={row['sum_net_pnl_usdt']} mean_return_pct={row['mean_portfolio_return_pct']}")
+          print("SL_GAP_COUNTS:", {s: overall[s]["sl_gap"] for s in overall})
+          print("DECISION: NO_TRADE")
+          PY
+      - name: Upload decomposition, counterfactual, and manifests
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tp-sl-loss-decomposition-v1-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
