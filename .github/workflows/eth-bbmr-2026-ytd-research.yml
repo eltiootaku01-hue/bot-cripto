@@ -1,0 +1,108 @@
+name: ETH BBMR 4h 2026 YTD capital replay (research only)
+
+on:
+  push:
+    branches:
+      - research/eth-bbmr-2026-ytd-paper
+    paths:
+      - ".github/workflows/eth-bbmr-2026-ytd-research.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  eth-bbmr-ytd:
+    name: ETHUSDT 4h 2026 YTD virtual replay, 60 and 100 USDT
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: "3.12"
+      - name: Install project and run backtest regression tests
+        run: |
+          python -m pip install -e ".[test]"
+          pytest -q tests/test_virtual_backtest.py
+      - name: Run frozen candidate with shared 2026 YTD data and six economic scenarios
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          CANDLES=1758
+          DATASET=evidence/eth-bbmr-4h-2026-ytd-dataset.json
+          cat > evidence/README.txt <<'EOF'
+          BOT-CRIPTO virtual-only research replay
+          Strategy: eth-bbmr-4h-research (frozen; ETHUSDT Spot 4h, z48 entry -0.75, exit +2.0, EMA180 gate)
+          Evaluation length: 1758 completed 4h candles, intended to span 2026-01-01 through the latest closed 4h candle near workflow capture time.
+          Initial quote balances: 60 and 100 USDT, fictional only.
+          BASE: fee 0.10% per fill, full spread assumption 10 bps, slippage 5 bps.
+          STRESS_1: fee 0.10%, full spread 25 bps, slippage 10 bps.
+          STRESS_2: fee 0.20%, full spread 50 bps, slippage 20 bps.
+          All six runs reuse one hash-verified candle dataset. Spread, slippage and fixed quantity filters are assumptions, not observed historical execution costs/rules.
+          The same 2026 historical window was already examined during strategy selection. This is additional historical replay, NOT an independent out-of-sample validation. Keep NO_TRADE.
+          No private API keys, exchange order endpoints, leverage, margin or real money are used.
+          EOF
+
+          run_case() {
+            name="$1"; capital="$2"; fee="$3"; spread="$4"; slip="$5"; mode="$6"
+            args=(
+              --strategy eth-bbmr-4h-research
+              --symbol ETHUSDT --interval 4h --candles "$CANDLES"
+              --initial-quote-balance "$capital" --position-fraction 0.95
+              --min-qty 0.0001 --quantity-step 0.0001 --min-notional 5
+              --fee-rate "$fee" --spread-bps "$spread" --slippage-bps "$slip"
+              --liquidate-at-end
+            )
+            if [[ "$mode" == "capture" ]]; then
+              args+=(--dataset-output "$DATASET")
+            else
+              args+=(--dataset-input "$DATASET")
+            fi
+            python -m bot_obrero.virtual_backtest "${args[@]}" > "evidence/${name}.txt" 2>&1
+            grep -F "Candles simulated: $CANDLES" "evidence/${name}.txt"
+            grep -F "Evaluation range:" "evidence/${name}.txt"
+            grep -F "Dataset SHA-256:" "evidence/${name}.txt"
+            grep -F "Effective configuration SHA-256:" "evidence/${name}.txt"
+            grep -F "Final equity" "evidence/${name}.txt"
+            grep -F "Return:" "evidence/${name}.txt"
+            grep -F "Maximum drawdown" "evidence/${name}.txt"
+          }
+
+          # Capture market data exactly once, then reuse those exact candles in every other scenario.
+          run_case eth-bbmr-ytd-60-base 60 0.001 10 5 capture
+          run_case eth-bbmr-ytd-60-stress1 60 0.001 25 10 replay
+          run_case eth-bbmr-ytd-60-stress2 60 0.002 50 20 replay
+          run_case eth-bbmr-ytd-100-base 100 0.001 10 5 replay
+          run_case eth-bbmr-ytd-100-stress1 100 0.001 25 10 replay
+          run_case eth-bbmr-ytd-100-stress2 100 0.002 50 20 replay
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          bundle = json.loads(Path("evidence/eth-bbmr-4h-2026-ytd-dataset.json").read_text())
+          report = [
+              "RESEARCH_ONLY=TRUE",
+              "PROMOTION=NOT_AUTHORIZED",
+              f"ACQUIRED_AT={bundle['acquired_at']}",
+              f"EVALUATION_START={bundle['evaluation_start']}",
+              f"EVALUATION_END_EXCLUSIVE={bundle['evaluation_end_exclusive']}",
+              f"EVALUATION_CANDLES={bundle['configuration']['candles']}",
+              f"DATASET_SHA256={bundle['dataset_sha256']}",
+              f"CAPTURE_CONFIGURATION_SHA256={bundle['configuration_sha256']}",
+              "CAPITALS_USDT=60,100",
+              "COST_SCENARIOS=BASE,STRESS_1,STRESS_2",
+              "DECISION=NO_TRADE",
+              "NOTE=2026 history is not an independent holdout because it was previously screened.",
+          ]
+          Path("evidence/RESULT_INDEX.txt").write_text("\n".join(report) + "\n")
+          print("\n".join(report))
+          PY
+      - name: Upload reproducibility evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: eth-bbmr-4h-2026-ytd-paper-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 90
