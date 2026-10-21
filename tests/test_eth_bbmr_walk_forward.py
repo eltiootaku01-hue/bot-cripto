@@ -5,6 +5,8 @@ from decimal import Decimal
 
 import pytest
 
+import argparse
+
 from bot_obrero.eth_bbmr_walk_forward import (
     _build_timeline,
     _config,
@@ -60,7 +62,7 @@ def _candidate_test_series() -> list[MarketData]:
 
 
 def test_start_timestamp_requires_timezone_and_4h_boundary():
-    with pytest.raises(Exception):
+    with pytest.raises(argparse.ArgumentTypeError):
         parse_aware_datetime("2026-10-01T00:00:00")
     start = parse_aware_datetime("2026-10-01T00:00:00-03:00")
     assert start == datetime(2026, 10, 1, 3, tzinfo=timezone.utc)
@@ -89,7 +91,7 @@ def test_one_tick_decision_rules_are_frozen_and_explicit(values, expected):
 def test_clock_driven_timeline_processes_a_signal_only_on_prefix_and_fills_next_open():
     all_items = _candidate_test_series()
     evaluation_start = all_items[180].payload.start
-    evaluation_end = _expected_next_start(all_items[183].payload.start, "4h")
+    evaluation_end = all_items[183].payload.start
     # Only the first three candles belong to this simulation; the rest are referee-only future data.
     eval_items = all_items[180:183]
     config = _config(Decimal("60"), (Decimal("0"), Decimal("0"), Decimal("0")), len(eval_items))
@@ -121,7 +123,7 @@ def test_decision_trace_is_invariant_to_prices_strictly_after_cutoff():
     for index, close in ((183, "900"), (184, "0.05"), (185, "700"), (186, "0.01"), (187, "5000")):
         perturbed[index] = _eth_4h(index, close)
     start = baseline[180].payload.start
-    end = _expected_next_start(baseline[183].payload.start, "4h")
+    end = baseline[183].payload.start
     eval_items = baseline[180:183]
     config = _config(Decimal("60"), (Decimal("0"), Decimal("0"), Decimal("0")), len(eval_items))
     baseline_result = run_virtual_backtest(baseline, config, evaluation_start=start, evaluation_end=end)
