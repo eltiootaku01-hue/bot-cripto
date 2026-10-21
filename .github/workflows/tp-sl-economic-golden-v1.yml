@@ -1,0 +1,36 @@
+name: TP SL economic contract golden tests
+
+on:
+  push:
+    branches:
+      - research/tp-sl-wave-simulation-2026-01-to-10
+    paths:
+      - "research/test_tp_sl_economic_contract_golden_v1.py"
+      - "docs/research/TP_SL_NET_ECONOMIC_GOLDEN_SPEC_V1.md"
+      - ".github/workflows/tp-sl-economic-golden-v1.yml"
+  pull_request:
+    paths:
+      - "research/test_tp_sl_economic_contract_golden_v1.py"
+      - "docs/research/TP_SL_NET_ECONOMIC_GOLDEN_SPEC_V1.md"
+      - ".github/workflows/tp-sl-economic-golden-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-accounting:
+    name: Synthetic TP/SL fills, gross bases, and fees
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned research dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Run only synthetic economic contract golden tests
+        run: python -m pytest -q research/test_tp_sl_economic_contract_golden_v1.py
