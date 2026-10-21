@@ -11,6 +11,7 @@ from bot_obrero.eth_bbmr_walk_forward import (
     _build_timeline,
     _config,
     _strategy_action,
+    _run_prefix_only,
     parse_aware_datetime,
     validate_start_boundary,
 )
@@ -51,7 +52,7 @@ def _candidate_test_series() -> list[MarketData]:
         str(Decimal("100") + Decimal(index) * Decimal("50") / Decimal("120"))
         for index in range(121)
     ] + ["200"] * 59
-    prices = baseline + ["190", "220", "220", "221", "222", "223"]
+    prices = baseline + ["190", "220", "220", "221", "222", "223", "224", "225"]
     return [
         _eth_4h(
             index, close,
@@ -64,8 +65,8 @@ def _candidate_test_series() -> list[MarketData]:
 def test_start_timestamp_requires_timezone_and_4h_boundary():
     with pytest.raises(argparse.ArgumentTypeError):
         parse_aware_datetime("2026-10-01T00:00:00")
-    start = parse_aware_datetime("2026-10-01T00:00:00-03:00")
-    assert start == datetime(2026, 10, 1, 3, tzinfo=timezone.utc)
+    start = parse_aware_datetime("2026-09-30T21:00:00-03:00")
+    assert start == datetime(2026, 10, 1, 0, tzinfo=timezone.utc)
     validate_start_boundary(start)
     with pytest.raises(BacktestError, match="align to a 4h"):
         validate_start_boundary(datetime(2026, 10, 1, 1, tzinfo=timezone.utc))
@@ -100,11 +101,13 @@ def test_clock_driven_timeline_processes_a_signal_only_on_prefix_and_fills_next_
         evaluation_start=evaluation_start,
         evaluation_end=evaluation_end,
     )
+    clocked_result = _run_prefix_only(all_items=all_items, eval_items=eval_items, config=config)
+    assert clocked_result == result
     timeline = _build_timeline(
         all_items=all_items,
         eval_items=eval_items,
         config=config,
-        result=result,
+        result=clocked_result,
     )
     assert [fill.side for fill in result.fills] == ["BUY", "SELL"]
     assert timeline[0]["decision"] == "BUY_NEXT_OPEN"
@@ -128,11 +131,14 @@ def test_decision_trace_is_invariant_to_prices_strictly_after_cutoff():
     config = _config(Decimal("60"), (Decimal("0"), Decimal("0"), Decimal("0")), len(eval_items))
     baseline_result = run_virtual_backtest(baseline, config, evaluation_start=start, evaluation_end=end)
     perturbed_result = run_virtual_backtest(perturbed, config, evaluation_start=start, evaluation_end=end)
+    baseline_clocked = _run_prefix_only(all_items=baseline, eval_items=eval_items, config=config)
+    perturbed_clocked = _run_prefix_only(all_items=perturbed, eval_items=eval_items, config=config)
     baseline_trace = _build_timeline(
-        all_items=baseline, eval_items=eval_items, config=config, result=baseline_result,
+        all_items=baseline, eval_items=eval_items, config=config, result=baseline_clocked,
     )
     perturbed_trace = _build_timeline(
-        all_items=perturbed, eval_items=eval_items, config=config, result=perturbed_result,
+        all_items=perturbed, eval_items=eval_items, config=config, result=perturbed_clocked,
     )
     assert baseline_result == perturbed_result
+    assert baseline_clocked == perturbed_clocked
     assert baseline_trace == perturbed_trace
