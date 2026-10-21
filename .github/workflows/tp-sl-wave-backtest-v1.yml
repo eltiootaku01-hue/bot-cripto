@@ -1,0 +1,139 @@
+
+name: TP SL barrier backtest for frozen wave V1
+
+on:
+  push:
+    branches:
+      - research/tp-sl-wave-simulation-2026-01-to-10
+    paths:
+      - "research/tp_sl_barrier_backtest_v1.py"
+      - "research/test_tp_sl_barrier_backtest_v1.py"
+      - "docs/research/TP_SL_BARRIER_BACKTEST_V1_PREREGISTRATION.md"
+      - ".github/workflows/tp-sl-wave-backtest-v1.yml"
+  pull_request:
+    paths:
+      - "research/tp_sl_barrier_backtest_v1.py"
+      - "research/test_tp_sl_barrier_backtest_v1.py"
+      - "docs/research/TP_SL_BARRIER_BACKTEST_V1_PREREGISTRATION.md"
+      - ".github/workflows/tp-sl-wave-backtest-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  conservative-barrier-replay:
+    name: Frozen signals, conservative OHLC barriers, net accounting
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned research dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Test conservative barrier semantics
+        run: python -m pytest -q research/test_tp_sl_barrier_backtest_v1.py
+      - name: Download frozen V1 prediction ledger and manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: wave-prediction-accuracy-v1-c3ca941ea8acc1c5b1bdf6adbb6c4111ee0f2b94
+          run-id: 39611639871
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: forecasts
+      - name: Download immutable paired BTC/ETH dataset
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: btc-eth-follow-365d-f8b9c36768f68ee754f1cb217f920dea25ef445e
+          run-id: 39062915950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Run frozen TP/SL replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python research/tp_sl_barrier_backtest_v1.py \
+            --dataset input/btc-eth-follow-365d-dataset.json \
+            --predictions forecasts/wave-prediction-v1/predictions.csv \
+            --source-manifest forecasts/wave-prediction-v1/manifest.json \
+            --output-dir evidence/tp-sl-wave-v1 \
+            > evidence/tp-sl-wave-v1-console.txt
+      - name: Independently verify result counts, accounting, chronology, and every output hash
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, hashlib, json, math
+          from collections import defaultdict
+          from pathlib import Path
+
+          root = Path("evidence/tp-sl-wave-v1")
+          result = json.loads((root / "summary.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert result["decision"] == "NO_TRADE"
+          assert result["status"] == "EXPLORATORY_BARRIER_BACKTEST_NOT_PROSPECTIVE_HOLDOUT"
+          assert result["dataset_sha256"] == "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
+          assert result["forecast_ledger_sha256"] == "b8f555028791d0a9d2f93dc428acf3882d5ec3488ac56221df3136e4841c3d00"
+          assert result["evaluation_start_utc"] == "2026-01-01T00:00:00+00:00"
+          assert result["take_profit_pct"] == 1.0
+          assert result["stop_loss_pct"] == -0.5
+          assert result["capital_levels_usdt"] == [60.0, 100.0]
+          assert set(result["cost_scenarios"]) == {"BASE", "STRESS_1", "STRESS_2"}
+          assert result["summary_rows"] == 342
+          assert result["monthly_rows"] == 3420
+          assert result["benchmark_rows"] == 24
+          assert result["trade_count"] >= 1
+          assert len(result["summary"]) == 342
+          for row in result["summary"]:
+              assert row["initial_capital_usdt"] in (60.0, 100.0)
+              assert row["cost_scenario"] in {"BASE", "STRESS_1", "STRESS_2"}
+              assert row["final_equity_usdt"] >= 0
+              assert row["max_drawdown_hourly_close_pct"] <= 1e-9
+              assert row["tp_exits"] + row["sl_exits"] + row["time_exits"] == row["executed_trades"]
+              if row["tp_before_sl_rate_all_trades_pct"] is not None:
+                  assert 0 <= row["tp_before_sl_rate_all_trades_pct"] <= 100
+              if row["barrier_resolved_win_rate_pct"] is not None:
+                  assert 0 <= row["barrier_resolved_win_rate_pct"] <= 100
+              assert math.isclose(row["final_equity_usdt"] - row["initial_capital_usdt"], row["net_pnl_usdt"], abs_tol=1e-7)
+          groups = defaultdict(list)
+          trades_count = 0
+          with (root / "trades.csv").open(newline="") as handle:
+              for row in csv.DictReader(handle):
+                  trades_count += 1
+                  assert row["direction"] == "LONG_SPOT"
+                  assert row["prediction"] == "UP"
+                  assert row["outcome"] in {"TP", "SL", "TIME_EXIT"}
+                  assert row["entry_time_utc"] < row["exit_time_utc"]
+                  groups[(row["asset"],row["strategy"],row["horizon_hours"],row["initial_capital_usdt"],row["cost_scenario"])].append(row)
+          assert trades_count == result["trade_count"]
+          for key, rows in groups.items():
+              rows.sort(key=lambda x:int(x["entry_index"]))
+              for previous, current in zip(rows, rows[1:]):
+                  assert int(current["entry_index"]) > int(previous["exit_index"]), f"overlap in {key}"
+          assert manifest["decision"] == "NO_TRADE"
+          assert manifest["source_dataset_sha256"] == result["dataset_sha256"]
+          assert manifest["source_forecast_ledger_sha256"] == result["forecast_ledger_sha256"]
+          for name, metadata in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == metadata["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == metadata["sha256"], f"hash mismatch: {name}"
+          print("SUMMARY_ROWS:", result["summary_rows"])
+          print("TRADES:", trades_count)
+          print("MONTHLY_ROWS:", result["monthly_rows"])
+          print("BENCHMARK_ROWS:", result["benchmark_rows"])
+          print("DATASET_SHA256:", result["dataset_sha256"])
+          print("FORECAST_LEDGER_SHA256:", result["forecast_ledger_sha256"])
+          print("DECISION: NO_TRADE")
+          PY
+      - name: Upload result tables, trade ledger, report, and manifest
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tp-sl-wave-backtest-v1-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
