@@ -45,6 +45,7 @@ _BBMR_4H_ENTRY_Z = Decimal("-0.75")
 _BBMR_4H_EXIT_Z = Decimal("2.0")
 _BBMR_4H_TREND_EMA_PERIOD = 180
 _BBMR_4H_STRATEGY = "eth-bbmr-4h-research"
+_DONCHIAN_STRATEGY = "donchian-20-10-research"
 
 
 def _bbmr_parameters(strategy: str) -> tuple[int, Decimal, Decimal, int, str] | None:
@@ -90,7 +91,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbol", required=True, help="Binance Spot symbol, e.g. BTCUSDT")
     parser.add_argument("--interval", required=True, help="Binance kline interval, e.g. 1m")
     parser.add_argument(
-        "--strategy", choices=("ema-rsi", _BBMR_STRATEGY, _BBMR_4H_STRATEGY), default="ema-rsi",
+        "--strategy", choices=("ema-rsi", _BBMR_STRATEGY, _BBMR_4H_STRATEGY, _DONCHIAN_STRATEGY), default="ema-rsi",
         help="fixed virtual profile; ETH BBMR profiles are research-only and locked to ETHUSDT on their defined timeframe",
     )
     parser.add_argument("--candles", type=_positive_int, default=500,
@@ -155,7 +156,7 @@ class BacktestConfig:
     strategy: str = "ema-rsi"
 
     def validate(self) -> None:
-        if self.strategy not in ("ema-rsi", _BBMR_STRATEGY, _BBMR_4H_STRATEGY):
+        if self.strategy not in ("ema-rsi", _BBMR_STRATEGY, _BBMR_4H_STRATEGY, _DONCHIAN_STRATEGY):
             raise BacktestError("unsupported virtual strategy profile")
         if not isinstance(self.symbol, str) or not _SYMBOL_RE.fullmatch(self.symbol):
             raise BacktestError("invalid symbol format; use an uppercase Binance Spot symbol")
@@ -172,6 +173,11 @@ class BacktestConfig:
         if isinstance(self.max_entries_per_30d, bool) or not 1 <= self.max_entries_per_30d <= 5:
             raise BacktestError("max_entries_per_30d must be between 1 and 5")
         profile = _bbmr_parameters(self.strategy)
+        if self.strategy == _DONCHIAN_STRATEGY:
+            if self.symbol != "ETHUSDT" or self.interval != "4h":
+                raise BacktestError("donchian-20-10-research is frozen for ETHUSDT on 4h candles only")
+            if self.candles < 28:
+                raise BacktestError("donchian-20-10-research requires at least 28 evaluation candles")
         if profile is not None:
             _, _, _, trend_period, required_interval = profile
             if self.symbol != "ETHUSDT" or self.interval != required_interval:
@@ -542,6 +548,8 @@ def _configuration_record(config: BacktestConfig) -> dict[str, object]:
         "bbmr_entry_z": str(_bbmr_parameters(config.strategy)[1]) if _bbmr_parameters(config.strategy) else None,
         "bbmr_exit_z": str(_bbmr_parameters(config.strategy)[2]) if _bbmr_parameters(config.strategy) else None,
         "bbmr_trend_ema_period": _bbmr_parameters(config.strategy)[3] if _bbmr_parameters(config.strategy) else None,
+        "donchian_entry_lookback": 20 if config.strategy == _DONCHIAN_STRATEGY else None,
+        "donchian_exit_lookback": 10 if config.strategy == _DONCHIAN_STRATEGY else None,
         "candles": config.candles, "fast_ema_period": config.fast_ema_period,
         "slow_ema_period": config.slow_ema_period, "rsi_period": config.rsi_period,
         "rsi_buy_min": str(config.rsi_buy_min), "rsi_sell_at": str(config.rsi_sell_at),
@@ -767,7 +775,16 @@ def run_virtual_backtest(
             raise BacktestError("indicator history is insufficient at an evaluation decision")
 
         profile = _bbmr_parameters(config.strategy)
-        if profile is not None:
+        if config.strategy == _DONCHIAN_STRATEGY:
+            prior_highs = [observations[i].values["high"] for i in range(history_index - 20, history_index)]
+            prior_lows = [observations[i].values["low"] for i in range(history_index - 10, history_index)]
+            if not prior_highs or not prior_lows:
+                raise BacktestError("Donchian history is insufficient at a simulated decision")
+            buy_signal = candle.close > max(prior_highs)
+            sell_signal = candle.close < min(prior_lows)
+            entry_reason = "Donchian 20-bar high breakout (current candle excluded)"
+            exit_reason = "Donchian 10-bar low breakdown (current candle excluded)"
+        elif profile is not None:
             bb_period, entry_z, exit_z, trend_period, _ = profile
             zscore = current.get("zscore")
             buy_signal = (
@@ -911,7 +928,10 @@ def _report(result: BacktestResult, requested_symbol: str) -> None:
         print("Cadence: signal-driven/periodic; never force a daily or monthly entry")
         print("Promotion status: RESEARCH_ONLY; strategy decision remains NO_TRADE")
     else:
-        print("Strategy: EMA crossover with RSI filter; long-only; no leverage")
+        if cfg.strategy == _DONCHIAN_STRATEGY:
+            print("Strategy: Donchian 20/10 breakout, long-only; frozen research-only; no leverage")
+        else:
+            print("Strategy: EMA crossover with RSI filter; long-only; no leverage")
         print(f"Fast EMA / slow EMA: {cfg.fast_ema_period} / {cfg.slow_ema_period}")
         print(f"Final SMA({cfg.slow_ema_period}): {result.final_sma}")
         print(f"Final fast EMA: {result.final_fast_ema}")
