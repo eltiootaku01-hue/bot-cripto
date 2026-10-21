@@ -1,0 +1,132 @@
+
+name: Stateless candle-wave forecast accuracy V1
+
+on:
+  push:
+    branches:
+      - research/wave-prediction-stateless-2026-01-to-10
+    paths:
+      - "research/wave_prediction_accuracy_v1.py"
+      - "research/test_wave_prediction_accuracy_v1.py"
+      - "docs/research/WAVE_PREDICTION_ACCURACY_V1_PREREGISTRATION.md"
+      - ".github/workflows/wave-prediction-accuracy-v1.yml"
+  pull_request:
+    paths:
+      - "research/wave_prediction_accuracy_v1.py"
+      - "research/test_wave_prediction_accuracy_v1.py"
+      - "docs/research/WAVE_PREDICTION_ACCURACY_V1_PREREGISTRATION.md"
+      - ".github/workflows/wave-prediction-accuracy-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  stateless-wave-forecast:
+    name: Frozen forecasts, monthly hit rates, per-tick ledger
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact branch revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.5"
+      - name: Install pinned dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Test frozen signal and anti-lookahead contracts
+        run: python -m pytest -q research/test_wave_prediction_accuracy_v1.py
+      - name: Verify preregistration predates the forecasting code
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROTOCOL_SHA="$(git log -1 --format=%H -- docs/research/WAVE_PREDICTION_ACCURACY_V1_PREREGISTRATION.md)"
+          CODE_SHA="$(git log -1 --format=%H -- research/wave_prediction_accuracy_v1.py)"
+          test -n "$PROTOCOL_SHA"
+          test -n "$CODE_SHA"
+          git merge-base --is-ancestor "$PROTOCOL_SHA" "$CODE_SHA"
+          echo "protocol_commit=$PROTOCOL_SHA" >> "$GITHUB_OUTPUT"
+          echo "code_commit=$CODE_SHA" >> "$GITHUB_OUTPUT"
+          echo "PREREGISTRATION_COMMIT: $PROTOCOL_SHA"
+          echo "FORECAST_CODE_COMMIT: $CODE_SHA"
+      - name: Download the immutable paired BTC/ETH hourly archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: btc-eth-follow-365d-f8b9c36768f68ee754f1cb217f920dea25ef445e
+          run-id: 39062915950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Generate all frozen forecasts and measure accuracy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python research/wave_prediction_accuracy_v1.py \
+            --dataset input/btc-eth-follow-365d-dataset.json \
+            --output-dir evidence/wave-prediction-v1 \
+            > evidence/wave-prediction-v1-console.txt
+      - name: Verify complete ledger, fixed inputs, temporal bounds, and hashes
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, hashlib, json
+          from datetime import datetime
+          from pathlib import Path
+
+          root = Path("evidence/wave-prediction-v1")
+          result = json.loads((root / "summary.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert result["decision"] == "NO_TRADE"
+          assert result["status"] == "EXPLORATORY_HISTORICAL_FORECAST_ACCURACY_NOT_PROSPECTIVE_HOLDOUT"
+          assert result["dataset_sha256"] == "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
+          assert result["configuration_sha256"] == "2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a"
+          assert result["evaluation_start_utc"] == "2026-01-01T00:00:00+00:00"
+          assert result["source_data_end_utc"].startswith("2026-10-17T18:59:59.999")
+          assert result["wave_threshold_return"] == 0.005
+          assert result["horizons_hours"] == [4, 12, 24]
+          assert len(result["summary"]) == 57
+          assert result["forecast_records_written"] > 200000
+          assert result["month_summary_rows"] > 100
+          assert result["anti_lookahead"]["status"] == "CAUSAL_FEATURES_BY_CONSTRUCTION"
+          assert result["anti_lookahead"]["future_candles_passed_to_signal"] == 0
+          for row in result["summary"]:
+              assert row["decisions"] > 0
+              assert 0 <= row["calls"] <= row["decisions"]
+              assert row["wave_hits"] <= row["calls"]
+              for key in ("coverage_pct", "direction_accuracy_pct", "wave_hit_pct", "wave_capture_pct"):
+                  if row[key] is not None:
+                      assert 0 <= row[key] <= 100
+          csv_rows = 0
+          with (root / "predictions.csv").open(newline="") as handle:
+              for row in csv.DictReader(handle):
+                  csv_rows += 1
+                  assert row["prediction"] in {"UP", "DOWN", "ABSTAIN"}
+                  assert row["asset"] in {"BTCUSDT", "ETHUSDT"}
+                  assert int(row["horizon_hours"]) in {4, 12, 24}
+                  assert row["decision_time_utc"] >= "2026-01-01T00:00:00"
+                  assert datetime.fromisoformat(row["target_time_utc"]) > datetime.fromisoformat(row["decision_time_utc"])
+          assert csv_rows == result["forecast_records_written"]
+          assert manifest["decision"] == "NO_TRADE"
+          for name, metadata in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == metadata["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == metadata["sha256"], f"hash mismatch: {name}"
+          print("FORECAST_RECORDS:", csv_rows)
+          print("SUMMARY_GROUPS:", len(result["summary"]))
+          print("MONTHLY_ROWS:", result["month_summary_rows"])
+          print("SOURCE_END:", result["source_data_end_utc"])
+          print("PROTOCOL_COMMIT: ${{ steps.provenance.outputs.protocol_commit }}")
+          print("CODE_COMMIT: ${{ steps.provenance.outputs.code_commit }}")
+          print("DECISION: NO_TRADE")
+          PY
+      - name: Upload every forecast, monthly metrics, summary, and hashes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wave-prediction-accuracy-v1-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
