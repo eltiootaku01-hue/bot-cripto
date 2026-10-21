@@ -1,0 +1,55 @@
+name: ETH BBMR clock-driven walk-forward replay (research only)
+
+on:
+  push:
+    branches:
+      - research/eth-bbmr-walk-forward-2026-10-01
+    paths:
+      - ".github/workflows/eth-bbmr-walk-forward.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  walk-forward:
+    name: 2026-10-01 as-of replay using only visible candles
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: "3.12"
+      - name: Install project
+        run: python -m pip install -e ".[test]"
+      - name: Verify frozen strategy and no-lookahead regression tests
+        run: pytest -q tests/test_virtual_backtest.py tests/test_eth_bbmr_walk_forward.py
+      - name: Replay real public Binance candles forward from simulated October 1 clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m bot_obrero.eth_bbmr_walk_forward \
+            --start 2026-10-01T00:00:00+00:00 \
+            --output-dir evidence/eth-bbmr-walk-forward \
+            | tee evidence-walk-forward-console.txt
+          grep -F '"future_candles_passed_to_decision": 0' evidence-walk-forward-console.txt
+          grep -F '"operational_decision": "NO_TRADE"' evidence-walk-forward-console.txt
+          grep -F 'Dataset SHA-256:' evidence-walk-forward-console.txt
+          grep -F 'RESULT capital=60 scenario=BASE' evidence-walk-forward-console.txt
+          grep -F 'RESULT capital=60 scenario=STRESS_2' evidence-walk-forward-console.txt
+          grep -F 'RESULT capital=100 scenario=BASE' evidence-walk-forward-console.txt
+          grep -F 'RESULT capital=100 scenario=STRESS_2' evidence-walk-forward-console.txt
+          test -s evidence/eth-bbmr-walk-forward/market-data-bundle.json
+          test -s evidence/eth-bbmr-walk-forward/RESULT_INDEX.json
+          test -s evidence/eth-bbmr-walk-forward/timeline-60-base.jsonl
+          test -s evidence/eth-bbmr-walk-forward/timeline-100-stress2.jsonl
+      - name: Upload market data, clock trace and all capital/cost reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: eth-bbmr-clocked-walk-forward-2026-10-01-${{ github.sha }}
+          path: |
+            evidence/eth-bbmr-walk-forward/
+            evidence-walk-forward-console.txt
+          if-no-files-found: warn
+          retention-days: 90
