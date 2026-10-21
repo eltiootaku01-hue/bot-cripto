@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import sys
+
+# When invoked as `python research/script.py`, Python otherwise places only
+# the research/ folder on sys.path. Add the repository root for sibling imports.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from research.tp_sl_barrier_backtest_v1 import (
     CAPITALS,
