@@ -19,6 +19,9 @@ from .binance_spot import BinanceSpotRestConfig
 from .virtual_backtest import (
     BacktestConfig,
     BacktestError,
+    BacktestResult,
+    EquityPoint,
+    VirtualFill,
     _configuration_record,
     _evidence_hashes,
     _expected_next_start,
@@ -111,6 +114,193 @@ def _config(capital: Decimal, costs: tuple[Decimal, Decimal, Decimal], candles: 
     )
     config.validate()
     return config
+
+
+
+def _run_prefix_only(
+    *,
+    all_items,
+    eval_items,
+    config: BacktestConfig,
+) -> BacktestResult:
+    """Execute the account loop one candle at a time; each decision receives a prefix only."""
+    accepted, excluded, unknown_completeness, unknown_finality = _validate_history(all_items, config.interval)
+    index_by_start = {item.payload.start: i for i, item in enumerate(accepted)}
+    if len(eval_items) != config.candles:
+        raise BacktestError("prefix-only replay evaluation count does not match frozen configuration")
+    quote, position, entry_cost = config.initial_quote_balance, ZERO, ZERO
+    realized = total_fees = ZERO
+    fills: list[VirtualFill] = []
+    curve: list[EquityPoint] = []
+    rejections: list[str] = []
+    peak = config.initial_quote_balance
+    pending: tuple[str, str] | None = None
+    first_signal_index = max(config.slow_ema_period, config.rsi_period + 1)
+    last_values = None
+
+    for eval_index, item in enumerate(eval_items):
+        candle = item.payload
+        history_index = index_by_start[candle.start]
+        if pending is not None:
+            side, reason = pending
+            slippage = (config.slippage_bps + config.spread_bps / Decimal("2")) / BPS
+            if side == "BUY" and position == ZERO:
+                fill_price = candle.open * (ONE + slippage)
+                raw_quantity = (quote * config.position_fraction) / (fill_price * (ONE + config.fee_rate))
+                quantity = raw_quantity
+                if config.quantity_step is not None:
+                    quantity = (raw_quantity / config.quantity_step).to_integral_value(rounding=ROUND_DOWN) * config.quantity_step
+                notional = quantity * fill_price
+                if quantity <= ZERO:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:NON_POSITIVE_QUANTITY")
+                elif config.min_qty is not None and quantity < config.min_qty:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MIN_QTY quantity={quantity} minimum={config.min_qty}")
+                elif config.max_qty is not None and quantity > config.max_qty:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MAX_QTY quantity={quantity} maximum={config.max_qty}")
+                elif config.min_notional is not None and notional < config.min_notional:
+                    rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:MIN_NOTIONAL notional={notional} minimum={config.min_notional}")
+                else:
+                    fee = notional * config.fee_rate
+                    cost = notional + fee
+                    if cost > quote:
+                        rejections.append(f"{candle.start.isoformat()}:ORDER_REJECTED:COSTS_EXCEED_BALANCE cost={cost} available={quote}")
+                    else:
+                        quote -= cost
+                        position, entry_cost = quantity, cost
+                        total_fees += fee
+                        fills.append(VirtualFill(candle.start, "BUY", quantity, fill_price, fee, quote, reason))
+            elif side == "SELL" and position > ZERO:
+                fill_price = candle.open * (ONE - slippage)
+                notional = position * fill_price
+                fee = notional * config.fee_rate
+                proceeds = notional - fee
+                trade_pnl = proceeds - entry_cost
+                quote += proceeds
+                realized += trade_pnl
+                total_fees += fee
+                fills.append(VirtualFill(candle.start, "SELL", position, fill_price, fee, quote, reason, trade_pnl))
+                position, entry_cost = ZERO, ZERO
+            pending = None
+
+        equity = quote + _net_liquidation_value(position, candle.close, config)
+        peak = max(peak, equity)
+        curve.append(EquityPoint(
+            timestamp=candle.end,
+            close=candle.close,
+            quote_balance=quote,
+            base_position=position,
+            equity=equity,
+            drawdown=equity / peak - ONE if peak > ZERO else ZERO,
+        ))
+
+        # Only release the prefix ending at the just-closed candle to the strategy.
+        visible_items = accepted[: history_index + 1]
+        visible_observations = [_observation(value) for value in visible_items]
+        visible_indicators = _indicator_series(visible_observations, config)
+        current = visible_indicators[-1]
+        previous = visible_indicators[-2] if len(visible_indicators) > 1 else None
+        last_values = current
+        if eval_index >= len(eval_items) - 1 or history_index < first_signal_index:
+            continue
+        if current is None or previous is None:
+            raise BacktestError("prefix-only indicator history is insufficient at a simulated decision")
+        zscore = current.get("zscore")
+        buy_signal = (
+            zscore is not None
+            and zscore < Decimal("-0.75")
+            and candle.close > current["slow_ema"]
+        )
+        sell_signal = (
+            zscore is not None
+            and (zscore > Decimal("2.0") or candle.close <= current["slow_ema"])
+        )
+        if position == ZERO and buy_signal:
+            cutoff = candle.end - timedelta(days=30)
+            recent_entries = sum(
+                1 for fill in fills
+                if fill.side == "BUY" and cutoff < fill.timestamp <= candle.end
+            )
+            if recent_entries >= config.max_entries_per_30d:
+                continue
+            pending = (
+                "BUY",
+                "BBMR z-score below -0.75 while close is above EMA180; rolling entry cap passed",
+            )
+        elif position > ZERO and sell_signal:
+            exit_reason = (
+                "BBMR z-score above 2.0"
+                if zscore is not None and zscore > Decimal("2.0")
+                else "close at/below EMA180 trend gate"
+            )
+            pending = ("SELL", exit_reason)
+
+    if last_values is None:
+        raise BacktestError("no prefix-only indicators were calculated")
+    if config.liquidate_at_end and position > ZERO:
+        last_candle = eval_items[-1].payload
+        terminal_slippage = (config.slippage_bps + config.spread_bps / Decimal("2")) / BPS
+        fill_price = last_candle.close * (ONE - terminal_slippage)
+        if fill_price <= ZERO:
+            raise BacktestError("terminal liquidation price is non-positive")
+        notional = position * fill_price
+        fee = notional * config.fee_rate
+        proceeds = notional - fee
+        trade_pnl = proceeds - entry_cost
+        quote += proceeds
+        realized += trade_pnl
+        total_fees += fee
+        fills.append(VirtualFill(
+            last_candle.end, "SELL", position, fill_price, fee, quote,
+            "TERMINAL_LIQUIDATION", trade_pnl,
+        ))
+        position, entry_cost = ZERO, ZERO
+        previous_point = curve[-1]
+        peak = max(peak, previous_point.equity)
+        curve[-1] = EquityPoint(
+            timestamp=previous_point.timestamp,
+            close=previous_point.close,
+            quote_balance=quote,
+            base_position=ZERO,
+            equity=quote,
+            drawdown=quote / peak - ONE if peak > ZERO else ZERO,
+        )
+
+    final_equity = curve[-1].equity
+    unrealized = _net_liquidation_value(position, eval_items[-1].payload.close, config) - entry_cost if position > ZERO else ZERO
+    last_eval = eval_items[-1].payload.start
+    final_history_index = index_by_start[last_eval]
+    # The prefix-only final indicator series is authoritative; recompute from a
+    # prefix ending at the last evaluated candle, excluding any referee-only suffix.
+    final_prefix = accepted[: final_history_index + 1]
+    final_values = _indicator_series([_observation(value) for value in final_prefix], config)[-1]
+    if final_values is None:
+        raise BacktestError("indicator history is insufficient at the final simulation tick")
+    return BacktestResult(
+        symbol=eval_items[0].instrument.symbol,
+        interval=config.interval,
+        config=config,
+        candle_count=len(eval_items),
+        first_candle=eval_items[0].payload.start,
+        last_candle=eval_items[-1].payload.start,
+        fills=tuple(fills),
+        equity_curve=tuple(curve),
+        final_quote_balance=quote,
+        final_base_position=position,
+        final_equity=final_equity,
+        realized_pnl=realized,
+        unrealized_pnl=unrealized,
+        total_fees=total_fees,
+        max_drawdown=min((point.drawdown for point in curve), default=ZERO),
+        final_sma=final_values["sma"],
+        final_fast_ema=final_values["fast_ema"],
+        final_slow_ema=final_values["slow_ema"],
+        final_rsi=final_values["rsi"],
+        excluded_final_candles=excluded,
+        unknown_marketdata_completeness_count=unknown_completeness,
+        unknown_finality_count=unknown_finality,
+        entry_rejections=tuple(rejections),
+        final_bollinger_zscore=final_values.get("zscore"),
+    )
 
 
 def _build_timeline(
