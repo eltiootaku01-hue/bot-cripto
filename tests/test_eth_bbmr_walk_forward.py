@@ -12,6 +12,9 @@ from bot_obrero.eth_bbmr_walk_forward import (
     _config,
     _strategy_action,
     _run_prefix_only,
+    _signal_flags,
+    EMA_RSI_STRATEGY,
+    DONCHIAN_STRATEGY,
     parse_aware_datetime,
     validate_start_boundary,
 )
@@ -142,3 +145,76 @@ def test_decision_trace_is_invariant_to_prices_strictly_after_cutoff():
     assert baseline_result == perturbed_result
     assert baseline_clocked == perturbed_clocked
     assert baseline_trace == perturbed_trace
+
+
+def _donchian_test_series() -> list[MarketData]:
+    closes = ["100"] * 30 + ["120", "80"] + ["80"] * 34
+    return [
+        _eth_4h(
+            index, close,
+            open_price=("121" if index == 31 else "79" if index == 32 else close),
+        )
+        for index, close in enumerate(closes)
+    ]
+
+
+def test_donchian_20_10_is_frozen_and_causal_and_matches_reference_accounting():
+    all_items = _donchian_test_series()
+    eval_items = all_items[30:58]
+    config = _config(
+        Decimal("60"), (Decimal("0"), Decimal("0"), Decimal("0")),
+        len(eval_items), strategy=DONCHIAN_STRATEGY,
+    )
+    start = eval_items[0].payload.start
+    end = all_items[58].payload.start
+    batch = run_virtual_backtest(all_items, config, evaluation_start=start, evaluation_end=end)
+    clocked = _run_prefix_only(all_items=all_items, eval_items=eval_items, config=config)
+    assert clocked == batch
+    assert [fill.side for fill in clocked.fills] == ["BUY", "SELL"]
+    assert clocked.fills[0].timestamp == eval_items[1].payload.start
+    assert "Donchian 20-bar high breakout" in clocked.fills[0].reason
+    assert clocked.fills[1].timestamp == eval_items[2].payload.start
+    assert "Donchian 10-bar low breakdown" in clocked.fills[1].reason
+
+    perturbed = list(all_items)
+    for index, close in ((58, "900"), (59, "0.01"), (60, "800"), (61, "0.02")):
+        perturbed[index] = _eth_4h(index, close)
+    changed = _run_prefix_only(all_items=perturbed, eval_items=eval_items, config=config)
+    assert changed == clocked
+
+
+def test_ema_rsi_frozen_alternative_matches_reference_on_same_evaluation_window():
+    closes = [
+        str(Decimal("100") + Decimal(index) / Decimal("8") + Decimal((index % 9) - 4) * Decimal("1.7"))
+        for index in range(100)
+    ]
+    all_items = [_eth_4h(index, close) for index, close in enumerate(closes)]
+    eval_items = all_items[40:68]
+    config = _config(
+        Decimal("60"), (Decimal("0.001"), Decimal("10"), Decimal("5")),
+        len(eval_items), strategy=EMA_RSI_STRATEGY,
+    )
+    start = eval_items[0].payload.start
+    end = all_items[68].payload.start
+    batch = run_virtual_backtest(all_items, config, evaluation_start=start, evaluation_end=end)
+    clocked = _run_prefix_only(all_items=all_items, eval_items=eval_items, config=config)
+    assert clocked == batch
+
+
+def test_strategy_signals_use_only_prior_candles_for_donchian_channel():
+    items = _donchian_test_series()
+    visible = items[:31]
+    config = _config(
+        Decimal("60"), (Decimal("0"), Decimal("0"), Decimal("0")), 28,
+        strategy=DONCHIAN_STRATEGY,
+    )
+    accepted = visible[-1]
+    previous_values = {"fast_ema": Decimal("100"), "slow_ema": Decimal("100"), "rsi": Decimal("50")}
+    current_values = dict(previous_values)
+    buy, sell, entry_reason, exit_reason = _signal_flags(
+        config, current_values, previous_values, accepted.payload, visible,
+    )
+    assert buy is True
+    assert sell is False
+    assert "current candle excluded" in entry_reason
+    assert "current candle excluded" in exit_reason
