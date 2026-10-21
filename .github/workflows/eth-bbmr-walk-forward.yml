@@ -1,3 +1,4 @@
+# Updated trigger: the run verifies prefix-only accounting against the reference engine before publishing results.
 name: ETH BBMR clock-driven walk-forward replay (research only)
 
 on:
