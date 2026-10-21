@@ -624,12 +624,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         for capital in (Decimal("60"), Decimal("100")):
             for scenario_name, costs in COST_SCENARIOS.items():
                 config = _config(capital, costs, len(eval_items))
-                result = run_virtual_backtest(
+                batch_reference = run_virtual_backtest(
                     all_items,
                     config,
                     evaluation_start=start,
                     evaluation_end=eval_end,
                 )
+                result = _run_prefix_only(
+                    all_items=all_items,
+                    eval_items=eval_items,
+                    config=config,
+                )
+                if result != batch_reference:
+                    raise BacktestError(
+                        "prefix-only execution diverged from the existing virtual accounting engine; "
+                        "refusing to publish an unverified economic result"
+                    )
                 data_hash, effective_config_hash, records = _evidence_hashes(all_items, config)
                 if not dataset_sha:
                     dataset_sha = data_hash
