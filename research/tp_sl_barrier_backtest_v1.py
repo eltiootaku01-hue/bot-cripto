@@ -14,7 +14,7 @@ import pandas as pd
 
 EXPECTED_DATASET_SHA256 = "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
 EXPECTED_CONFIG_SHA256 = "2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a"
-EXPECTED_FORECAST_SHA256 = "REPLACE_FROM_V1_ARTIFACT_MANIFEST"
+EXPECTED_FORECAST_SHA256 = "b8f555028791d0a9d2f93dc428acf3882d5ec3488ac56221df3136e4841c3d00"
 EVAL_START = pd.Timestamp("2026-01-01T00:00:00Z")
 CAPITALS = (60.0, 100.0)
 POSITION_FRACTION = 0.95
@@ -88,12 +88,14 @@ def _read_dataset(path: Path) -> dict[str, list[dict[str, Any]]]:
 
 def load_frozen_predictions(path: Path, manifest_path: Path) -> tuple[pd.DataFrame, str]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("dataset_sha256") != EXPECTED_DATASET_SHA256 or manifest.get("decision") != "NO_TRADE":
+        raise ValueError("V1 source manifest provenance/decision does not match the frozen source")
     meta = manifest.get("files", {}).get("predictions.csv")
     if not meta:
         raise ValueError("V1 source manifest does not include predictions.csv")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != meta.get("sha256") or path.stat().st_size != meta.get("size_bytes"):
-        raise ValueError("V1 prediction ledger hash/size does not match frozen source manifest")
+    if digest != meta.get("sha256") or digest != EXPECTED_FORECAST_SHA256 or path.stat().st_size != meta.get("size_bytes"):
+        raise ValueError("V1 prediction ledger hash/size does not match frozen source manifest and pinned SHA-256")
     # Only select columns needed to run trades. Future outcome labels and future returns are not loaded.
     usecols = ["decision_time_utc", "asset", "strategy", "horizon_hours", "prediction"]
     frame = pd.read_csv(path, usecols=usecols, dtype={
@@ -233,7 +235,7 @@ def simulate_portfolio(asset: str, strategy: str, horizon: int, rows: list[dict[
                 "asset": asset, "strategy": strategy, "horizon_hours": horizon,
                 "initial_capital": initial_capital, "cost_scenario": cost_name,
                 "decision_idx": pending["decision_idx"], "decision_time": pending["decision_time"],
-                "entry_idx": idx, "expiry_idx": pending["decision_idx"] + horizon,
+                "cash_before_entry": cash_before_entry, "entry_idx": idx, "expiry_idx": pending["decision_idx"] + horizon,
                 "entry_open_raw": entry_open, "entry_fill": entry_fill, "quantity": qty,
                 "entry_fee": entry_fee, "entry_cash_outlay": actual_outlay,
                 "take_profit": entry_fill * (1.0 + TAKE_PROFIT_PCT),
@@ -258,7 +260,7 @@ def simulate_portfolio(asset: str, strategy: str, horizon: int, rows: list[dict[
             if raw_exit is not None:
                 active_for_month = active
                 cash, trade = _finish_trade(
-                    active_for_month, rows, idx, raw_exit, reason, cash_before_entry, cash, cost
+                    active_for_month, rows, idx, raw_exit, reason, active_for_month["cash_before_entry"], cash, cost
                 )
                 trades.append(trade)
                 month = pd.Timestamp(trade["exit_time_utc"]).strftime("%Y-%m")
