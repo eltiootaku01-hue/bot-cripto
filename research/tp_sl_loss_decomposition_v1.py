@@ -201,7 +201,7 @@ def aggregate_costed_trade_ledger(trades_path: Path) -> tuple[list[dict[str, Any
     return overall, by_rule_rows, by_reason_rows, row_count
 
 
-def summary_aggregate(rows: list[dict[str, str]], scenario: str, label: str) -> dict[str, Any]:
+def summary_aggregate(rows: list[dict[str, Any]], scenario: str, label: str) -> dict[str, Any]:
     capitals = [float(r["initial_capital_usdt"]) for r in rows]
     returns = [float(r["return_pct"]) for r in rows]
     pnl = [float(r["net_pnl_usdt"]) for r in rows]
@@ -210,6 +210,14 @@ def summary_aggregate(rows: list[dict[str, str]], scenario: str, label: str) -> 
     sl = sum(int(r["sl_exits"]) for r in rows)
     tm = sum(int(r["time_exits"]) for r in rows)
     fees = sum(float(r["total_fees_usdt"]) for r in rows)
+    known_profit_count_estimate = 0.0
+    known_profit_rate = False
+    for row in rows:
+        row_trades = int(row["executed_trades"])
+        rate = row.get("net_profitable_trade_rate_pct")
+        if row_trades and rate not in (None, ""):
+            known_profit_count_estimate += float(rate) * row_trades / 100.0
+            known_profit_rate = True
     return {
         "scenario": label,
         "matched_cost_scenario": scenario,
@@ -221,7 +229,7 @@ def summary_aggregate(rows: list[dict[str, str]], scenario: str, label: str) -> 
         "trades": trades, "tp": tp, "sl": sl, "time_exits": tm,
         "tp_all_trades_pct": pct(tp, trades),
         "tp_barrier_resolved_pct": pct(tp, tp + sl),
-        "net_profitable_trade_pct": pct(sum(int(r.get("net_profitable_trades", 0)) for r in rows), trades) if rows and "net_profitable_trades" in rows[0] else None,
+        "net_profitable_trade_pct": pct(known_profit_count_estimate, trades) if known_profit_rate else None,
         "mean_portfolio_return_pct": sum(returns) / len(returns) if returns else None,
         "median_portfolio_return_pct": float(pd.Series(returns).median()) if returns else None,
         "sum_net_pnl_usdt": sum(pnl),
@@ -230,7 +238,6 @@ def summary_aggregate(rows: list[dict[str, str]], scenario: str, label: str) -> 
         "mean_max_drawdown_hourly_close_pct": sum(float(r["max_drawdown_hourly_close_pct"]) for r in rows) / len(rows) if rows else None,
         "trades_per_portfolio": trades / len(rows) if rows else None,
     }
-
 
 def run(dataset_path: Path, predictions_path: Path, prediction_manifest_path: Path,
         costed_summary_path: Path, costed_trades_path: Path, costed_manifest_path: Path,
@@ -325,6 +332,30 @@ def run(dataset_path: Path, predictions_path: Path, prediction_manifest_path: Pa
     family_rows: list[dict[str, Any]] = []
     horizon_rows: list[dict[str, Any]] = []
     asset_rows: list[dict[str, Any]] = []
+    costless_cap_rows = [r for r in zero_cost_rows if float(r["initial_capital_usdt"]) == 60.0]
+    for family in SOURCE_STRATEGIES:
+        subset = [r for r in costless_cap_rows if r["strategy"] == family]
+        if subset:
+            stat = summary_aggregate(subset, "COSTLESS", family)
+            stat.update({"scenario": "COSTLESS", "strategy": family, "capital_usdt": 60})
+            family_rows.append(stat)
+    for horizon in SOURCE_HORIZONS:
+        subset = [r for r in costless_cap_rows if int(r["horizon_hours"]) == horizon]
+        stat = summary_aggregate(subset, "COSTLESS", str(horizon))
+        active = [r for r in subset if int(r["executed_trades"]) > 0]
+        stat.update({
+            "scenario": "COSTLESS", "horizon_hours": horizon,
+            "active_portfolios": len(active),
+            "mean_return_active_portfolios_pct": sum(float(r["return_pct"]) for r in active) / len(active) if active else None,
+            "capital_usdt": 60,
+        })
+        horizon_rows.append(stat)
+    for asset in SOURCE_ASSETS:
+        subset = [r for r in costless_cap_rows if r["asset"] == asset]
+        stat = summary_aggregate(subset, "COSTLESS", asset)
+        stat.update({"scenario": "COSTLESS", "asset": asset, "capital_usdt": 60})
+        asset_rows.append(stat)
+
     for scenario in ("BASE", "STRESS_1", "STRESS_2"):
         cap_rows = [r for r in prior_rows if r["cost_scenario"] == scenario and float(r["initial_capital_usdt"]) == 60.0]
         for family in SOURCE_STRATEGIES:
@@ -332,14 +363,14 @@ def run(dataset_path: Path, predictions_path: Path, prediction_manifest_path: Pa
             if not subset:
                 continue
             stat = summary_aggregate(subset, scenario, family)
-            stat.update({"strategy": family, "capital_usdt": 60})
+            stat.update({"scenario": scenario, "strategy": family, "capital_usdt": 60})
             family_rows.append(stat)
         for horizon in SOURCE_HORIZONS:
             subset = [r for r in cap_rows if int(r["horizon_hours"]) == horizon]
             stat = summary_aggregate(subset, scenario, str(horizon))
             active = [r for r in subset if int(r["executed_trades"]) > 0]
             stat.update({
-                "horizon_hours": horizon,
+                "scenario": scenario, "horizon_hours": horizon,
                 "active_portfolios": len(active),
                 "mean_return_active_portfolios_pct": sum(float(r["return_pct"]) for r in active) / len(active) if active else None,
                 "capital_usdt": 60,
@@ -348,7 +379,7 @@ def run(dataset_path: Path, predictions_path: Path, prediction_manifest_path: Pa
         for asset in SOURCE_ASSETS:
             subset = [r for r in cap_rows if r["asset"] == asset]
             stat = summary_aggregate(subset, scenario, asset)
-            stat.update({"asset": asset, "capital_usdt": 60})
+            stat.update({"scenario": scenario, "asset": asset, "capital_usdt": 60})
             asset_rows.append(stat)
 
     trade_overall, trade_by_rule, exit_breakdown, trade_count = aggregate_costed_trade_ledger(costed_trades_path)
@@ -381,11 +412,9 @@ def run(dataset_path: Path, predictions_path: Path, prediction_manifest_path: Pa
     for name, rows in paths.items():
         write_csv(output_dir / name, rows)
 
-    top_family = sorted(
-        [r for r in family_rows if r["scenario"] == "BASE" and r["trades"] > 0],
-        key=lambda r: float(r["mean_portfolio_return_pct"] or 0),
-        reverse=True,
-    )
+    base_family = {r["strategy"]: r for r in family_rows if r["scenario"] == "BASE"}
+    zero_family = {r["strategy"]: r for r in family_rows if r["scenario"] == "COSTLESS"}
+    family_names = sorted(base_family, key=lambda name: float(base_family[name]["mean_portfolio_return_pct"] or 0), reverse=True)
     lines = [
         "# TP/SL V1 — diagnosis: signal vs transaction costs", "",
         "**Operational decision: NO_TRADE. This is a post-hoc diagnostic; no signal or parameter has been changed.**", "",
@@ -396,28 +425,68 @@ def run(dataset_path: Path, predictions_path: Path, prediction_manifest_path: Pa
         f"- Costed trade rows reconciled: {trade_count}",
         f"- Costless matched portfolios: {len(zero_cost_rows)}; source costed portfolio rows: {len(prior_rows)}.",
         "- Same archived UP/DOWN/ABSTAIN calls; only fee, spread, and slippage set to zero for the costless counterfactual.",
+        "- The 114 portfolios use a combined starting capital of 9,120 USDT (57 rule/asset/horizon groups at each of 60 and 100 USDT). Aggregate PnL sums independent simulation accounts; it is not one account's balance.",
         "- Costless is a counterfactual accounting diagnostic, not an executable trading scenario; historical point-in-time candle availability remains UNKNOWN.", "",
         "## Costless signal path vs modeled friction", "",
-        "| Scenario | Portfolios | Trades | TP | SL | Time exits | TP/(TP+SL) | Mean return / portfolio | Aggregate PnL across independent portfolios | PnL change vs costless | Total fees | Mean max DD |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Scenario | Portfolios | Trades | TP | SL | Time exits | TP/(TP+SL) | Net-profitable trades | Mean return / portfolio | Aggregate PnL | PnL change vs costless | Fees | Mean max DD |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in aggregate_rows:
+        win_rate = r["net_profitable_trade_pct"]
         lines.append(
             f"| {r['scenario']} | {r['portfolio_count']} | {r['trades']} | {r['tp']} | {r['sl']} | {r['time_exits']} | "
             f"{'NA' if r['tp_barrier_resolved_pct'] is None else f'{r["tp_barrier_resolved_pct"]:.2f}%'} | "
+            f"{'NA' if win_rate is None else f'{win_rate:.2f}%'} | "
             f"{r['mean_portfolio_return_pct']:.2f}% | {r['sum_net_pnl_usdt']:.2f} USDT | "
             f"{r['net_pnl_change_vs_costless_usdt']:.2f} USDT | {r['total_fees_usdt']:.2f} USDT | "
             f"{r['mean_max_drawdown_hourly_close_pct']:.2f}% |"
         )
-    lines.extend(["", "## BASE: signal-family decomposition (60-USDT portfolios)", "",
-                  "| Signal family | Portfolios | Trades | TP | SL | Time exits | TP/(TP+SL) | Mean portfolio return | Total fees | Mean max DD |",
-                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"])
-    for r in top_family:
-        wr = r["tp_barrier_resolved_pct"]
+    lines.extend([
+        "",
+        f"**Signal vs friction conclusion:** without any modeled fee, spread, or slippage, the frozen signals and TP/SL contract still lost {abs(aggregates_by_label['COSTLESS']['sum_net_pnl_usdt']):.2f} USDT in aggregate (-{abs(zero_return):.2f}% mean return per portfolio). Compared with this counterfactual, the costed BASE case deteriorated by another {abs(aggregates_by_label['BASE']['net_pnl_change_vs_costless_usdt']):.2f} USDT ({abs(aggregates_by_label['BASE']['mean_return_change_vs_costless_pp']):.2f} percentage points in mean portfolio return). The difference includes both direct friction and the fact that fill-relative barriers shift, changing exits and subsequent trade frequency; it is not a pure additive fee estimate.",
+        "",
+        "## Signal-family decomposition: zero-cost vs BASE (60-USDT portfolios)", "",
+        "| Signal family | Zero-cost mean return | BASE mean return | BASE trades | TP | SL | Time exits | TP/(TP+SL) | BASE fees | BASE max DD |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ])
+    for name in family_names:
+        base_row = base_family[name]
+        zero_row = zero_family.get(name, {})
+        wr = base_row["tp_barrier_resolved_pct"]
+        zero_ret = zero_row.get("mean_portfolio_return_pct")
         lines.append(
-            f"| {r['strategy']} | {r['portfolio_count']} | {r['trades']} | {r['tp']} | {r['sl']} | {r['time_exits']} | "
-            f"{'NA' if wr is None else f'{wr:.2f}%'} | {r['mean_portfolio_return_pct']:.2f}% | "
-            f"{r['total_fees_usdt']:.2f} USDT | {r['mean_max_drawdown_hourly_close_pct']:.2f}% |"
+            f"| {name} | {'NA' if zero_ret is None else f'{zero_ret:.2f}%'} | "
+            f"{base_row['mean_portfolio_return_pct']:.2f}% | {base_row['trades']} | "
+            f"{base_row['tp']} | {base_row['sl']} | {base_row['time_exits']} | "
+            f"{'NA' if wr is None else f'{wr:.2f}%'} | {base_row['total_fees_usdt']:.2f} USDT | "
+            f"{base_row['mean_max_drawdown_hourly_close_pct']:.2f}% |"
+        )
+    lines.extend([
+        "",
+        "## Horizon decomposition (60-USDT portfolios)", "",
+        "| Cost scenario | Horizon | Portfolios | Trades | Trades/portfolio | TP | SL | Time exits | TP/(TP+SL) | Mean return, all portfolios | Mean return, active portfolios |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ])
+    for r in horizon_rows:
+        lines.append(
+            f"| {r['scenario']} | {r['horizon_hours']}h | {r['portfolio_count']} | {r['trades']} | "
+            f"{r['trades_per_portfolio']:.1f} | {r['tp']} | {r['sl']} | {r['time_exits']} | "
+            f"{'NA' if r['tp_barrier_resolved_pct'] is None else f'{r["tp_barrier_resolved_pct"]:.2f}%'} | "
+            f"{r['mean_portfolio_return_pct']:.2f}% | "
+            f"{'NA' if r.get('mean_return_active_portfolios_pct') is None else f'{r["mean_return_active_portfolios_pct"]:.2f}%'} |"
+        )
+    lines.extend([
+        "",
+        "## Asset decomposition (60-USDT portfolios)", "",
+        "| Cost scenario | Asset | Portfolios | Trades | TP | SL | Time exits | TP/(TP+SL) | Mean portfolio return | Total PnL across these portfolios |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ])
+    for r in asset_rows:
+        lines.append(
+            f"| {r['scenario']} | {r['asset']} | {r['portfolio_count']} | {r['trades']} | "
+            f"{r['tp']} | {r['sl']} | {r['time_exits']} | "
+            f"{'NA' if r['tp_barrier_resolved_pct'] is None else f'{r["tp_barrier_resolved_pct"]:.2f}%'} | "
+            f"{r['mean_portfolio_return_pct']:.2f}% | {r['sum_net_pnl_usdt']:.2f} USDT |"
         )
     lines.extend(["", "## Stop, time-exit, and execution-cost observations", ""])
     for r in trade_overall:
