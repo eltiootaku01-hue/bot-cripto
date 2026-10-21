@@ -34,6 +34,14 @@ from .virtual_backtest import (
 )
 
 STRATEGY = "eth-bbmr-4h-research"
+EMA_RSI_STRATEGY = "ema-rsi"
+DONCHIAN_STRATEGY = "donchian-20-10-research"
+FROZEN_STRATEGIES = (STRATEGY, EMA_RSI_STRATEGY, DONCHIAN_STRATEGY)
+STRATEGY_DESCRIPTIONS = {
+    STRATEGY: "Bollinger z48 entry <-0.75 with close > EMA180; exit z>2.0 or close <= EMA180",
+    EMA_RSI_STRATEGY: "EMA12/26 crossover; enter only when RSI14 >= 50; exit crossover down or RSI14 >= 70",
+    DONCHIAN_STRATEGY: "Enter close > prior 20-bar high; exit close < prior 10-bar low; current bar excluded from both windows",
+}
 SYMBOL = "ETHUSDT"
 INTERVAL = "4h"
 EMA_PERIOD = 180
@@ -93,14 +101,91 @@ def _strategy_action(
     return "SELL_NEXT_OPEN" if sell_signal else "HOLD_POSITION"
 
 
-def _config(capital: Decimal, costs: tuple[Decimal, Decimal, Decimal], candles: int) -> BacktestConfig:
+def _signal_flags(
+    config: BacktestConfig,
+    current: dict[str, Decimal | None] | None,
+    previous: dict[str, Decimal | None] | None,
+    candle,
+    visible_items,
+) -> tuple[bool, bool, str, str]:
+    """Frozen, causal signal rules; all channel windows exclude the current candle."""
+    if current is None or previous is None:
+        return False, False, "indicator warm-up incomplete", "indicator warm-up incomplete"
+
+    if config.strategy == STRATEGY:
+        zscore = current.get("zscore")
+        slow_ema = current.get("slow_ema")
+        buy = zscore is not None and slow_ema is not None and zscore < Decimal("-0.75") and candle.close > slow_ema
+        sell = zscore is not None and slow_ema is not None and (
+            zscore > Decimal("2.0") or candle.close <= slow_ema
+        )
+        entry_reason = "BBMR z-score below -0.75 while close is above EMA180"
+        exit_reason = (
+            "BBMR z-score above 2.0"
+            if zscore is not None and zscore > Decimal("2.0")
+            else "close at/below EMA180 trend gate"
+        )
+        return buy, sell, entry_reason, exit_reason
+
+    if config.strategy == DONCHIAN_STRATEGY:
+        previous_twenty = visible_items[-21:-1]
+        previous_ten = visible_items[-11:-1]
+        if len(previous_twenty) != 20 or len(previous_ten) != 10:
+            return False, False, "Donchian 20-bar warm-up incomplete", "Donchian 10-bar warm-up incomplete"
+        upper = max(item.payload.high for item in previous_twenty)
+        lower = min(item.payload.low for item in previous_ten)
+        buy = candle.close > upper
+        sell = candle.close < lower
+        entry_reason = "Donchian 20-bar high breakout (current candle excluded)"
+        exit_reason = "Donchian 10-bar low breakdown (current candle excluded)"
+        return buy, sell, entry_reason, exit_reason
+
+    crossed_up = previous["fast_ema"] <= previous["slow_ema"] and current["fast_ema"] > current["slow_ema"]
+    crossed_down = previous["fast_ema"] >= previous["slow_ema"] and current["fast_ema"] < current["slow_ema"]
+    buy = crossed_up and current["rsi"] >= config.rsi_buy_min
+    sell = crossed_down or current["rsi"] >= config.rsi_sell_at
+    return (
+        buy,
+        sell,
+        "EMA12/26 bullish crossover with RSI14 >= 50",
+        "EMA12/26 bearish crossover" if crossed_down else "RSI14 >= 70",
+    )
+
+
+def _decide_action(
+    *,
+    config: BacktestConfig,
+    current: dict[str, Decimal | None] | None,
+    previous: dict[str, Decimal | None] | None,
+    candle,
+    visible_items,
+    position: Decimal,
+    recent_entries: int,
+    warmup_ready: bool,
+) -> str:
+    if not warmup_ready:
+        return "WAIT_WARMUP"
+    buy, sell, _, _ = _signal_flags(config, current, previous, candle, visible_items)
+    if position <= ZERO:
+        if buy:
+            return "BLOCK_ENTRY_CAP" if recent_entries >= config.max_entries_per_30d else "BUY_NEXT_OPEN"
+        return "WAIT_NO_SIGNAL"
+    return "SELL_NEXT_OPEN" if sell else "HOLD_POSITION"
+
+
+def _config(capital: Decimal, costs: tuple[Decimal, Decimal, Decimal], candles: int, strategy: str = STRATEGY) -> BacktestConfig:
     fee, spread, slippage = costs
+    slow_ema_period = EMA_PERIOD if strategy == STRATEGY else 26
     config = BacktestConfig(
         symbol=SYMBOL,
         interval=INTERVAL,
-        strategy=STRATEGY,
+        strategy=strategy,
         candles=candles,
-        slow_ema_period=EMA_PERIOD,
+        fast_ema_period=12,
+        slow_ema_period=slow_ema_period,
+        rsi_period=14,
+        rsi_buy_min=Decimal("50"),
+        rsi_sell_at=Decimal("70"),
         initial_quote_balance=capital,
         position_fraction=POSITION_FRACTION,
         fee_rate=fee,
@@ -214,6 +299,9 @@ def _run_prefix_only(
             zscore is not None
             and (zscore > Decimal("2.0") or candle.close <= current["slow_ema"])
         )
+        buy_signal, sell_signal, entry_reason, exit_reason = _signal_flags(
+            config, current, previous, candle, visible_items
+        )
         if position == ZERO and buy_signal:
             cutoff = candle.end - timedelta(days=30)
             recent_entries = sum(
@@ -222,16 +310,8 @@ def _run_prefix_only(
             )
             if recent_entries >= config.max_entries_per_30d:
                 continue
-            pending = (
-                "BUY",
-                "BBMR z-score below -0.75 while close is above EMA180; rolling entry cap passed",
-            )
+            pending = ("BUY", entry_reason + "; rolling entry cap passed")
         elif position > ZERO and sell_signal:
-            exit_reason = (
-                "BBMR z-score above 2.0"
-                if zscore is not None and zscore > Decimal("2.0")
-                else "close at/below EMA180 trend gate"
-            )
             pending = ("SELL", exit_reason)
 
     if last_values is None:
@@ -383,13 +463,16 @@ def _build_timeline(
         warmup_ready = values is not None and history_index >= max(config.slow_ema_period, config.rsi_period + 1)
         zscore = values.get("zscore") if values is not None else None
         ema = values.get("slow_ema") if values is not None else None
+        previous_values = prefix_indicators[-2] if len(prefix_indicators) >= 2 else None
         if eval_index == len(eval_items) - 1:
             action = "END_OF_REPLAY"
         else:
-            action = _strategy_action(
-                zscore=zscore,
-                close=candle.close,
-                ema=ema,
+            action = _decide_action(
+                config=config,
+                current=values,
+                previous=previous_values,
+                candle=candle,
+                visible_items=visible_items,
                 position=position,
                 recent_entries=recent_buys,
                 warmup_ready=warmup_ready,
@@ -426,8 +509,14 @@ def _build_timeline(
                 "low": str(candle.low),
                 "close": str(candle.close),
             },
+            "strategy_id": config.strategy,
             "bollinger_zscore_48": str(zscore) if zscore is not None else None,
             "ema180": str(ema) if ema is not None else None,
+            "fast_ema": str(values.get("fast_ema")) if values and values.get("fast_ema") is not None else None,
+            "slow_ema": str(values.get("slow_ema")) if values and values.get("slow_ema") is not None else None,
+            "rsi14": str(values.get("rsi")) if values and values.get("rsi") is not None else None,
+            "donchian_previous_20_high": str(max(value.payload.high for value in visible_items[-21:-1])) if config.strategy == DONCHIAN_STRATEGY and len(visible_items) >= 21 else None,
+            "donchian_previous_10_low": str(min(value.payload.low for value in visible_items[-11:-1])) if config.strategy == DONCHIAN_STRATEGY and len(visible_items) >= 11 else None,
             "position_quantity_after_open_execution": str(position),
             "quote_balance_after_open_execution": str(quote),
             "decision": action,
@@ -493,18 +582,35 @@ def _buy_and_hold_benchmark(eval_items, config: BacktestConfig) -> dict[str, str
     }
 
 
+def _cash_benchmark(capital: Decimal) -> dict[str, str]:
+    return {
+        "status": "OK",
+        "final_equity": str(capital),
+        "net_pnl": "0",
+        "return_pct": "0",
+        "max_drawdown_pct": "0",
+    }
+
+
 def _scenario_summary(name: str, capital: Decimal, config: BacktestConfig, result, benchmark) -> dict[str, object]:
     sells = [fill for fill in result.fills if fill.side == "SELL"]
     wins = sum(1 for fill in sells if fill.realized_pnl is not None and fill.realized_pnl > ZERO)
     losses = sum(1 for fill in sells if fill.realized_pnl is not None and fill.realized_pnl < ZERO)
     pnl = result.final_equity - capital
+    strategy_return = pnl / capital * Decimal("100")
+    buy_hold_return = Decimal(benchmark["return_pct"]) if benchmark.get("status") == "OK" else None
+    cash_benchmark = _cash_benchmark(capital)
     return {
         "scenario": name,
+        "strategy_id": config.strategy,
+        "strategy_definition": STRATEGY_DESCRIPTIONS[config.strategy],
         "initial_usdt": str(capital),
         "final_equity_usdt": str(result.final_equity),
         "net_pnl_usdt": str(pnl),
-        "return_pct": str(pnl / capital * Decimal("100")),
+        "return_pct": str(strategy_return),
         "max_drawdown_pct": str(result.max_drawdown * Decimal("100")),
+        "outperformance_vs_buy_hold_percentage_points": str(strategy_return - buy_hold_return) if buy_hold_return is not None else "UNKNOWN",
+        "outperformance_vs_cash_percentage_points": str(strategy_return),
         "buy_fills": sum(1 for fill in result.fills if fill.side == "BUY"),
         "sell_fills_including_terminal_liquidation": len(sells),
         "winning_sell_cycles": wins,
@@ -512,7 +618,8 @@ def _scenario_summary(name: str, capital: Decimal, config: BacktestConfig, resul
         "total_fees_usdt": str(result.total_fees),
         "final_base_position": str(result.final_base_position),
         "buy_and_hold_same_cost_model": benchmark,
-        "strategy": STRATEGY,
+        "cash_no_trade_benchmark": cash_benchmark,
+        "strategy": config.strategy,
         "decision": "NO_TRADE",
     }
 
@@ -527,7 +634,7 @@ def _write_scenario_files(
     timeline: list[dict[str, object]],
     summary: dict[str, object],
 ) -> None:
-    name = f"{int(capital)}-{scenario_name.lower()}"
+    name = f"{config.strategy}-{int(capital)}-{scenario_name.lower()}"
     (output_dir / f"timeline-{name}.jsonl").write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in timeline),
         encoding="utf-8",
@@ -624,63 +731,66 @@ def main(argv: Sequence[str] | None = None) -> int:
         dataset_sha = ""
         config_sha = ""
         evidence_records = []
-        for capital in (Decimal("60"), Decimal("100")):
-            for scenario_name, costs in COST_SCENARIOS.items():
-                config = _config(capital, costs, len(eval_items))
-                batch_reference = run_virtual_backtest(
-                    all_items,
-                    config,
-                    evaluation_start=start,
-                    evaluation_end=eval_end,
-                )
-                result = _run_prefix_only(
-                    all_items=all_items,
-                    eval_items=eval_items,
-                    config=config,
-                )
-                if result != batch_reference:
-                    raise BacktestError(
-                        "prefix-only execution diverged from the existing virtual accounting engine; "
-                        "refusing to publish an unverified economic result"
+        for strategy in FROZEN_STRATEGIES:
+            for capital in (Decimal("60"), Decimal("100")):
+                for scenario_name, costs in COST_SCENARIOS.items():
+                    config = _config(capital, costs, len(eval_items), strategy=strategy)
+                    batch_reference = run_virtual_backtest(
+                        all_items,
+                        config,
+                        evaluation_start=start,
+                        evaluation_end=eval_end,
                     )
-                data_hash, effective_config_hash, records = _evidence_hashes(all_items, config)
-                if not dataset_sha:
-                    dataset_sha = data_hash
-                    evidence_records = records
-                elif dataset_sha != data_hash:
-                    raise BacktestError("dataset hash changed across scenarios; refusing non-identical market-data comparisons")
-                if capital == Decimal("60") and scenario_name == "BASE":
-                    config_sha = effective_config_hash
-                timeline = _build_timeline(
-                    all_items=all_items,
-                    eval_items=eval_items,
-                    config=config,
-                    result=result,
-                )
-                benchmark = _buy_and_hold_benchmark(eval_items, config)
-                summary = _scenario_summary(scenario_name, capital, config, result, benchmark)
-                summaries.append(summary)
-                _write_scenario_files(
-                    output_dir=args.output_dir,
-                    capital=capital,
-                    scenario_name=scenario_name,
-                    config=config,
-                    result=result,
-                    timeline=timeline,
-                    summary=summary,
-                )
-                print(
-                    "RESULT "
-                    f"capital={capital} scenario={scenario_name} "
-                    f"start={start.isoformat()} end_exclusive={eval_end.isoformat()} "
-                    f"candles={len(eval_items)} "
-                    f"final={result.final_equity} pnl={summary['net_pnl_usdt']} "
-                    f"return_pct={summary['return_pct']} max_dd_pct={summary['max_drawdown_pct']} "
-                    f"buys={summary['buy_fills']} sells={summary['sell_fills_including_terminal_liquidation']} "
-                    f"wins={summary['winning_sell_cycles']} losses={summary['losing_sell_cycles']} "
-                    f"buy_hold_final={benchmark.get('final_equity', benchmark.get('status'))} "
-                    f"buy_hold_return_pct={benchmark.get('return_pct', 'UNKNOWN')}"
-                )
+                    result = _run_prefix_only(
+                        all_items=all_items,
+                        eval_items=eval_items,
+                        config=config,
+                    )
+                    if result != batch_reference:
+                        raise BacktestError(
+                            f"prefix-only {strategy} execution diverged from the existing virtual accounting engine; "
+                            "refusing to publish an unverified economic result"
+                        )
+                    data_hash, effective_config_hash, records = _evidence_hashes(all_items, config)
+                    if not dataset_sha:
+                        dataset_sha = data_hash
+                        evidence_records = records
+                    elif dataset_sha != data_hash:
+                        raise BacktestError("dataset hash changed across scenarios; refusing non-identical market-data comparisons")
+                    if strategy == STRATEGY and capital == Decimal("60") and scenario_name == "BASE":
+                        config_sha = effective_config_hash
+                    timeline = _build_timeline(
+                        all_items=all_items,
+                        eval_items=eval_items,
+                        config=config,
+                        result=result,
+                    )
+                    benchmark = _buy_and_hold_benchmark(eval_items, config)
+                    summary = _scenario_summary(scenario_name, capital, config, result, benchmark)
+                    summary["effective_configuration_sha256"] = effective_config_hash
+                    summaries.append(summary)
+                    _write_scenario_files(
+                        output_dir=args.output_dir,
+                        capital=capital,
+                        scenario_name=scenario_name,
+                        config=config,
+                        result=result,
+                        timeline=timeline,
+                        summary=summary,
+                    )
+                    print(
+                        "RESULT "
+                        f"strategy={strategy} capital={capital} scenario={scenario_name} "
+                        f"start={start.isoformat()} end_exclusive={eval_end.isoformat()} "
+                        f"candles={len(eval_items)} "
+                        f"final={result.final_equity} pnl={summary['net_pnl_usdt']} "
+                        f"return_pct={summary['return_pct']} max_dd_pct={summary['max_drawdown_pct']} "
+                        f"buys={summary['buy_fills']} sells={summary['sell_fills_including_terminal_liquidation']} "
+                        f"wins={summary['winning_sell_cycles']} losses={summary['losing_sell_cycles']} "
+                        f"buy_hold_final={benchmark.get('final_equity', benchmark.get('status'))} "
+                        f"buy_hold_return_pct={benchmark.get('return_pct', 'UNKNOWN')} "
+                        f"cash_final={capital} cash_return_pct=0"
+                    )
 
         bundle = {
             "schema_version": 1,
@@ -691,6 +801,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "simulated_clock_mode": "PREFIX_ONLY_DECISION_PER_CLOSED_4H_CANDLE",
             "future_candles_passed_to_decision": 0,
             "strategy": STRATEGY,
+            "frozen_strategies": [{"id": strategy_id, "definition": STRATEGY_DESCRIPTIONS[strategy_id]} for strategy_id in FROZEN_STRATEGIES],
             "decision": "NO_TRADE",
             "dataset_sha256": dataset_sha,
             "configuration_sha256": config_sha,
@@ -704,6 +815,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         index = {
             "research_only": True,
             "operational_decision": "NO_TRADE",
+            "strategies": [{"id": strategy_id, "definition": STRATEGY_DESCRIPTIONS[strategy_id]} for strategy_id in FROZEN_STRATEGIES],
             "strategy": STRATEGY,
             "symbol": SYMBOL,
             "interval": INTERVAL,
@@ -739,6 +851,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Dataset SHA-256: {dataset_sha}")
         print(f"Effective configuration SHA-256: {config_sha}")
         print("Strategy input contract: prefix-only; future_candles_passed_to_decision=0")
+        print("Frozen tactics compared: " + ", ".join(FROZEN_STRATEGIES))
+        print("Benchmarks: ETH buy-and-hold under same modeled costs; cash no-trade at 0% nominal return")
         print("Research only. This historical window was previously screened; no independent holdout is established.")
         print("Decision: NO_TRADE")
         return 0
