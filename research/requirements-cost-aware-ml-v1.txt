@@ -1,0 +1,10 @@
+# Isolated research-only environment for COST_AWARE_ML_RETURN_FILTER_50_100_V1.
+# Target: CPython 3.12, x86-64; do not add these to pyproject.toml/runtime.
+# The plan's proposed xgboost 3.4.2 was not present on PyPI at verification time;
+# PyPI lists xgboost 3.4.1 as stable and provides a Windows x86-64 wheel.
+# Published wheel/platform metadata were checked; packages were NOT installed here.
+numpy==2.3.5
+pandas==2.2.3
+scipy==1.16.3
+xgboost==3.4.1
+pytest==9.1.1
