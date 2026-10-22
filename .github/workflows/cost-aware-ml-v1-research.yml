@@ -29,20 +29,22 @@ jobs:
           cache: "pip"
       - name: Install pinned resolver
         run: python -m pip install --disable-pip-version-check "uv==0.8.17"
-      - name: Resolve binary-only Windows CPython 3.12 lock
+      - name: Resolve binary-only Windows CPython 3.13 lock
         shell: pwsh
         run: |
           $lockPath = Join-Path $env:RUNNER_TEMP "requirements-cost-aware-ml-v1.lock.txt"
           uv pip compile --generate-hashes --only-binary ":all:" --no-header --no-annotate --python-version "3.13" --python-platform "x86_64-pc-windows-msvc" --output-file $lockPath research/requirements-cost-aware-ml-v1.txt
+          $installLockPath = $lockPath
           if (Test-Path "research/requirements-cost-aware-ml-v1.lock.txt") {
             python -c "from pathlib import Path; import sys; a=Path(sys.argv[1]).read_text(); b=Path(sys.argv[2]).read_text(); sys.exit(0 if a == b else 1)" "research/requirements-cost-aware-ml-v1.lock.txt" $lockPath
             if ($LASTEXITCODE -ne 0) { throw "LOCKFILE_OUT_OF_DATE: committed lock differs from fresh pinned resolution" }
+            $installLockPath = "research/requirements-cost-aware-ml-v1.lock.txt"
           } else {
             Write-Output "LOCK_BEGIN"
             Get-Content $lockPath | ForEach-Object { Write-Output $_ }
             Write-Output "LOCK_END"
           }
-          python -m pip install --disable-pip-version-check --require-hashes -r $lockPath
+          python -m pip install --disable-pip-version-check --require-hashes -r $installLockPath
       - name: Verify pinned runtime and package versions
         run: |
           python --version

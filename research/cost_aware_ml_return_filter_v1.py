@@ -88,6 +88,16 @@ class ResearchContractError(ValueError):
     """A research input, artifact, or economic contract failed validation."""
 
 
+def _decimal(value: Any, label: str) -> Decimal:
+    try:
+        result = value if isinstance(value, Decimal) else Decimal(str(value))
+    except Exception as exc:
+        raise ResearchContractError(f"{label.upper()}_NOT_DECIMAL") from exc
+    if not result.is_finite():
+        raise ResearchContractError(f"{label.upper()}_NOT_FINITE")
+    return result
+
+
 @dataclass(frozen=True)
 class TrainingSet:
     features: pd.DataFrame
@@ -138,16 +148,6 @@ COST_SCENARIOS = {
     "STRESS_1": CostScenario("STRESS_1", Decimal("0.001"), Decimal("10")),
     "STRESS_2": CostScenario("STRESS_2", Decimal("0.002"), Decimal("20")),
 }
-
-
-def _decimal(value: Any, label: str) -> Decimal:
-    try:
-        result = value if isinstance(value, Decimal) else Decimal(str(value))
-    except Exception as exc:
-        raise ResearchContractError(f"{label.upper()}_NOT_DECIMAL") from exc
-    if not result.is_finite():
-        raise ResearchContractError(f"{label.upper()}_NOT_FINITE")
-    return result
 
 
 def _canonical_json(value: Any) -> bytes:
