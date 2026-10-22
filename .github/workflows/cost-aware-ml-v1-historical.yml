@@ -1,0 +1,39 @@
+name: cost-aware-ml-v1-historical-contrast
+
+on:
+  push:
+    branches:
+      - research/cost-aware-ml-return-filter-50-100-v1
+    paths:
+      - "research/historical_cost_aware_ml_v1.py"
+      - "tests/test_historical_cost_aware_ml_v1.py"
+      - ".github/workflows/cost-aware-ml-v1-historical.yml"
+      - "research/cost_aware_ml_return_filter_v1.py"
+      - "research/requirements-cost-aware-ml-v1.txt"
+      - "research/requirements-cost-aware-ml-v1.lock.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-walk-forward:
+    name: verified Binance historical walk-forward (Windows / CPython 3.13.16)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.16"
+          architecture: "x64"
+          cache: "pip"
+      - name: Install exact hash-locked research dependencies
+        run: python -m pip install --disable-pip-version-check --require-hashes -r research/requirements-cost-aware-ml-v1.lock.txt
+      - name: Verify exact runtime and unit contracts
+        run: |
+          python --version
+          python -c "from research.cost_aware_ml_return_filter_v1 import require_pinned_runtime; print(require_pinned_runtime())"
+          python -m pytest -q tests/test_historical_cost_aware_ml_v1.py
+      - name: Download checksummed historical Klines and run walk-forward contrast
+        run: python research/historical_cost_aware_ml_v1.py --output-dir historical-output
