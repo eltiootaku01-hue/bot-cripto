@@ -5,7 +5,7 @@ separately labelled candle-close proxy with assumed spread/slippage/fees, not ex
 historic fills or prospective evidence. It never connects to an exchange account.
 """
 from __future__ import annotations
-import argparse, concurrent.futures, hashlib, io, json, os, re, time, urllib.request, zipfile
+import argparse, concurrent.futures, hashlib, io, json, os, re, time, urllib.request, zipfile, sys
 from datetime import date, timedelta, datetime, timezone
 from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
