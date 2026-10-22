@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 import hashlib
 
@@ -130,10 +131,11 @@ def test_training_and_native_model_roundtrip_are_reproducible_on_synthetic_data(
     model_path = tmp_path / "frozen-model.json"
     manifest_path = tmp_path / "frozen-model.manifest.json"
 
+    training_candles = candles.iloc[:1350].copy()
     manifest = candidate.train_and_save_model(
-        candles,
+        training_candles,
         training_cutoff=cutoff,
-        source_dataset_sha256="a" * 64,
+        source_dataset_sha256=candidate.canonical_dataset_sha256(training_candles),
         git_commit_sha="0" * 40,
         model_path=model_path,
         manifest_path=manifest_path,
@@ -149,6 +151,7 @@ def test_training_and_native_model_roundtrip_are_reproducible_on_synthetic_data(
     np.testing.assert_array_equal(first_predictions, second_predictions)
     assert loaded_manifest["manifest_payload_sha256"] == manifest["manifest_payload_sha256"]
     assert loaded_manifest["model_sha256"] == hashlib.sha256(model_path.read_bytes()).hexdigest()
+    assert loaded_manifest["source_dataset_hash_contract"] == "canonical-normalized-hourly-candles-v1"
     assert model_path.suffix == ".json"
     assert not manifest_path.read_text(encoding="utf-8").startswith("pickle")
 
@@ -241,7 +244,8 @@ def test_negative_prediction_keeps_cash_and_replay_reports_no_fake_profit():
     assert result["round_trips"] == 0
     assert result["final_equity_usdt"] == "100"
     assert result["net_pnl_usdt"] == "0"
-    assert result["max_drawdown_pct"] == "0"
+    assert result["max_drawdown_pct_sampled_hourly"] == "0"
+    assert "not_intrahour_absolute_drawdown" in result["drawdown_measurement"]
 
 
 def test_source_hash_validation_fails_before_any_model_training(tmp_path):
@@ -275,3 +279,123 @@ def test_prediction_validation_rejects_nan_and_non_hourly_decisions():
     )
     with pytest.raises(candidate.ResearchContractError, match="NOT_STRICTLY_HOURLY"):
         candidate._normalize_predictions(gap)
+
+
+
+def test_quote_validation_requires_explicit_btcusdt_identity():
+    decision = pd.Timestamp("2026-01-01T12:00:00Z")
+    quotes = synthetic_quotes(decision)
+
+    missing_symbol = quotes.drop(columns=["symbol"])
+    with pytest.raises(candidate.ResearchContractError, match="COLUMNS_MISSING:symbol"):
+        candidate._normalize_quotes(missing_symbol)
+
+    wrong_symbol = quotes.copy()
+    wrong_symbol["symbol"] = "ETHUSDT"
+    with pytest.raises(candidate.ResearchContractError, match="BTCUSDT_SPOT"):
+        candidate._normalize_quotes(wrong_symbol)
+
+
+def test_replay_rejects_entry_quote_beyond_evaluation_end():
+    decision = pd.Timestamp("2026-01-01T12:00:00Z")
+    quotes = synthetic_quotes(decision)
+    predictions = pd.DataFrame({"decision_at": [decision], "predicted_return": [0.02]})
+    filters = candidate.InstrumentFilters(
+        min_quantity=Decimal("0.0001"),
+        quantity_step=Decimal("0.0001"),
+        min_notional=Decimal("5"),
+    )
+    with pytest.raises(candidate.ResearchContractError, match="EVALUATION_WINDOW_QUOTE_UNAVAILABLE"):
+        candidate.replay_predictions(
+            predictions,
+            quotes,
+            evaluation_end_at=decision + pd.Timedelta(milliseconds=100),
+            filters=filters,
+            scenario=candidate.COST_SCENARIOS["BASE"],
+        )
+
+
+def test_terminal_liquidation_never_uses_a_quote_after_evaluation_end():
+    decision = pd.Timestamp("2026-01-01T12:00:00Z")
+    entry_available = decision + pd.Timedelta(milliseconds=200)
+    exit_due = entry_available + pd.Timedelta(hours=24)
+    quotes = synthetic_quotes(decision, exit_due)
+    predictions = pd.DataFrame({"decision_at": [decision], "predicted_return": [0.02]})
+    end_at = exit_due - pd.Timedelta(seconds=5)
+    filters = candidate.InstrumentFilters(
+        min_quantity=Decimal("0.0001"),
+        quantity_step=Decimal("0.0001"),
+        min_notional=Decimal("5"),
+    )
+    with pytest.raises(candidate.ResearchContractError, match="EVALUATION_END_QUOTE_UNAVAILABLE"):
+        candidate.replay_predictions(
+            predictions,
+            quotes,
+            evaluation_end_at=end_at,
+            filters=filters,
+            scenario=candidate.COST_SCENARIOS["BASE"],
+        )
+
+
+def test_dataset_digest_must_match_actual_normalized_training_input(tmp_path):
+    candles = synthetic_candles(length=1500)
+    cutoff = candles["timestamp"].iloc[1350]
+    training_candles = candles.iloc[:1350].copy()
+    claimed_hash = candidate.canonical_dataset_sha256(training_candles)
+    altered = training_candles.copy()
+    altered.loc[5, "volume"] *= 1.01
+
+    with pytest.raises(candidate.ResearchContractError, match="SOURCE_DATASET_HASH_MISMATCH"):
+        candidate.train_and_save_model(
+            altered,
+            training_cutoff=cutoff,
+            source_dataset_sha256=claimed_hash,
+            git_commit_sha="0" * 40,
+            model_path=tmp_path / "model.json",
+            manifest_path=tmp_path / "model.manifest.json",
+        )
+    assert not (tmp_path / "model.json").exists()
+
+
+def test_training_refuses_candles_that_extend_past_cutoff(tmp_path):
+    candles = synthetic_candles(length=1500)
+    cutoff = candles["timestamp"].iloc[1350]
+    input_beyond_cutoff = candles.iloc[:1351].copy()
+    with pytest.raises(candidate.ResearchContractError, match="TRAINING_INPUT_EXTENDS_BEYOND_CUTOFF"):
+        candidate.train_and_save_model(
+            input_beyond_cutoff,
+            training_cutoff=cutoff,
+            source_dataset_sha256=candidate.canonical_dataset_sha256(input_beyond_cutoff),
+            git_commit_sha="0" * 40,
+            model_path=tmp_path / "model.json",
+            manifest_path=tmp_path / "model.manifest.json",
+        )
+    assert not (tmp_path / "model.json").exists()
+
+
+def test_failed_manifest_publication_removes_orphan_model(tmp_path, monkeypatch):
+    candles = synthetic_candles(length=1500)
+    cutoff = candles["timestamp"].iloc[1350]
+    training_candles = candles.iloc[:1350].copy()
+    model_path = tmp_path / "frozen-model.json"
+    manifest_path = tmp_path / "frozen-model.manifest.json"
+    original_replace = Path.replace
+
+    def fail_manifest_replace(self, target):
+        if Path(target) == manifest_path:
+            raise OSError("synthetic_manifest_publication_failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_manifest_replace)
+    with pytest.raises(OSError, match="synthetic_manifest_publication_failure"):
+        candidate.train_and_save_model(
+            training_candles,
+            training_cutoff=cutoff,
+            source_dataset_sha256=candidate.canonical_dataset_sha256(training_candles),
+            git_commit_sha="0" * 40,
+            model_path=model_path,
+            manifest_path=manifest_path,
+        )
+    assert not model_path.exists()
+    assert not manifest_path.exists()
+    assert not list(tmp_path.glob(".*.tmp*"))

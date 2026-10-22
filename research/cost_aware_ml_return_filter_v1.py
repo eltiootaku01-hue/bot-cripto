@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MODEL_FORMAT = "xgboost-native-json-v1"
 HORIZON_HOURS = 24
 MIN_TRAIN_ROWS = 1000
@@ -81,7 +81,7 @@ FIXED_MODEL_PARAMETERS: dict[str, Any] = {
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _CANDLE_COLUMNS = ("timestamp", "open", "high", "low", "close", "volume")
-_QUOTE_COLUMNS = ("received_at", "available_at", "bid", "ask")
+_QUOTE_COLUMNS = ("received_at", "available_at", "bid", "ask", "symbol")
 
 
 class ResearchContractError(ValueError):
@@ -263,6 +263,27 @@ def validate_candles(candles: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def canonical_dataset_sha256(candles: pd.DataFrame) -> str:
+    """Hash the exact normalized hourly candle values consumed by this module.
+
+    This is a logical-data hash, not a digest of source CSV/Parquet bytes.
+    The manifest names the contract to distinguish these identities.
+    """
+    frame = validate_candles(candles)
+    rows: list[list[str]] = []
+    for row in frame.itertuples(index=False, name=None):
+        rows.append([
+            row[0].isoformat(),
+            *(format(float(value), ".17g") for value in row[1:]),
+        ])
+    payload = {
+        "contract": "canonical-normalized-hourly-candles-v1",
+        "columns": list(_CANDLE_COLUMNS),
+        "rows": rows,
+    }
+    return _sha256_bytes(_canonical_json(payload))
+
+
 def compute_features(candles: pd.DataFrame) -> pd.DataFrame:
     """Build the fixed causal feature vector using only the current/past rows."""
     frame = validate_candles(candles)
@@ -397,8 +418,17 @@ def train_and_save_model(
     This is an explicit operator-called research function. It must not be
     called with the future evaluation segment. No fit is performed on import.
     """
-    runtime = require_pinned_runtime()
     source_hash = _require_sha256(source_dataset_sha256, "source_dataset")
+    cutoff = _utc_timestamp(training_cutoff, "training_cutoff")
+    normalized_candles = validate_candles(candles)
+    # Training input may end at the last candle that closes at the cutoff;
+    # later candles are forbidden even if their labels would eventually be purged.
+    if normalized_candles["timestamp"].iloc[-1] + pd.Timedelta(hours=1) > cutoff:
+        raise ResearchContractError("TRAINING_INPUT_EXTENDS_BEYOND_CUTOFF")
+    actual_source_hash = canonical_dataset_sha256(normalized_candles)
+    if source_hash != actual_source_hash:
+        raise ResearchContractError("SOURCE_DATASET_HASH_MISMATCH")
+    runtime = require_pinned_runtime()
     if not isinstance(git_commit_sha, str) or not _GIT_SHA_RE.fullmatch(git_commit_sha):
         raise ResearchContractError("GIT_COMMIT_SHA_INVALID")
     model_file = Path(model_path)
@@ -410,7 +440,7 @@ def train_and_save_model(
     if model_file.exists() or manifest_file.exists():
         raise ResearchContractError("MODEL_OUTPUT_ALREADY_EXISTS")
 
-    training = build_training_set(candles, training_cutoff)
+    training = build_training_set(normalized_candles, cutoff)
     model = make_regressor()
     model.fit(training.features, training.target)
     prediction = model.predict(training.features)
@@ -421,6 +451,8 @@ def train_and_save_model(
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
     model_tmp = model_file.with_name(f".{model_file.stem}.tmp{model_file.suffix}")
     manifest_tmp = manifest_file.with_name(f".{manifest_file.name}.tmp")
+    published_model = False
+    published_manifest = False
     try:
         model.save_model(model_tmp)
         model_hash = _sha256_file(model_tmp)
@@ -430,6 +462,7 @@ def train_and_save_model(
             "model_file": model_file.name,
             "model_sha256": model_hash,
             "source_dataset_sha256": source_hash,
+            "source_dataset_hash_contract": "canonical-normalized-hourly-candles-v1",
             "training_rows_sha256": _training_rows_sha256(training),
             "source_module_sha256": _sha256_file(Path(__file__)),
             "git_commit_sha": git_commit_sha,
@@ -454,9 +487,17 @@ def train_and_save_model(
         }
         manifest["manifest_payload_sha256"] = _manifest_hash(manifest)
         model_tmp.replace(model_file)
+        published_model = True
         manifest_tmp.write_bytes(_canonical_json(manifest) + b"\n")
         manifest_tmp.replace(manifest_file)
+        published_manifest = True
     except Exception:
+        # The manifest is the completeness marker. Remove final artifacts created
+        # by this invocation if its publication did not complete.
+        if published_manifest:
+            manifest_file.unlink(missing_ok=True)
+        if published_model:
+            model_file.unlink(missing_ok=True)
         for path in (model_tmp, manifest_tmp):
             try:
                 path.unlink(missing_ok=True)
@@ -488,6 +529,8 @@ def load_frozen_model(
         raise ResearchContractError("MODEL_FEATURE_SCHEMA_MISMATCH")
     if manifest.get("feature_schema_sha256") != FEATURE_SCHEMA_SHA256:
         raise ResearchContractError("MODEL_FEATURE_SCHEMA_HASH_MISMATCH")
+    if manifest.get("source_dataset_hash_contract") != "canonical-normalized-hourly-candles-v1":
+        raise ResearchContractError("MODEL_SOURCE_DATASET_HASH_CONTRACT_MISMATCH")
     if manifest.get("model_parameters") != FIXED_MODEL_PARAMETERS:
         raise ResearchContractError("MODEL_PARAMETERS_MISMATCH")
     if manifest.get("runtime") != runtime:
@@ -598,8 +641,8 @@ def _normalize_quotes(quotes: pd.DataFrame) -> pd.DataFrame:
     missing = [column for column in _QUOTE_COLUMNS if column not in quotes.columns]
     if missing:
         raise ResearchContractError("QUOTE_COLUMNS_MISSING:" + ",".join(missing))
-    result = quotes.loc[:, list(_QUOTE_COLUMNS) + (["symbol"] if "symbol" in quotes.columns else [])].copy().reset_index(drop=True)
-    if "symbol" in result.columns and not result["symbol"].eq("BTCUSDT").all():
+    result = quotes.loc[:, list(_QUOTE_COLUMNS)].copy().reset_index(drop=True)
+    if not result["symbol"].map(lambda value: isinstance(value, str) and value == "BTCUSDT").all():
         raise ResearchContractError("QUOTES_MUST_BE_BTCUSDT_SPOT")
     result["received_at"] = _timestamp_series(result["received_at"].tolist(), "quote_received")
     result["available_at"] = _timestamp_series(result["available_at"].tolist(), "quote_available")
@@ -696,6 +739,11 @@ def replay_predictions(
     end_at = _utc_timestamp(evaluation_end_at, "evaluation_end")
     if end_at <= signals["decision_at"].iloc[-1]:
         raise ResearchContractError("EVALUATION_END_MUST_FOLLOW_LAST_DECISION")
+    # Exclude post-boundary observations up front; no fill/mark selector below
+    # can even inspect a quote whose availability lies beyond evaluation_end_at.
+    window_quotes = quote_frame.loc[quote_frame["available_at"] <= end_at].reset_index(drop=True)
+    if window_quotes.empty:
+        raise ResearchContractError("EVALUATION_WINDOW_HAS_NO_QUOTES")
 
     cash = INITIAL_CAPITAL_USDT
     position: dict[str, Any] | None = None
@@ -710,7 +758,7 @@ def replay_predictions(
         nonlocal cash, position, total_fees
         if position is None:
             raise ResearchContractError("ATTEMPTED_EXIT_WITHOUT_POSITION")
-        row = quote_frame.iloc[quote_index]
+        row = window_quotes.iloc[quote_index]
         exit_at = row["available_at"]
         exit_price = _execution_price(row["bid"], scenario, buy=False)
         exit_notional = position["quantity"] * exit_price
@@ -741,7 +789,7 @@ def replay_predictions(
     def mark_equity(mark_at: pd.Timestamp) -> Decimal:
         if position is None:
             return cash
-        quote_index = _fresh_quote_before(quote_frame, mark_at)
+        quote_index = _fresh_quote_before(window_quotes, mark_at)
         mark_bid = quote_frame.iloc[quote_index]["bid"]
         liquidation_price = _execution_price(mark_bid, scenario, buy=False)
         liquidation_notional = position["quantity"] * liquidation_price
@@ -766,7 +814,7 @@ def replay_predictions(
         decision_at = prediction.decision_at
         if position is not None and position["exit_due_at"] <= decision_at:
             exit_index = _fresh_quote_at_or_after(
-                quote_frame, position["exit_due_at"]
+                window_quotes, position["exit_due_at"]
             )
             exit_available_at = quote_frame.iloc[exit_index]["available_at"]
             if exit_available_at <= decision_at:
@@ -777,8 +825,15 @@ def replay_predictions(
         if position is not None:
             continue
 
-        entry_index = _fresh_quote_after(quote_frame, decision_at)
-        entry_quote = quote_frame.iloc[entry_index]
+        try:
+            entry_index = _fresh_quote_after(window_quotes, decision_at)
+        except ResearchContractError as exc:
+            if str(exc) == "QUOTE_UNAVAILABLE_AFTER_DECISION":
+                raise ResearchContractError("EVALUATION_WINDOW_QUOTE_UNAVAILABLE") from exc
+            raise
+        entry_quote = window_quotes.iloc[entry_index]
+        if entry_quote["available_at"] > end_at:
+            raise ResearchContractError("EVALUATION_WINDOW_QUOTE_UNAVAILABLE")
         if not should_enter(
             prediction.predicted_return,
             entry_quote["bid"],
@@ -815,14 +870,19 @@ def replay_predictions(
         }
 
     if position is not None:
-        if position["exit_due_at"] < end_at:
-            exit_index = _fresh_quote_at_or_after(quote_frame, position["exit_due_at"])
-            exit_available_at = quote_frame.iloc[exit_index]["available_at"]
+        if position["exit_due_at"] <= end_at:
+            exit_index = _fresh_quote_at_or_after(window_quotes, position["exit_due_at"])
+            exit_available_at = window_quotes.iloc[exit_index]["available_at"]
             if exit_available_at > end_at:
                 raise ResearchContractError("HORIZON_EXIT_AFTER_EVALUATION_END")
             close_position(exit_index, "HORIZON_24H")
         else:
-            terminal_index = _fresh_quote_at_or_after(quote_frame, end_at)
+            # A terminal liquidation may only use the latest quote before the
+            # boundary, and it must satisfy the same freshness contract.
+            try:
+                terminal_index = _fresh_quote_before(window_quotes, end_at)
+            except ResearchContractError as exc:
+                raise ResearchContractError("EVALUATION_END_QUOTE_UNAVAILABLE") from exc
             close_position(terminal_index, "TERMINAL_LIQUIDATION")
 
     final_equity = cash
@@ -847,7 +907,8 @@ def replay_predictions(
         "final_equity_usdt": str(final_equity),
         "net_pnl_usdt": str(net_pnl),
         "return_pct": str((net_pnl / INITIAL_CAPITAL_USDT) * Decimal("100")),
-        "max_drawdown_pct": str(worst_drawdown_pct),
+        "max_drawdown_pct_sampled_hourly": str(worst_drawdown_pct),
+        "drawdown_measurement": "hourly_decision_marks_plus_terminal_mark; not_intrahour_absolute_drawdown",
         "total_fees_usdt": str(total_fees),
         "round_trips": len(trades),
         "profitable_round_trips": sum(

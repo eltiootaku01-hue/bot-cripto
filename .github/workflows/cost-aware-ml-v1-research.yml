@@ -1,0 +1,51 @@
+name: cost-aware-ml-v1-research
+
+on:
+  push:
+    branches:
+      - research/cost-aware-ml-return-filter-50-100-v1
+    paths:
+      - "research/cost_aware_ml_return_filter_v1.py"
+      - "research/test_cost_aware_ml_return_filter_v1.py"
+      - "research/requirements-cost-aware-ml-v1.txt"
+      - "research/requirements-cost-aware-ml-v1.lock.txt"
+      - ".github/workflows/cost-aware-ml-v1-research.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-windows-cp312:
+    name: resolve locked dependencies and synthetic tests (Windows / CPython 3.12.15)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.15"
+          architecture: "x64"
+          cache: "pip"
+      - name: Install pinned resolver
+        run: python -m pip install --disable-pip-version-check "uv==0.8.17"
+      - name: Resolve binary-only Windows CPython 3.12 lock
+        shell: pwsh
+        run: |
+          $lockPath = Join-Path $env:RUNNER_TEMP "requirements-cost-aware-ml-v1.lock.txt"
+          uv pip compile --generate-hashes --only-binary ":all:" --no-header --no-annotate --python-version "3.12" --python-platform "x86_64-pc-windows-msvc" --output-file $lockPath research/requirements-cost-aware-ml-v1.txt
+          if (Test-Path "research/requirements-cost-aware-ml-v1.lock.txt") {
+            python -c "from pathlib import Path; import sys; a=Path(sys.argv[1]).read_text(); b=Path(sys.argv[2]).read_text(); sys.exit(0 if a == b else 1)" "research/requirements-cost-aware-ml-v1.lock.txt" $lockPath
+            if ($LASTEXITCODE -ne 0) { throw "LOCKFILE_OUT_OF_DATE: committed lock differs from fresh pinned resolution" }
+          } else {
+            Write-Output "LOCK_BEGIN"
+            Get-Content $lockPath | ForEach-Object { Write-Output $_ }
+            Write-Output "LOCK_END"
+          }
+          python -m pip install --disable-pip-version-check --require-hashes -r $lockPath
+      - name: Verify pinned runtime and package versions
+        run: |
+          python --version
+          python -c "from research.cost_aware_ml_return_filter_v1 import require_pinned_runtime; print(require_pinned_runtime())"
+      - name: Execute only the isolated synthetic research tests
+        run: python -m pytest -q research/test_cost_aware_ml_return_filter_v1.py
