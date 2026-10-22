@@ -6,7 +6,7 @@ on:
       - research/cost-aware-ml-return-filter-50-100-v1
     paths:
       - "research/historical_cost_aware_ml_v1.py"
-      - "tests/test_historical_cost_aware_ml_v1.py"
+      - "research/test_historical_cost_aware_ml_v1.py"
       - ".github/workflows/cost-aware-ml-v1-historical.yml"
       - "research/cost_aware_ml_return_filter_v1.py"
       - "research/requirements-cost-aware-ml-v1.txt"
@@ -34,6 +34,6 @@ jobs:
         run: |
           python --version
           python -c "from research.cost_aware_ml_return_filter_v1 import require_pinned_runtime; print(require_pinned_runtime())"
-          python -m pytest -q tests/test_historical_cost_aware_ml_v1.py
+          python -m pytest -q research/test_historical_cost_aware_ml_v1.py
       - name: Download checksummed historical Klines and run walk-forward contrast
         run: python research/historical_cost_aware_ml_v1.py --output-dir historical-output
