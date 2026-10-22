@@ -791,7 +791,7 @@ def replay_predictions(
         if position is None:
             return cash
         quote_index = _fresh_quote_before(window_quotes, mark_at)
-        mark_bid = quote_frame.iloc[quote_index]["bid"]
+        mark_bid = window_quotes.iloc[quote_index]["bid"]
         liquidation_price = _execution_price(mark_bid, scenario, buy=False)
         liquidation_notional = position["quantity"] * liquidation_price
         liquidation_fee = liquidation_notional * scenario.fee_rate

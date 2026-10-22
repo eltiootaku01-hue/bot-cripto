@@ -65,4 +65,5 @@ jobs:
       - name: Require committed lock to match resolved lock
         if: steps.resolve.outputs.lock_out_of_date == 'true'
         shell: pwsh
-        run: throw "LOCKFILE_OUT_OF_DATE: fresh lock was printed above; commit the exact resolved contents before accepting G1"
+        run: |
+          throw "LOCKFILE_OUT_OF_DATE: fresh lock was printed above; commit the exact resolved contents before accepting G1"
