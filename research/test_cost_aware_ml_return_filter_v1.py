@@ -123,6 +123,7 @@ def test_fixed_runtime_configuration_is_not_a_tuning_surface():
     assert params["n_jobs"] == 1
     assert params["tree_method"] == "hist"
     assert candidate.HORIZON_HOURS == 24
+    assert candidate.EXPECTED_PYTHON_VERSION == "3.13.16"
 
 
 def test_training_and_native_model_roundtrip_are_reproducible_on_synthetic_data(tmp_path):

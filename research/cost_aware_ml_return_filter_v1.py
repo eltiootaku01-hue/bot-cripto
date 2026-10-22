@@ -23,6 +23,7 @@ from xgboost import XGBRegressor
 
 SCHEMA_VERSION = 2
 MODEL_FORMAT = "xgboost-native-json-v1"
+EXPECTED_PYTHON_VERSION = "3.13.16"
 HORIZON_HOURS = 24
 MIN_TRAIN_ROWS = 1000
 INITIAL_CAPITAL_USDT = Decimal("100")
@@ -194,8 +195,8 @@ def _timestamp_series(values: Sequence[Any], label: str) -> pd.Series:
 
 def require_pinned_runtime() -> dict[str, str]:
     """Fail closed unless the isolated, documented research runtime is active."""
-    if sys.version_info[:2] != (3, 13):
-        raise ResearchContractError("PYTHON_313_REQUIRED_FOR_FROZEN_ML_V1")
+    if platform.python_version() != EXPECTED_PYTHON_VERSION:
+        raise ResearchContractError("PYTHON_31316_REQUIRED_FOR_FROZEN_ML_V1")
     actual = {
         package: importlib.metadata.version(package)
         for package in EXPECTED_VERSIONS

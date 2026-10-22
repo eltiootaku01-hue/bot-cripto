@@ -157,3 +157,17 @@ Si la integridad falla: `INCOMPLETE / NO_TRADE`. Con datos íntegros pero un gat
 La primera ejecución del gate de resolución se detuvo antes de instalar dependencias: GitHub Windows no tiene disponible CPython 3.12.15 en su manifiesto de intérpretes. La publicación oficial de Python 3.12.15 es solo de código fuente y Python 3.12.10 fue la última 3.12 con instaladores Windows. Para evitar fijar un runtime de Windows sin instaladores actuales, el entorno aislado de esta implementación se ha cambiado a **CPython 3.13.16 x86-64** antes de T0. pandas 2.2.3 documenta compatibilidad con Python 3.13; la resolución binaria exacta y el test sintético siguen siendo gates, no se dan por aprobados hasta el resultado del workflow.
 
 Este cambio afecta únicamente al entorno de investigación y queda versionado aquí; no modifica features, modelo, horizonte, señal, costes ni criterios económicos. Fuentes: [Python 3.12.15](https://www.python.org/downloads/release/python-31215/), [Python 3.12.11 / último instalador de la serie 3.12](https://www.python.org/downloads/release/python-31211/), [pandas 2.2.3 y Python 3.13](https://pandas.pydata.org/pandas-docs/version/2.2.3/whatsnew/v2.2.3.html).
+
+
+## Evidencia registrada — G1, G2 y G3 (2026-10-22)
+
+**Estado con evidencia en GitHub:**
+
+- **G1 — PASS en Windows x86-64 / CPython 3.13.16.** El workflow especializado `39838465105` terminó `completed / success`: [ejecución](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39838465105). `uv==0.8.17` resolvió 19 paquetes directos/transitivos con hashes; la resolución nueva coincidió exactamente con `research/requirements-cost-aware-ml-v1.lock.txt`; se instalaron los paquetes con `pip --require-hashes` y `require_pinned_runtime()` verificó las versiones.
+- **G2 — IMPLEMENTED (research only).** El módulo ya rechaza quotes sin símbolo BTCUSDT, datos de entrenamiento cuyo hash canónico no coincida, velas posteriores al cutoff, fills fuera del límite temporal y publicación incompleta del manifiesto. Los resultados declaran el drawdown como muestreo horario, no como máximo intrahorario.
+- **G3 — PASS en datos sintéticos.** El mismo workflow ejecutó exclusivamente `python -m pytest -q research/test_cost_aware_ml_return_filter_v1.py`: **17 passed**. La prueba de entrenamiento/guardado/carga usa únicamente velas sintéticas. No es un backtest económico ni evidencia de rentabilidad.
+- **Regresión general del proyecto:** [workflow `tests` #39838465224](https://github.com/eltiootaku01-hue/bot-cripto/actions/runs/39838465224) terminó `completed / success` para el commit probado.
+
+**Siguiente bloqueo externo, no sustituible por tests:** la [issue #98](https://github.com/eltiootaku01-hue/bot-cripto/issues/98) sigue abierta; la captura real emparejada Kline + bookTicker de 24 h debe ejecutarse desde una máquina persistente, validarse y custodiarse fuera del repositorio. Ese smoke capture no equivale al holdout ML de 365 días. No existe T0 aceptado para este candidato, ningún modelo se ha entrenado con datos reales para esta estrategia y ninguna evaluación económica independiente se ha completado. `NO_TRADE` permanece vigente.
+
+**Fijación exacta del intérprete:** tras esta evidencia, el módulo exige `CPython 3.13.16` exactamente, no cualquier parche `3.13.x`. El cambio es de validación de entorno, no modifica features, parámetros, umbral, costes ni criterios económicos. El workflow debe volver a pasar en el nuevo commit antes de considerar cerrados G1/G3 para el HEAD actual.
