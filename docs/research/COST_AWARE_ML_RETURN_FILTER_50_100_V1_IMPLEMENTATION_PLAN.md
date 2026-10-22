@@ -46,8 +46,8 @@ La versión oficial estable actual de XGBoost documenta distribución de paquete
 - [XGBoost Python API](https://xgboost.readthedocs.io/en/stable/python/python_api.html)
 
 Regla mínima:
-- Fijar una versión exacta de Python y todas las dependencias de investigación en el archivo aislado; el candidato de entorno inicial es Python 3.12.
-- La propuesta de versión del dictamen es XGBoost `3.4.2`, NumPy `2.3.5`, pandas `2.2.3`; aún se debe validar disponibilidad de wheels y compatibilidad real en el entorno elegido antes de ejecutar tests o entrenar. No instalar una versión flotante ni cambiar de versión después de empezar a puntuar sin incrementar la versión del protocolo.
+- Fijar una versión exacta de Python y todas las dependencias de investigación en el archivo aislado; el candidato de entorno inicial es Python 3.13.16.
+- La propuesta de versión del dictamen es XGBoost `3.4.1`, NumPy `2.3.5`, pandas `2.2.3`; aún se debe validar disponibilidad de wheels y compatibilidad real en el entorno elegido antes de ejecutar tests o entrenar. No instalar una versión flotante ni cambiar de versión después de empezar a puntuar sin incrementar la versión del protocolo.
 - Registrar el lock/resolución exacta de dependencias, sistema operativo y versión Python. Si la combinación no instala limpiamente, detenerse y actualizar el plan con evidencia antes de ejecutar la suite; no hacer cambios silenciosos para “hacerlo pasar”.
 - Fijar `random_state=20261021`, `n_jobs=1`, `tree_method=hist` y los hiperparámetros indicados en el dictamen. No habilitar GPU ni entrenamiento distribuido en V1.
 - Guardar el modelo con `save_model(... .json)` o `save_model(... .ubj)`. El manifest debe contener SHA-256 del modelo y del dataset de entrenamiento, versión de modelo, versión de librería, lista y orden de las features, hiperparámetros completos, semilla, código/commit SHA, timestamps del conjunto y hash de configuración. Incluir también los parámetros de entrenamiento que el archivo del modelo no conserva por sí solo.
@@ -150,3 +150,10 @@ Si la integridad falla: `INCOMPLETE / NO_TRADE`. Con datos íntegros pero un gat
 - [Torneo histórico V2 y límites de su evidencia](BTC_ETH_STRATEGY_TOURNAMENT_V2_RESULTS_2026-10-19.md)
 - [Issue #98 — captura real pendiente](https://github.com/eltiootaku01-hue/bot-cripto/issues/98)
 - [XGBoost installation](https://xgboost.readthedocs.io/en/stable/install.html); [XGBoost model IO](https://xgboost.readthedocs.io/en/stable/tutorials/saving_model.html)
+
+
+## Nota de corrección de compatibilidad (2026-10-22)
+
+La primera ejecución del gate de resolución se detuvo antes de instalar dependencias: GitHub Windows no tiene disponible CPython 3.12.15 en su manifiesto de intérpretes. La publicación oficial de Python 3.12.15 es solo de código fuente y Python 3.12.10 fue la última 3.12 con instaladores Windows. Para evitar fijar un runtime de Windows sin instaladores actuales, el entorno aislado de esta implementación se ha cambiado a **CPython 3.13.16 x86-64** antes de T0. pandas 2.2.3 documenta compatibilidad con Python 3.13; la resolución binaria exacta y el test sintético siguen siendo gates, no se dan por aprobados hasta el resultado del workflow.
+
+Este cambio afecta únicamente al entorno de investigación y queda versionado aquí; no modifica features, modelo, horizonte, señal, costes ni criterios económicos. Fuentes: [Python 3.12.15](https://www.python.org/downloads/release/python-31215/), [Python 3.12.11 / último instalador de la serie 3.12](https://www.python.org/downloads/release/python-31211/), [pandas 2.2.3 y Python 3.13](https://pandas.pydata.org/pandas-docs/version/2.2.3/whatsnew/v2.2.3.html).

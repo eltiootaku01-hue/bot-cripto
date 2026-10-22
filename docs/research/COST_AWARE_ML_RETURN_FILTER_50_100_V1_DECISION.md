@@ -144,3 +144,10 @@ Secuencia autorizada: revisar este dictamen → decidir si se acepta la hipótes
 - Este documento es un cambio documental solamente.
 - **No** se cambió `main`; **no** se modificó código de trading, señal, test, workflow, dependencia o configuración económica; **no** se ejecutó un backtest; **no** se inició workflow; **no** hubo órdenes PAPER/LIVE.
 - Dictamen final de este paso: **hipótesis nueva identificada; rentabilidad desconocida; falta evidencia prospectiva independiente; `NO_TRADE`.**
+
+
+## Addendum — corrección del runtime de investigación (2026-10-22)
+
+La validación de entorno detectó que CPython 3.12.15 no está disponible en el runner Windows administrado: la distribución oficial es source-only y Python 3.12.10 fue la última versión 3.12 con instaladores de Windows. Antes de fijar T0, la implementación aislada y su gate de dependencias cambian a **CPython 3.13.16 x86-64**, con XGBoost 3.4.1, NumPy 2.3.5, pandas 2.2.3, SciPy 1.16.3 y pytest 9.1.1 fijados. pandas 2.2.3 declara compatibilidad con Python 3.13. El lock con hashes y la instalación real todavía deben verificarse; esto no constituye evidencia económica y no cambia la hipótesis, los costes, las métricas ni los gates. Estado: `NOT_RUN / NO_TRADE`.
+
+Fuentes: [Python 3.12.15](https://www.python.org/downloads/release/python-31215/), [pandas 2.2.3](https://pandas.pydata.org/pandas-docs/version/2.2.3/whatsnew/v2.2.3.html).

@@ -193,8 +193,8 @@ def _timestamp_series(values: Sequence[Any], label: str) -> pd.Series:
 
 def require_pinned_runtime() -> dict[str, str]:
     """Fail closed unless the isolated, documented research runtime is active."""
-    if sys.version_info[:2] != (3, 12):
-        raise ResearchContractError("PYTHON_312_REQUIRED_FOR_FROZEN_ML_V1")
+    if sys.version_info[:2] != (3, 13):
+        raise ResearchContractError("PYTHON_313_REQUIRED_FOR_FROZEN_ML_V1")
     actual = {
         package: importlib.metadata.version(package)
         for package in EXPECTED_VERSIONS
@@ -816,7 +816,7 @@ def replay_predictions(
             exit_index = _fresh_quote_at_or_after(
                 window_quotes, position["exit_due_at"]
             )
-            exit_available_at = quote_frame.iloc[exit_index]["available_at"]
+            exit_available_at = window_quotes.iloc[exit_index]["available_at"]
             if exit_available_at <= decision_at:
                 close_position(exit_index, "HORIZON_24H")
 
