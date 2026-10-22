@@ -37,3 +37,11 @@ jobs:
           python -m pytest -q research/test_historical_cost_aware_ml_v1.py
       - name: Download checksummed historical Klines and run walk-forward contrast
         run: python research/historical_cost_aware_ml_v1.py --output-dir historical-output
+
+      - name: Upload reproducible historical evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cost-aware-ml-historical-contrast-\${{ github.sha }}
+          path: historical-output/
+          if-no-files-found: error
+          retention-days: 90
