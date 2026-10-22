@@ -41,7 +41,7 @@ jobs:
       - name: Upload reproducible historical evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cost-aware-ml-historical-contrast-\${{ github.sha }}
+          name: cost-aware-ml-historical-contrast-${{ github.sha }}
           path: historical-output/
           if-no-files-found: error
           retention-days: 90
