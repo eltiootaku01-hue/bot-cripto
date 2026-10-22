@@ -19,7 +19,12 @@ if str(ROOT) not in sys.path:
 from research import cost_aware_ml_return_filter_v1 as c
 
 BASE="https://data.binance.vision"
+REST_BASE="https://data-api.binance.vision"
 SYMBOL="BTCUSDT"; INTERVAL="1h"
+# One gap observed in the official monthly ZIP series. It may only be repaired
+# from the public Klines REST response for this exact UTC hour and must be recorded
+# separately in the manifest; no forward-fill/interpolation is allowed.
+REST_SUPPLEMENT_ALLOWLIST={"2023-03-24T13:00:00+00:00"}
 START=date(2023,1,1); END_EXCLUSIVE=date(2026,10,22)
 CAP=Decimal("100"); ALLOC=Decimal("0.95"); HORIZON=24
 STEP=Decimal("0.000001"); MIN_QTY=Decimal("0.00001"); MIN_NOTIONAL=Decimal("5")
@@ -86,6 +91,51 @@ def fetch_archive(period,url):
     rec={"period":period,"url":url,"zip_sha256":digest,"published_sha256":match.group(1).lower(),"checksum_file_sha256":sha(checksum_bytes),"rows":len(frame)}
     return frame,rec
 
+
+def parse_rest_supplement(timestamp: pd.Timestamp, payload: bytes) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Validate one explicitly allowlisted historical Kline fetched via public REST."""
+    key=pd.Timestamp(timestamp).tz_convert("UTC").isoformat()
+    if key not in REST_SUPPLEMENT_ALLOWLIST:
+        raise RuntimeError(f"REST_SUPPLEMENT_TIMESTAMP_NOT_ALLOWLISTED:{key}")
+    try:
+        data=json.loads(payload.decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"REST_SUPPLEMENT_JSON_INVALID:{key}") from exc
+    expected_open_ms=int(pd.Timestamp(timestamp).timestamp()*1000)
+    if not isinstance(data,list) or len(data)!=1 or not isinstance(data[0],list) or len(data[0])<7:
+        raise RuntimeError(f"REST_SUPPLEMENT_ROW_COUNT_INVALID:{key}")
+    row=data[0]
+    if int(row[0])!=expected_open_ms or int(row[6])!=expected_open_ms+3_599_999:
+        raise RuntimeError(f"REST_SUPPLEMENT_TIME_BOUNDARY_MISMATCH:{key}")
+    frame=pd.DataFrame([{
+        "timestamp":pd.to_datetime(int(row[0]),unit="ms",utc=True),
+        "open":float(row[1]),"high":float(row[2]),"low":float(row[3]),"close":float(row[4]),"volume":float(row[5]),
+    }])
+    frame=c.validate_candles(frame)
+    endpoint=(f"{REST_BASE}/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}"
+              f"&startTime={expected_open_ms}&endTime={expected_open_ms+3_599_999}&limit=2")
+    evidence={
+        "source_type":"supplemental_public_rest_kline",
+        "timestamp_utc":key,
+        "endpoint":endpoint,
+        "raw_response_sha256":sha(payload),
+        "open_time_ms":str(expected_open_ms),
+        "close_time_ms":str(row[6]),
+        "retrieved_at_utc":datetime.now(timezone.utc).isoformat(),
+        "reason":"single missing timestamp observed after official archive ZIP checksum verification; no interpolation",
+    }
+    return frame,evidence
+
+
+def fetch_rest_supplement(timestamp: pd.Timestamp) -> tuple[pd.DataFrame, dict[str, str]]:
+    key=pd.Timestamp(timestamp).tz_convert("UTC").isoformat()
+    if key not in REST_SUPPLEMENT_ALLOWLIST:
+        raise RuntimeError(f"REST_SUPPLEMENT_TIMESTAMP_NOT_ALLOWLISTED:{key}")
+    open_ms=int(pd.Timestamp(timestamp).timestamp()*1000)
+    url=(f"{REST_BASE}/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}"
+         f"&startTime={open_ms}&endTime={open_ms+3_599_999}&limit=2")
+    return parse_rest_supplement(timestamp,download(url))
+
 def load_history(outdir):
     plan=archive_plan(START,END_EXCLUSIVE); frames=[]; sources=[]
     print(f"Planned {len(plan)} Binance Kline archives; checksums required.",flush=True)
@@ -98,14 +148,27 @@ def load_history(outdir):
     if bars.timestamp.duplicated().any(): raise RuntimeError("DUPLICATE_HOURLY_CANDLE")
     expected=pd.date_range(pd.Timestamp(START.isoformat(),tz="UTC"),pd.Timestamp(END_EXCLUSIVE.isoformat(),tz="UTC")-pd.Timedelta(hours=1),freq="h")
     observed=pd.DatetimeIndex(bars.timestamp)
+    supplemental=[]
     if not observed.equals(expected):
         missing=expected.difference(observed); extra=observed.difference(expected)
-        raise RuntimeError(f"DATA_GAP_OR_EXTRA:rows={len(bars)} expected={len(expected)} missing={len(missing)} extra={len(extra)} examples={[str(x) for x in missing[:5]]}")
+        keys=[stamp.isoformat() for stamp in missing]
+        if len(extra) or len(missing)!=1 or keys[0] not in REST_SUPPLEMENT_ALLOWLIST:
+            raise RuntimeError(f"DATA_GAP_OR_EXTRA:rows={len(bars)} expected={len(expected)} missing={len(missing)} extra={len(extra)} examples={keys[:5]}")
+        print(f"One allowlisted historical gap at {keys[0]}; querying exact-time public Kline REST and hashing raw response.",flush=True)
+        repaired,evidence=fetch_rest_supplement(missing[0])
+        bars=pd.concat([bars,repaired],ignore_index=True).sort_values("timestamp").reset_index(drop=True)
+        supplemental.append(evidence)
+        observed=pd.DatetimeIndex(bars.timestamp)
+        if not observed.equals(expected) or bars.timestamp.duplicated().any():
+            raise RuntimeError("REST_SUPPLEMENT_DID_NOT_REPAIR_EXACT_EXPECTED_TIMELINE")
     bars=c.validate_candles(bars); sources.sort(key=lambda x:x["period"])
-    manifest={"exchange":"Binance Spot public archive","symbol":SYMBOL,"interval":INTERVAL,"rows":len(bars),
+    manifest={"exchange":"Binance Spot public archive + explicitly documented public REST supplement","symbol":SYMBOL,"interval":INTERVAL,"rows":len(bars),
       "first_open_utc":bars.timestamp.iloc[0].isoformat(),"last_open_utc":bars.timestamp.iloc[-1].isoformat(),
       "archive_count":len(sources),"archives":sources,"archive_manifest_sha256":canonical(sources),
-      "canonical_candle_data_sha256":c.canonical_dataset_sha256(bars),"checksum_policy":"each ZIP compared to published .CHECKSUM"}
+      "supplemental_rest_candles":supplemental,"dataset_source_manifest_sha256":canonical({"archives":sources,"supplements":supplemental}),
+      "canonical_candle_data_sha256":c.canonical_dataset_sha256(bars),
+      "checksum_policy":"each ZIP compared to published .CHECKSUM; supplemental REST response raw bytes SHA-256 recorded separately",
+      "historical_point_in_time_warning":"REST supplement is an after-the-fact historical query, not evidence of contemporaneous availability"}
     outdir.mkdir(parents=True,exist_ok=True)
     (outdir/"historical-data-manifest.json").write_text(json.dumps(manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     return bars,manifest

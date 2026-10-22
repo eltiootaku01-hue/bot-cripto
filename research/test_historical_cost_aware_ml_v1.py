@@ -22,3 +22,15 @@ def test_walkforward_cutoffs_are_chronological():
 def test_quantity_is_rounded_and_stays_within_cash():
     q,px,fee=h.size_for(h.CAP,Decimal("90000"),h.COSTS[0])
     assert q>0 and q%h.STEP==0 and q*px+fee<=h.CAP
+
+
+def test_rest_supplement_parser_requires_allowlisted_timestamp_and_records_raw_hash():
+    stamp=pd.Timestamp("2023-03-24T13:00:00Z")
+    open_ms=int(stamp.timestamp()*1000)
+    payload=(f'[[{open_ms},"28000.0","28010.0","27990.0","28005.0","12.5",{open_ms+3599999},"350000.0",123,"5.0","140000.0","0"]]').encode()
+    frame,evidence=h.parse_rest_supplement(stamp,payload)
+    assert frame.iloc[0]["timestamp"]==stamp
+    assert evidence["raw_response_sha256"]==h.sha(payload)
+    assert evidence["source_type"]=="supplemental_public_rest_kline"
+    with pytest.raises(RuntimeError,match="NOT_ALLOWLISTED"):
+        h.parse_rest_supplement(pd.Timestamp("2023-03-24T14:00:00Z"),payload)
