@@ -26,7 +26,6 @@ FOLDS=[
  ("2025",pd.Timestamp("2025-01-01T00:00:00Z"),pd.Timestamp("2026-01-01T00:00:00Z")),
  ("2026_YTD",pd.Timestamp("2026-01-01T00:00:00Z"),pd.Timestamp("2026-10-22T00:00:00Z")),
 ]
-@dataclass_placeholder
 class HistoricalCost:
     def __init__(self,name,fee,slippage,spread):
         self.name=name; self.fee=Decimal(fee); self.slippage=Decimal(slippage); self.spread=Decimal(spread)
@@ -64,7 +63,7 @@ def download(url, retries=4):
             if i+1<retries: time.sleep(i+1)
     raise RuntimeError(f"DOWNLOAD_FAILED:{url}:{last}") from last
 def fetch_archive(period,url):
-    b=download(url); checksum=download(url+".CHECKSUM").decode().strip(); match=SHA.search(checksum)
+    b=download(url); checksum_bytes=download(url+".CHECKSUM"); checksum=checksum_bytes.decode().strip(); match=SHA.search(checksum)
     if not match: raise RuntimeError(f"BAD_CHECKSUM_FILE:{period}")
     digest=sha(b)
     if digest!=match.group(1).lower(): raise RuntimeError(f"CHECKSUM_MISMATCH:{period}")
@@ -80,7 +79,7 @@ def fetch_archive(period,url):
     f["timestamp"]=pd.to_datetime(op,unit=unit,utc=True,errors="raise")
     for col in ("open","high","low","close","volume"): f[col]=pd.to_numeric(f[col],errors="raise").astype("float64")
     frame=f[["timestamp","open","high","low","close","volume"]].sort_values("timestamp").reset_index(drop=True)
-    rec={"period":period,"url":url,"zip_sha256":digest,"published_sha256":match.group(1).lower(),"checksum_file_sha256":sha(checksum.encode()),"rows":len(frame)}
+    rec={"period":period,"url":url,"zip_sha256":digest,"published_sha256":match.group(1).lower(),"checksum_file_sha256":sha(checksum_bytes),"rows":len(frame)}
     return frame,rec
 
 def load_history(outdir):
