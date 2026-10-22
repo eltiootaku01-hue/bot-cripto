@@ -30,20 +30,30 @@ jobs:
       - name: Install pinned resolver
         run: python -m pip install --disable-pip-version-check "uv==0.8.17"
       - name: Resolve binary-only Windows CPython 3.13 lock
+        id: resolve
         shell: pwsh
         run: |
           $lockPath = Join-Path $env:RUNNER_TEMP "requirements-cost-aware-ml-v1.lock.txt"
           uv pip compile --generate-hashes --only-binary ":all:" --no-header --no-annotate --python-version "3.13" --python-platform "x86_64-pc-windows-msvc" --output-file $lockPath research/requirements-cost-aware-ml-v1.txt
           $installLockPath = $lockPath
+          $lockOutOfDate = $false
           if (Test-Path "research/requirements-cost-aware-ml-v1.lock.txt") {
             python -c "from pathlib import Path; import sys; a=Path(sys.argv[1]).read_text(); b=Path(sys.argv[2]).read_text(); sys.exit(0 if a == b else 1)" "research/requirements-cost-aware-ml-v1.lock.txt" $lockPath
-            if ($LASTEXITCODE -ne 0) { throw "LOCKFILE_OUT_OF_DATE: committed lock differs from fresh pinned resolution" }
-            $installLockPath = "research/requirements-cost-aware-ml-v1.lock.txt"
+            if ($LASTEXITCODE -ne 0) {
+              $lockOutOfDate = $true
+              Write-Output "LOCK_REFRESH_REQUIRED_BEGIN"
+              Get-Content $lockPath | ForEach-Object { Write-Output $_ }
+              Write-Output "LOCK_REFRESH_REQUIRED_END"
+            } else {
+              $installLockPath = "research/requirements-cost-aware-ml-v1.lock.txt"
+            }
           } else {
-            Write-Output "LOCK_BEGIN"
+            $lockOutOfDate = $true
+            Write-Output "LOCK_REFRESH_REQUIRED_BEGIN"
             Get-Content $lockPath | ForEach-Object { Write-Output $_ }
-            Write-Output "LOCK_END"
+            Write-Output "LOCK_REFRESH_REQUIRED_END"
           }
+          "lock_out_of_date=$($lockOutOfDate.ToString().ToLowerInvariant())" | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8NoBOM
           python -m pip install --disable-pip-version-check --require-hashes -r $installLockPath
       - name: Verify pinned runtime and package versions
         run: |
@@ -51,3 +61,8 @@ jobs:
           python -c "from research.cost_aware_ml_return_filter_v1 import require_pinned_runtime; print(require_pinned_runtime())"
       - name: Execute only the isolated synthetic research tests
         run: python -m pytest -q research/test_cost_aware_ml_return_filter_v1.py
+
+      - name: Require committed lock to match resolved lock
+        if: steps.resolve.outputs.lock_out_of_date == 'true'
+        shell: pwsh
+        run: throw "LOCKFILE_OUT_OF_DATE: fresh lock was printed above; commit the exact resolved contents before accepting G1"

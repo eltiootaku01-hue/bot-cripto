@@ -36,6 +36,7 @@ VOLATILITY_WINDOWS = (24, 72, 168)
 
 EXPECTED_VERSIONS = {
     "xgboost": "3.4.1",
+    "scikit-learn": "1.9.1",
     "numpy": "2.3.5",
     "pandas": "2.2.3",
     "scipy": "1.16.3",
