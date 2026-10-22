@@ -21,10 +21,10 @@ from research import cost_aware_ml_return_filter_v1 as c
 BASE="https://data.binance.vision"
 REST_BASE="https://data-api.binance.vision"
 SYMBOL="BTCUSDT"; INTERVAL="1h"
-# One gap observed in the official monthly ZIP series. It may only be repaired
-# from the public Klines REST response for this exact UTC hour and must be recorded
-# separately in the manifest; no forward-fill/interpolation is allowed.
-REST_SUPPLEMENT_ALLOWLIST={"2023-03-24T13:00:00+00:00"}
+# One missing open-time observed in a checksummed official ZIP. It remains missing
+# when the public REST Kline endpoint returns an empty array: no forward-fill.
+KNOWN_HISTORICAL_GAPS={"2023-03-24T13:00:00+00:00"}
+REST_SUPPLEMENT_ALLOWLIST=KNOWN_HISTORICAL_GAPS
 START=date(2023,1,1); END_EXCLUSIVE=date(2026,10,22)
 CAP=Decimal("100"); ALLOC=Decimal("0.95"); HORIZON=24
 STEP=Decimal("0.000001"); MIN_QTY=Decimal("0.00001"); MIN_NOTIONAL=Decimal("5")
@@ -136,6 +136,62 @@ def fetch_rest_supplement(timestamp: pd.Timestamp) -> tuple[pd.DataFrame, dict[s
          f"&startTime={open_ms}&endTime={open_ms+3_599_999}&limit=2")
     return parse_rest_supplement(timestamp,download(url))
 
+
+def split_contiguous_frames(frame: pd.DataFrame) -> list[pd.DataFrame]:
+    """Split at missing hourly timestamps so features/labels never bridge a gap."""
+    if frame.empty:
+        return []
+    timestamps=pd.DatetimeIndex(frame["timestamp"])
+    starts=[0]
+    for index in range(1,len(timestamps)):
+        if timestamps[index]-timestamps[index-1] != pd.Timedelta(hours=1):
+            starts.append(index)
+    starts.append(len(frame))
+    return [frame.iloc[starts[i]:starts[i+1]].copy().reset_index(drop=True)
+            for i in range(len(starts)-1)]
+
+
+def canonical_historical_data_sha256(frame: pd.DataFrame) -> str:
+    """Hash original candle rows in order, preserving observed gaps without interpolation."""
+    rows=[]
+    for row in frame.itertuples(index=False,name=None):
+        rows.append([row[0].isoformat(),*(format(float(value),".17g") for value in row[1:])])
+    return canonical({"contract":"historical-hourly-candles-with-gaps-v1",
+                     "columns":["timestamp","open","high","low","close","volume"],"rows":rows})
+
+
+def fetch_rest_gap_check(timestamp: pd.Timestamp) -> tuple[pd.DataFrame | None, dict[str, str]]:
+    """Query one allowlisted gap and preserve an empty official response without filling it."""
+    key=pd.Timestamp(timestamp).tz_convert("UTC").isoformat()
+    if key not in REST_SUPPLEMENT_ALLOWLIST:
+        raise RuntimeError(f"REST_GAP_TIMESTAMP_NOT_ALLOWLISTED:{key}")
+    open_ms=int(pd.Timestamp(timestamp).timestamp()*1000)
+    url=(f"{REST_BASE}/api/v3/klines?symbol={SYMBOL}&interval={INTERVAL}"
+         f"&startTime={open_ms}&endTime={open_ms+3_599_999}&limit=2")
+    payload=download(url)
+    try:
+        data=json.loads(payload.decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"REST_GAP_RESPONSE_JSON_INVALID:{key}") from exc
+    evidence={"timestamp_utc":key,"endpoint":url,"raw_response_sha256":sha(payload),
+              "raw_response_bytes":str(len(payload)),"retrieved_at_utc":datetime.now(timezone.utc).isoformat()}
+    if data==[]:
+        evidence.update({"source_type":"public_rest_kline_query_empty",
+                         "action":"gap_preserved; no forward-fill/interpolation"})
+        return None,evidence
+    if not isinstance(data,list) or len(data)!=1 or not isinstance(data[0],list) or len(data[0])<7:
+        raise RuntimeError(f"REST_GAP_RESPONSE_SHAPE_UNEXPECTED:{key}:sha256={sha(payload)}")
+    row=data[0]
+    if int(row[0])!=open_ms or int(row[6])!=open_ms+3_599_999:
+        raise RuntimeError(f"REST_GAP_RESPONSE_TIME_MISMATCH:{key}")
+    frame=pd.DataFrame([{"timestamp":pd.to_datetime(int(row[0]),unit="ms",utc=True),
+                         "open":float(row[1]),"high":float(row[2]),"low":float(row[3]),
+                         "close":float(row[4]),"volume":float(row[5])}])
+    frame=c.validate_candles(frame)
+    evidence.update({"source_type":"supplemental_public_rest_kline",
+                     "action":"exact historical Kline added; recorded separately"})
+    return frame,evidence
+
 def load_history(outdir):
     plan=archive_plan(START,END_EXCLUSIVE); frames=[]; sources=[]
     print(f"Planned {len(plan)} Binance Kline archives; checksums required.",flush=True)
@@ -148,27 +204,36 @@ def load_history(outdir):
     if bars.timestamp.duplicated().any(): raise RuntimeError("DUPLICATE_HOURLY_CANDLE")
     expected=pd.date_range(pd.Timestamp(START.isoformat(),tz="UTC"),pd.Timestamp(END_EXCLUSIVE.isoformat(),tz="UTC")-pd.Timedelta(hours=1),freq="h")
     observed=pd.DatetimeIndex(bars.timestamp)
-    supplemental=[]
-    if not observed.equals(expected):
-        missing=expected.difference(observed); extra=observed.difference(expected)
-        keys=[stamp.isoformat() for stamp in missing]
-        if len(extra) or len(missing)!=1 or keys[0] not in REST_SUPPLEMENT_ALLOWLIST:
-            raise RuntimeError(f"DATA_GAP_OR_EXTRA:rows={len(bars)} expected={len(expected)} missing={len(missing)} extra={len(extra)} examples={keys[:5]}")
-        print(f"One allowlisted historical gap at {keys[0]}; querying exact-time public Kline REST and hashing raw response.",flush=True)
-        repaired,evidence=fetch_rest_supplement(missing[0])
-        bars=pd.concat([bars,repaired],ignore_index=True).sort_values("timestamp").reset_index(drop=True)
-        supplemental.append(evidence)
-        observed=pd.DatetimeIndex(bars.timestamp)
-        if not observed.equals(expected) or bars.timestamp.duplicated().any():
-            raise RuntimeError("REST_SUPPLEMENT_DID_NOT_REPAIR_EXACT_EXPECTED_TIMELINE")
-    bars=c.validate_candles(bars); sources.sort(key=lambda x:x["period"])
-    manifest={"exchange":"Binance Spot public archive + explicitly documented public REST supplement","symbol":SYMBOL,"interval":INTERVAL,"rows":len(bars),
+    missing=expected.difference(observed); extra=observed.difference(expected)
+    gap_checks=[]
+    gap_keys=[stamp.isoformat() for stamp in missing]
+    if len(extra) or (gap_keys and set(gap_keys)!=KNOWN_HISTORICAL_GAPS):
+        raise RuntimeError(f"DATA_GAP_OR_EXTRA:rows={len(bars)} expected={len(expected)} missing={len(missing)} extra={len(extra)} examples={gap_keys[:8]}")
+    if gap_keys:
+        for gap in missing:
+            print(f"Historical archive gap {gap.isoformat()}: querying exact timestamp; empty result will stay missing.",flush=True)
+            recovered,evidence=fetch_rest_gap_check(gap)
+            gap_checks.append(evidence)
+            if recovered is not None:
+                bars=pd.concat([bars,recovered],ignore_index=True).sort_values("timestamp").reset_index(drop=True)
+    observed=pd.DatetimeIndex(bars.timestamp)
+    remaining=expected.difference(observed); extra=observed.difference(expected)
+    if len(extra) or (remaining.size and {x.isoformat() for x in remaining}!=KNOWN_HISTORICAL_GAPS):
+        raise RuntimeError(f"TIMELINE_CHANGED_UNEXPECTEDLY:missing={[x.isoformat() for x in remaining]} extra={len(extra)}")
+    segments=split_contiguous_frames(bars)
+    if not segments or any(segment.empty for segment in segments):
+        raise RuntimeError("HISTORICAL_SEGMENTATION_INVALID")
+    bars=pd.concat([c.validate_candles(segment) for segment in segments],ignore_index=True)
+    sources.sort(key=lambda x:x["period"])
+    actual_gaps=[{"missing_open_utc":key,"rest_query":next((record for record in gap_checks if record["timestamp_utc"]==key),None)} for key in gap_keys]
+    manifest={"exchange":"Binance Spot public archive with documented missing hourly rows","symbol":SYMBOL,"interval":INTERVAL,"rows":len(bars),
       "first_open_utc":bars.timestamp.iloc[0].isoformat(),"last_open_utc":bars.timestamp.iloc[-1].isoformat(),
       "archive_count":len(sources),"archives":sources,"archive_manifest_sha256":canonical(sources),
-      "supplemental_rest_candles":supplemental,"dataset_source_manifest_sha256":canonical({"archives":sources,"supplements":supplemental}),
-      "canonical_candle_data_sha256":c.canonical_dataset_sha256(bars),
-      "checksum_policy":"each ZIP compared to published .CHECKSUM; supplemental REST response raw bytes SHA-256 recorded separately",
-      "historical_point_in_time_warning":"REST supplement is an after-the-fact historical query, not evidence of contemporaneous availability"}
+      "observed_hourly_gaps":actual_gaps,"continuous_segment_count":len(segments),
+      "dataset_source_manifest_sha256":canonical({"archives":sources,"observed_gaps":actual_gaps}),
+      "canonical_candle_data_sha256":canonical_historical_data_sha256(bars),
+      "checksum_policy":"each ZIP compared to published .CHECKSUM; missing hours remain missing unless exact REST Kline exists",
+      "historical_point_in_time_warning":"the observed REST response is queried after the historical date and is not point-in-time evidence"}
     outdir.mkdir(parents=True,exist_ok=True)
     (outdir/"historical-data-manifest.json").write_text(json.dumps(manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     return bars,manifest
@@ -242,18 +307,40 @@ def hold(bars,start,end,cost):
 def train(bars,cutoff):
     trainbars=bars[bars.timestamp<cutoff].copy().reset_index(drop=True)
     if trainbars.empty or trainbars.timestamp.iloc[-1]+pd.Timedelta(hours=1)>cutoff: raise RuntimeError("TRAIN_CUTOFF_VIOLATION")
-    ds=c.build_training_set(trainbars,cutoff); model=c.make_regressor(); model.fit(ds.features,ds.target)
+    parts=[]; segment_metadata=[]
+    for segment in split_contiguous_frames(trainbars):
+        if len(segment)<c.MIN_TRAIN_ROWS+168+HORIZON+2:
+            segment_metadata.append({"rows":len(segment),"used":False,"reason":"too_short_for_causal_training"})
+            continue
+        ds=c.build_training_set(segment,cutoff)
+        parts.append(ds)
+        segment_metadata.append({"rows":len(segment),"used":True,"mature_rows":len(ds.features),
+          "first_open_utc":segment.timestamp.iloc[0].isoformat(),"last_open_utc":segment.timestamp.iloc[-1].isoformat()})
+    if not parts: raise RuntimeError("NO_CONTIGUOUS_TRAINING_SEGMENTS")
+    ds=c.TrainingSet(features=pd.concat([x.features for x in parts],ignore_index=True),
+      target=pd.concat([x.target for x in parts],ignore_index=True),
+      decision_at=pd.concat([x.decision_at for x in parts],ignore_index=True),
+      label_available_at=pd.concat([x.label_available_at for x in parts],ignore_index=True))
+    if len(ds.features)<c.MIN_TRAIN_ROWS: raise RuntimeError(f"INSUFFICIENT_MATURE_ROWS_AFTER_SEGMENTING:{len(ds.features)}")
+    model=c.make_regressor(); model.fit(ds.features,ds.target)
     return model,{"cutoff_utc":cutoff.isoformat(),"first_training_candle":trainbars.timestamp.iloc[0].isoformat(),
       "last_training_candle":trainbars.timestamp.iloc[-1].isoformat(),"training_candles":len(trainbars),
       "mature_rows":len(ds.features),"training_rows_sha256":c._training_rows_sha256(ds),
-      "training_data_sha256":c.canonical_dataset_sha256(trainbars),"feature_schema_sha256":c.FEATURE_SCHEMA_SHA256}
+      "training_data_sha256":canonical_historical_data_sha256(trainbars),"feature_schema_sha256":c.FEATURE_SCHEMA_SHA256,
+      "segments":segment_metadata,"gap_policy":"no rolling feature or target label crosses a missing hour"}
 def predict(bars,model,start,end):
-    ft=c.compute_features(bars); ready=c._feature_ready_mask(ft); times=ft.timestamp+pd.Timedelta(hours=1)
-    use=ready&(times>=start).to_numpy()&(times+pd.Timedelta(hours=HORIZON)<=end).to_numpy()
-    x=ft.loc[use,list(c.FEATURE_COLUMNS)].reset_index(drop=True); decisions=times.loc[use].reset_index(drop=True)
-    values=np.asarray(model.predict(x),dtype=float)
-    if values.shape!=(len(x),) or not np.isfinite(values).all(): raise RuntimeError("BAD_PREDICTIONS")
-    return pd.DataFrame({"decision_at":decisions,"predicted_return":values}),len(x)
+    predictions=[]
+    for segment in split_contiguous_frames(bars):
+        ft=c.compute_features(segment); ready=c._feature_ready_mask(ft); times=ft.timestamp+pd.Timedelta(hours=1)
+        use=ready&(times>=start).to_numpy()&(times+pd.Timedelta(hours=HORIZON)<=end).to_numpy()
+        if not use.any(): continue
+        x=ft.loc[use,list(c.FEATURE_COLUMNS)].reset_index(drop=True); decisions=times.loc[use].reset_index(drop=True)
+        values=np.asarray(model.predict(x),dtype=float)
+        if values.shape!=(len(x),) or not np.isfinite(values).all(): raise RuntimeError("BAD_PREDICTIONS")
+        predictions.append(pd.DataFrame({"decision_at":decisions,"predicted_return":values}))
+    if not predictions: raise RuntimeError("NO_TEST_PREDICTIONS")
+    result=pd.concat(predictions,ignore_index=True).sort_values("decision_at").reset_index(drop=True)
+    return result,len(result)
 def row(fold,scenario,method,m):
     return {"fold":fold,"scenario":scenario,"method":method,**{k:m[k] for k in ("final_equity_usdt","net_pnl_usdt","return_pct","max_drawdown_pct","total_fees_usdt","trades","win_rate_pct","time_in_market_pct")}}
 def report(summary):
@@ -264,6 +351,7 @@ def report(summary):
       f"Canonical data SHA-256: {summary['market_data']['canonical_candle_data_sha256']}",
       f"Archive manifest SHA-256: {summary['market_data']['archive_manifest_sha256']}","",
       "Walk-forward folds: train 2023/test 2024; train through 2024/test 2025; train through 2025/test 2026-01-01 to 2026-10-22 00:00 UTC. Each model is fit once before its test fold and held fixed within that fold.",
+      f"Observed hourly gap(s): {summary['market_data']['observed_hourly_gaps']}. Rolling features/target labels are calculated only within continuous segments; no interpolation is used.",
       "Execution is a historical candle-close proxy, not historical Spot bid/ask. Assumed spreads are explicit inputs, not measured quote evidence.","",
       "## Fixed cost assumptions","","| Scenario | Fee per side | Slippage per side | Assumed full spread | Round-trip friction | Entry threshold |","|---|---:|---:|---:|---:|---:|"]
     for x in COSTS:
@@ -299,7 +387,7 @@ def run(outdir):
       "source_commit_sha":os.environ.get("GITHUB_SHA","UNKNOWN"),"candidate_module_sha256":modsha,"runtime":runtime,
       "market_data":{"symbol":SYMBOL,"interval":INTERVAL,"rows":len(bars),"first_open_utc":bars.timestamp.iloc[0].isoformat(),
         "last_open_utc":bars.timestamp.iloc[-1].isoformat(),"archive_count":manifest["archive_count"],
-        "archive_manifest_sha256":manifest["archive_manifest_sha256"],"canonical_candle_data_sha256":manifest["canonical_candle_data_sha256"],"source_manifest":manifest},
+        "archive_manifest_sha256":manifest["archive_manifest_sha256"],"canonical_candle_data_sha256":manifest["canonical_candle_data_sha256"],"observed_hourly_gaps":manifest["observed_hourly_gaps"],"continuous_segment_count":manifest["continuous_segment_count"],"source_manifest":manifest},
       "method":{"capital_usdt":str(CAP),"horizon_hours":HORIZON,"parameters":c.FIXED_MODEL_PARAMETERS,"allocation":str(ALLOC),
         "entry_gate":"predicted gross return > 1.5 * (assumed full spread + 2*fee + 2*slippage)",
         "execution":"hourly candle-close proxy; not actual quote fills",

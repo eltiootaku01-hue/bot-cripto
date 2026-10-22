@@ -34,3 +34,21 @@ def test_rest_supplement_parser_requires_allowlisted_timestamp_and_records_raw_h
     assert evidence["source_type"]=="supplemental_public_rest_kline"
     with pytest.raises(RuntimeError,match="NOT_ALLOWLISTED"):
         h.parse_rest_supplement(pd.Timestamp("2023-03-24T14:00:00Z"),payload)
+
+
+def test_hourly_gap_splits_frames_instead_of_stitching_features():
+    frame=pd.DataFrame({"timestamp":pd.to_datetime([
+        "2023-03-24T11:00:00Z","2023-03-24T12:00:00Z",
+        "2023-03-24T14:00:00Z","2023-03-24T15:00:00Z"],utc=True),
+        "open":[10,11,12,13],"high":[11,12,13,14],"low":[9,10,11,12],"close":[10,11,12,13],"volume":[1,1,1,1]})
+    segments=h.split_contiguous_frames(frame)
+    assert [len(seg) for seg in segments]==[2,2]
+    assert all(seg.timestamp.diff().dropna().eq(pd.Timedelta(hours=1)).all() for seg in segments)
+
+def test_empty_exact_time_rest_result_is_recorded_but_never_filled(monkeypatch):
+    stamp=pd.Timestamp("2023-03-24T13:00:00Z")
+    monkeypatch.setattr(h,"download",lambda _url:b"[]")
+    frame,evidence=h.fetch_rest_gap_check(stamp)
+    assert frame is None
+    assert evidence["raw_response_sha256"]==h.sha(b"[]")
+    assert evidence["action"]=="gap_preserved; no forward-fill/interpolation"
