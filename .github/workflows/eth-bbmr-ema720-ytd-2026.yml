@@ -1,0 +1,235 @@
+name: ETH BBMR EMA720 — historical YTD 2026 replay
+
+on:
+  push:
+    branches:
+      - research/eth-bbmr-168-ema720-ytd-2026
+    paths:
+      - .github/workflows/eth-bbmr-ema720-ytd-2026.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eth-bbmr-ema720-ytd-2026
+  cancel-in-progress: false
+
+jobs:
+  historical-replay:
+    name: Frozen ETH BBMR EMA720 replay Jan 1–Oct 21, 2026
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: '3.12'
+      - name: Install repository package and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Run fixed-window virtual replay — 60 and 100 USDT
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p historical-output
+          cat > /tmp/replay_eth_bbmr_ema720.py <<'PY'
+          from __future__ import annotations
+          import csv, hashlib, json, subprocess
+          from datetime import datetime, timedelta, timezone
+          from decimal import Decimal, ROUND_DOWN
+          from pathlib import Path
+
+          from bot_obrero.binance_instruments import BinanceMetadataBackedAdapter, BinanceSpotInstrumentMetadata
+          from bot_obrero.binance_spot import BinanceSpotRestConfig
+          from bot_obrero.virtual_backtest import BacktestConfig, _market_data_record, _validate_history, run_virtual_backtest
+
+          UTC = timezone.utc
+          START = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+          END = datetime(2026, 10, 22, 0, 0, tzinfo=UTC)  # exclusive; last target bar starts Oct 21 23:00 UTC
+          WARMUP_START = START - timedelta(hours=720)
+          SYMBOL, INTERVAL = "ETHUSDT", "1h"
+          EVAL_BARS = int((END - START).total_seconds() // 3600)
+          WARMUP_BARS = 720
+          EXPECTED_BARS = WARMUP_BARS + EVAL_BARS
+          FILTERS = dict(min_qty=Decimal("0.0001"), quantity_step=Decimal("0.0001"), min_notional=Decimal("5"))
+
+          print("Protocol: frozen eth-bbmr-top1; no parameter tuning")
+          print(f"Research HEAD: {subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()}")
+          print(f"Evaluation UTC: [{START.isoformat()}, {END.isoformat()})")
+          print(f"Warm-up start UTC: {WARMUP_START.isoformat()} ({WARMUP_BARS} hourly bars)")
+          print(f"Expected total bars: {EXPECTED_BARS}; evaluation bars: {EVAL_BARS}")
+          print("Mode: virtual accounting only; public Spot data; no exchange orders")
+
+          metadata = BinanceSpotInstrumentMetadata(config=BinanceSpotRestConfig(endpoint="/api/v3/exchangeInfo"))
+          metadata.resolve_active(SYMBOL)
+          adapter = BinanceMetadataBackedAdapter(metadata=metadata)
+          items = adapter.fetch_historical_market_data(
+              symbol=SYMBOL, interval=INTERVAL,
+              start_time=int(WARMUP_START.timestamp() * 1000),
+              end_time=int(END.timestamp() * 1000),
+              page_limit=1000, max_requests=12,
+          )
+          items = [x for x in items if WARMUP_START <= x.payload.start < END]
+          items.sort(key=lambda x: x.payload.start)
+          expected_starts = [WARMUP_START + timedelta(hours=i) for i in range(EXPECTED_BARS)]
+          observed_starts = [x.payload.start for x in items]
+          if observed_starts != expected_starts:
+              observed, expected = set(observed_starts), set(expected_starts)
+              missing = sorted(expected - observed)[:10]
+              unexpected = sorted(observed - expected)[:10]
+              raise SystemExit(
+                  f"FAIL-CLOSED: expected {EXPECTED_BARS} contiguous hourly bars, got {len(items)}; "
+                  f"missing_first={missing}; unexpected_first={unexpected}. No rows interpolated."
+              )
+          accepted, excluded, unknown_completeness, unknown_finality = _validate_history(items, INTERVAL)
+          if len(accepted) != EXPECTED_BARS or excluded:
+              raise SystemExit(f"FAIL-CLOSED: accepted={len(accepted)}, excluded={excluded}; expected {EXPECTED_BARS} fully closed bars.")
+          if any(x.instrument.instrument_id != "binance:SPOT:ETHUSDT" for x in items):
+              raise SystemExit("FAIL-CLOSED: data contains a different instrument identity")
+
+          records = [_market_data_record(x) for x in items]
+          canonical_data = json.dumps(records, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+          data_sha = hashlib.sha256(canonical_data).hexdigest()
+          bundle = {
+              "schema_version": 1, "symbol": SYMBOL, "interval": INTERVAL,
+              "evaluation_start": START.isoformat(), "evaluation_end_exclusive": END.isoformat(),
+              "warmup_start": WARMUP_START.isoformat(), "warmup_bars": WARMUP_BARS,
+              "evaluation_bars": EVAL_BARS, "expected_hourly_bars": EXPECTED_BARS,
+              "dataset_sha256": data_sha, "missing_bars_interpolated": 0,
+              "unknown_marketdata_completeness_count": unknown_completeness,
+              "unknown_candle_finality_count": unknown_finality, "data": records,
+          }
+          Path("historical-output/dataset-evidence.json").write_text(
+              json.dumps(bundle, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+          )
+          print(f"Data SHA-256: {data_sha}")
+          print(f"Observed first/last candle: {observed_starts[0].isoformat()} .. {observed_starts[-1].isoformat()}")
+          print(f"Data quality: MarketData completeness UNKNOWN={unknown_completeness}; candle finality UNKNOWN={unknown_finality}")
+
+          scenarios = [
+              ("BASE", Decimal("0.001"), Decimal("10"), Decimal("5")),
+              ("STRESS_1", Decimal("0.001"), Decimal("25"), Decimal("10")),
+              ("STRESS_2", Decimal("0.002"), Decimal("50"), Decimal("20")),
+          ]
+          eval_items = [x for x in items if START <= x.payload.start < END]
+          if len(eval_items) != EVAL_BARS:
+              raise SystemExit(f"FAIL-CLOSED: evaluation rows={len(eval_items)} expected={EVAL_BARS}")
+
+          def buy_hold(capital: Decimal, fee: Decimal, spread_bps: Decimal, slip_bps: Decimal):
+              adverse = (slip_bps + spread_bps / Decimal("2")) / Decimal("10000")
+              buy_price = eval_items[0].payload.open * (Decimal("1") + adverse)
+              raw_qty = (capital * Decimal("0.95")) / (buy_price * (Decimal("1") + fee))
+              qty = (raw_qty / FILTERS["quantity_step"]).to_integral_value(rounding=ROUND_DOWN) * FILTERS["quantity_step"]
+              notional = qty * buy_price
+              if qty < FILTERS["min_qty"] or notional < FILTERS["min_notional"]:
+                  raise SystemExit("FAIL-CLOSED: buy-and-hold benchmark fails minimum order filters")
+              buy_fee = notional * fee
+              quote = capital - notional - buy_fee
+              sell_price = eval_items[-1].payload.close * (Decimal("1") - adverse)
+              proceeds_gross = qty * sell_price
+              sell_fee = proceeds_gross * fee
+              return quote + proceeds_gross - sell_fee, buy_fee + sell_fee
+
+          summary_rows, fill_rows = [], []
+          for capital in (Decimal("60"), Decimal("100")):
+              for name, fee, spread_bps, slip_bps in scenarios:
+                  cfg = BacktestConfig(
+                      symbol=SYMBOL, interval=INTERVAL, strategy="eth-bbmr-top1",
+                      candles=EVAL_BARS, slow_ema_period=720,
+                      initial_quote_balance=capital, position_fraction=Decimal("0.95"),
+                      fee_rate=fee, spread_bps=spread_bps, slippage_bps=slip_bps,
+                      max_entries_per_30d=5, liquidate_at_end=True, **FILTERS,
+                  )
+                  result = run_virtual_backtest(items, cfg, evaluation_start=START, evaluation_end=END)
+                  sells = [f for f in result.fills if f.side == "SELL"]
+                  wins = sum(1 for f in sells if f.realized_pnl is not None and f.realized_pnl > 0)
+                  losses = sum(1 for f in sells if f.realized_pnl is not None and f.realized_pnl < 0)
+                  flats = len(sells) - wins - losses
+                  final = result.final_equity
+                  pnl = final - capital
+                  bh_final, bh_fees = buy_hold(capital, fee, spread_bps, slip_bps)
+                  in_market = sum(1 for p in result.equity_curve if p.base_position > 0)
+                  row = {
+                      "capital_initial_usdt": str(capital), "cost_scenario": name,
+                      "final_equity_usdt": str(final), "net_pnl_usdt": str(pnl),
+                      "return_pct": str((final / capital - Decimal("1")) * Decimal("100")),
+                      "max_drawdown_pct": str(result.max_drawdown * Decimal("100")),
+                      "completed_round_trips": len(sells), "wins": wins, "losses": losses, "flat_exits": flats,
+                      "total_fees_usdt": str(result.total_fees),
+                      "time_in_market_pct": str(Decimal(in_market) / Decimal(len(result.equity_curve)) * Decimal("100")),
+                      "buy_hold_final_equity_usdt": str(bh_final), "buy_hold_net_pnl_usdt": str(bh_final - capital),
+                      "buy_hold_fees_usdt": str(bh_fees), "cash_final_equity_usdt": str(capital),
+                      "data_sha256": data_sha, "evaluation_bars": EVAL_BARS,
+                  }
+                  summary_rows.append(row)
+                  for fill in result.fills:
+                      fill_rows.append({
+                          "capital_initial_usdt": str(capital), "cost_scenario": name,
+                          "timestamp_utc": fill.timestamp.isoformat(), "side": fill.side,
+                          "quantity_eth": str(fill.quantity), "price_usdt": str(fill.price),
+                          "fee_usdt": str(fill.fee), "quote_balance_after_usdt": str(fill.quote_balance_after),
+                          "realized_pnl_usdt": "" if fill.realized_pnl is None else str(fill.realized_pnl),
+                          "reason": fill.reason,
+                      })
+                  print(
+                      f"RESULT | capital={capital} | {name} | final={final:.8f} | net_pnl={pnl:.8f} | "
+                      f"return_pct={row['return_pct']} | max_dd_pct={row['max_drawdown_pct']} | "
+                      f"round_trips={len(sells)} W/L/flat={wins}/{losses}/{flats} | fees={result.total_fees:.8f} | "
+                      f"time_in_market_pct={row['time_in_market_pct']} | buy_hold_pnl={bh_final-capital:.8f}"
+                  )
+
+          with open("historical-output/summary.csv", "w", newline="", encoding="utf-8") as f:
+              writer = csv.DictWriter(f, fieldnames=list(summary_rows[0]))
+              writer.writeheader()
+              writer.writerows(summary_rows)
+          with open("historical-output/fills.csv", "w", newline="", encoding="utf-8") as f:
+              fields = list(fill_rows[0]) if fill_rows else [
+                  "capital_initial_usdt","cost_scenario","timestamp_utc","side","quantity_eth","price_usdt",
+                  "fee_usdt","quote_balance_after_usdt","realized_pnl_usdt","reason"]
+              writer = csv.DictWriter(f, fieldnames=fields)
+              writer.writeheader()
+              writer.writerows(fill_rows)
+
+          report = [
+              "# ETH BBMR EMA720 — YTD 2026 historical replay", "",
+              "Decision: NO_TRADE. Research only; historical returns do not guarantee future profitability.", "",
+              f"- Evaluation UTC: [{START.isoformat()}, {END.isoformat()})",
+              f"- Candles: {EVAL_BARS} hourly evaluation bars; {WARMUP_BARS} warm-up bars before Jan 1",
+              f"- Dataset SHA-256: {data_sha}",
+              "- Missing/interpolated bars: 0 (workflow fails if hourly series has a gap)",
+              f"- Unknown MarketData completeness count: {unknown_completeness}; candle finality UNKNOWN count: {unknown_finality}",
+              "- Strategy: ETHUSDT Spot, 1h; z-score over 168 closes; enter z < -2.5 and close > EMA720; exit z > +1.0 or close <= EMA720",
+              "- Signal at closed candle; simulated fill at next candle open; final open position liquidated at last close with modeled costs",
+              "- Position fraction 95%; maximum 5 buy entries per rolling 30 days; fixed lot assumptions step/min quantity 0.0001 ETH and min notional 5 USDT",
+              "- BASE = fee 0.10%/fill, full assumed spread 10 bps, slippage 5 bps/fill",
+              "- STRESS_1 = fee 0.10%/fill, full assumed spread 25 bps, slippage 10 bps/fill",
+              "- STRESS_2 = fee 0.20%/fill, full assumed spread 50 bps, slippage 20 bps/fill", "",
+              "| Capital | Cost | Final equity | Net PnL | Return | Max DD | Round-trips | W/L | Fees | B&H net PnL |",
+              "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+          ]
+          for r in summary_rows:
+              report.append(
+                  f"| {r['capital_initial_usdt']} | {r['cost_scenario']} | {Decimal(r['final_equity_usdt']):.4f} | "
+                  f"{Decimal(r['net_pnl_usdt']):+.4f} | {Decimal(r['return_pct']):+.2f}% | "
+                  f"{Decimal(r['max_drawdown_pct']):.2f}% | {r['completed_round_trips']} | "
+                  f"{r['wins']}/{r['losses']} | {Decimal(r['total_fees_usdt']):.4f} | "
+                  f"{Decimal(r['buy_hold_net_pnl_usdt']):+.4f} |"
+              )
+          report += [
+              "",
+              "Costs and lot filters are model assumptions; historical best bid/ask and historically effective exchange filters were not reconstructed. available_at and candle finality do not prove point-in-time availability.",
+              "This hash-bound evidence is a historical Kline replay only. No PAPER/LIVE execution; all rows are virtual.", "",
+          ]
+          Path("historical-output/report.md").write_text("\n".join(report), encoding="utf-8")
+          PY
+          python /tmp/replay_eth_bbmr_ema720.py | tee historical-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload replay evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: eth-bbmr-ema720-ytd-2026-${{ github.sha }}
+          path: historical-output/
+          if-no-files-found: warn
+          retention-days: 90
