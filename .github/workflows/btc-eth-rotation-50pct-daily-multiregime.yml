@@ -1,0 +1,47 @@
+name: BTC ETH daily rotation 50 percent — multi-regime validation
+
+on:
+  push:
+    branches:
+      - research/btc-eth-rotation-50pct-daily-multiregime
+    paths:
+      - research/replay_btc_eth_rotation_50pct_daily_multiregime.py
+      - .github/workflows/btc-eth-rotation-50pct-daily-multiregime.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-eth-rotation-50pct-daily-multiregime
+  cancel-in-progress: false
+
+jobs:
+  frozen-daily-rotation:
+    name: Replay daily BTC ETH 50 percent rotation across multi-regime windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile and run frozen daily replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rotation-50pct-daily-output
+          python -m py_compile research/replay_btc_eth_rotation_50pct_daily_multiregime.py
+          python research/replay_btc_eth_rotation_50pct_daily_multiregime.py 2>&1 | tee rotation-50pct-daily-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload complete hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: btc-eth-rotation-50pct-daily-multiregime
+          path: rotation-50pct-daily-output/
+          if-no-files-found: warn
+          retention-days: 90
