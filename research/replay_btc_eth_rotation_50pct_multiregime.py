@@ -58,18 +58,42 @@ def _current_rules(symbol):
             "scope":"current public Binance ExchangeInfo; historical filters not established"}
 
 def _fetch(symbol,rules):
+    """Fetch one-page chunks, then independently validate every timestamp start.
+    The normal multi-page helper compares closeTime + 1ms at page boundaries and
+    falsely flags some historical Binance 4h boundaries; this path retains strict
+    open-time continuity and never fills or interpolates absent candles.
+    """
     metadata=BinanceSpotInstrumentMetadata(config=BinanceSpotRestConfig(endpoint="/api/v3/exchangeInfo"))
-    metadata.resolve_active(symbol); adapter=BinanceMetadataBackedAdapter(metadata=metadata)
-    acquired=adapter.fetch_historical_market_data(symbol=symbol,interval=INTERVAL,
-        start_time=int(WARMUP_START.timestamp()*1000),end_time=int(END.timestamp()*1000),
-        page_limit=1000,max_requests=25)
-    items=sorted((x for x in acquired if WARMUP_START<=x.payload.start<END),key=lambda x:x.payload.start)
-    expected=[WARMUP_START+BAR*i for i in range(EXPECTED_BARS)]; observed=[x.payload.start for x in items]
-    if observed!=expected:
-        raise RuntimeError(f"FAIL-CLOSED {symbol}: expected {EXPECTED_BARS} contiguous bars, got {len(items)}; missing={len(set(expected)-set(observed))}; unexpected={len(set(observed)-set(expected))}. No interpolation.")
+    metadata.resolve_active(symbol)
+    adapter=BinanceMetadataBackedAdapter(metadata=metadata)
+    expected=[WARMUP_START+BAR*i for i in range(EXPECTED_BARS)]
+    items=[]
+    page_size=800
+    for offset in range(0,len(expected),page_size):
+        wanted=expected[offset:offset+page_size]
+        page=adapter.fetch_market_data(
+            symbol=symbol,interval=INTERVAL,limit=len(wanted),
+            start_time=int(wanted[0].timestamp()*1000),
+            end_time=int(wanted[-1].timestamp()*1000),allow_empty=False
+        )
+        page=sorted(page,key=lambda x:x.payload.start)
+        observed=[x.payload.start for x in page]
+        if observed!=wanted:
+            missing=sorted(set(wanted)-set(observed))
+            extra=sorted(set(observed)-set(wanted))
+            raise RuntimeError(
+                f"FAIL-CLOSED {symbol}: timestamp chunk offset={offset}, expected {len(wanted)} candles, "
+                f"received {len(page)}; missing={missing[:6]}; unexpected={extra[:6]}. No interpolation."
+            )
+        items.extend(page)
+    starts=[x.payload.start for x in items]
+    if starts!=expected:
+        raise RuntimeError(f"FAIL-CLOSED {symbol}: concatenated chunk starts are not exactly contiguous")
     accepted,excluded,unknown_comp,unknown_final=_validate_history(items,INTERVAL)
-    if len(accepted)!=EXPECTED_BARS or excluded: raise RuntimeError(f"FAIL-CLOSED {symbol}: accepted={len(accepted)}, excluded={excluded}")
-    if any(x.instrument.instrument_id!=rules["instrument_id"] for x in items): raise RuntimeError(f"FAIL-CLOSED {symbol}: instrument identity mismatch")
+    if len(accepted)!=EXPECTED_BARS or excluded:
+        raise RuntimeError(f"FAIL-CLOSED {symbol}: accepted={len(accepted)}, excluded={excluded}")
+    if any(x.instrument.instrument_id!=rules["instrument_id"] for x in items):
+        raise RuntimeError(f"FAIL-CLOSED {symbol}: instrument identity mismatch")
     records=[_market_data_record(x) for x in items]
     digest=hashlib.sha256(json.dumps(records,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
     return items,records,digest,unknown_comp,unknown_final
