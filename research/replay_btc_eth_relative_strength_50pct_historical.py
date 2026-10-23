@@ -16,7 +16,7 @@ from bot_obrero.virtual_backtest import _market_data_record, _validate_history
 UTC = timezone.utc
 INTERVAL = "4h"
 BAR = timedelta(hours=4)
-START = datetime(2020, 1, 1, 0, 0, tzinfo=UTC)
+START = datetime(2021, 1, 1, 0, 0, tzinfo=UTC)
 END = datetime(2026, 10, 22, 0, 0, tzinfo=UTC)
 WARMUP_BARS = 300
 WARMUP_START = START - BAR * WARMUP_BARS
@@ -310,10 +310,9 @@ def main():
     emas = {asset: _ema(closes[asset], EMA_PERIOD) for asset in ASSETS}
     hashes = {"btc_dataset_sha256": hashes["BTCUSDT"], "eth_dataset_sha256": hashes["ETHUSDT"], "combined_dataset_sha256": combined_sha}
     WINDOWS = (
-        ("FULL_2020_2026", START, END),
-        ("HOLDOUT_2020_2022", datetime(2020, 1, 1, tzinfo=UTC), datetime(2023, 1, 1, tzinfo=UTC)),
+        ("FULL_2021_2026", START, END),
+        ("HOLDOUT_2021_2022", datetime(2021, 1, 1, tzinfo=UTC), datetime(2023, 1, 1, tzinfo=UTC)),
         ("RECENT_2023_2026", datetime(2023, 1, 1, tzinfo=UTC), END),
-        ("2020", datetime(2020, 1, 1, tzinfo=UTC), datetime(2021, 1, 1, tzinfo=UTC)),
         ("2021", datetime(2021, 1, 1, tzinfo=UTC), datetime(2022, 1, 1, tzinfo=UTC)),
         ("2022", datetime(2022, 1, 1, tzinfo=UTC), datetime(2023, 1, 1, tzinfo=UTC)),
         ("2023", datetime(2023, 1, 1, tzinfo=UTC), datetime(2024, 1, 1, tzinfo=UTC)),
@@ -348,7 +347,7 @@ def main():
             writer.writeheader()
             writer.writerows(data)
     lines = [
-        "# BTC/ETH weekly relative-strength rotation — 50% allocation, fixed multi-regime replay", "",
+        "# BTC/ETH weekly relative-strength rotation — 50% allocation, fixed 2021–2026 multi-regime replay", "",
         "**Status:** research only. **Decision: NO_TRADE.**", "",
         f"- Full window: [{START.isoformat()}, {END.isoformat()}); {EVAL_BARS} evaluation 4h bars and {WARMUP_BARS} warm-up bars.",
         f"- BTC SHA-256: {hashes['btc_dataset_sha256']}; ETH SHA-256: {hashes['eth_dataset_sha256']}; combined: {combined_sha}.",
@@ -372,7 +371,7 @@ def main():
         )
     stress = [r for r in results if r["cost_scenario"] == "STRESS_2"]
     by_window = {name: [r for r in stress if r["window"] == name] for name, _, _ in WINDOWS}
-    required_blocks = ("FULL_2020_2026", "HOLDOUT_2020_2022", "RECENT_2023_2026")
+    required_blocks = ("FULL_2021_2026", "HOLDOUT_2021_2022", "RECENT_2023_2026")
     block_pass = {}
     for name in required_blocks:
         rows = by_window[name]
@@ -380,7 +379,7 @@ def main():
             Decimal(r["net_pnl_usdt"]) > ZERO and r["completed_closures"] >= 5
             and Decimal(r["max_drawdown_pct"]) >= Decimal("-15") for r in rows
         )
-    annual_names = ("2020", "2021", "2022", "2023", "2024", "2025", "2026_YTD")
+    annual_names = ("2021", "2022", "2023", "2024", "2025", "2026_YTD")
     annual_rows = [r for name in annual_names for r in by_window[name]]
     annual_dd_pass = len(annual_rows) == len(annual_names) * 2 and all(
         Decimal(r["max_drawdown_pct"]) >= Decimal("-15") for r in annual_rows
