@@ -150,7 +150,7 @@ def _targets(data: dict[str, list], indices: list[int]):
     # index order contains both warm-up and evaluation bars. Weekly rebalance decisions
     # occur after the completed bar ending on Monday 00:00 UTC; execution is next bar open.
     for i in indices:
-        end_time = data[SYMBOLS[0]][i].payload.end
+        end_time = data[SYMBOLS[0]][i].payload.start + BAR  # exclusive close boundary
         if end_time.weekday() != 0 or end_time.hour != 0 or end_time.minute != 0:
             continue
         eligible = []
@@ -291,7 +291,7 @@ def _simulate(data, rules, target_at_index, capital, cost_name, fee, spread, sli
         # Decide from the just-completed candle only; never submit a new order after the final bar.
         if eval_idx >= len(eval_items) - 1:
             continue
-        end_time = anchor.payload.end
+        end_time = anchor.payload.start + BAR  # exclusive close boundary, before next bar opens
         if end_time.weekday() == 0 and end_time.hour == 0 and end_time.minute == 0:
             target = target_at_index[i]
             if target != held_symbol:
@@ -399,6 +399,9 @@ def main():
             raise RuntimeError(f"FAIL-CLOSED: {symbol} bar grid is not aligned with {SYMBOLS[0]}.")
     valid_indices = [i for i, x in enumerate(datasets[SYMBOLS[0]]) if WARMUP_START <= x.payload.start < END]
     closes, emas, targets = _targets(datasets, valid_indices)
+    weekly_rows = [i for i in valid_indices if (datasets[SYMBOLS[0]][i].payload.start + BAR).weekday() == 0 and (datasets[SYMBOLS[0]][i].payload.start + BAR).hour == 0 and (datasets[SYMBOLS[0]][i].payload.start + BAR).minute == 0]
+    weekly_counts = {s: sum(targets[i] == s for i in weekly_rows) for s in SYMBOLS}
+    print(f"Weekly decisions={len(weekly_rows)}; targets={weekly_counts}; CASH decisions={sum(targets[i] is None for i in weekly_rows)}")
     evidence["data_hashes_sha256"] = data_hashes
     (output / "dataset-evidence.json").write_text(
         json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
