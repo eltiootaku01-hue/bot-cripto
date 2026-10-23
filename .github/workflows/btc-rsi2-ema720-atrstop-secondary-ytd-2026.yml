@@ -1,0 +1,47 @@
+name: BTC 1h RSI2 EMA720 ATR stop secondary replay
+
+on:
+  push:
+    branches:
+      - research/btc-rsi2-ema720-atrstop-secondary-ytd-2026
+    paths:
+      - research/replay_btc_rsi2_ema720_atrstop_secondary_ytd_2026.py
+      - .github/workflows/btc-rsi2-ema720-atrstop-secondary-ytd-2026.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-rsi2-ema720-atrstop-secondary-ytd-2026
+  cancel-in-progress: false
+
+jobs:
+  frozen-btc-rsi:
+    name: Replay frozen BTC hourly RSI2 strategy with risk exits
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile and execute frozen BTC RSI replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p btc-rsi2-output
+          python -m py_compile research/replay_btc_rsi2_ema720_atrstop_secondary_ytd_2026.py
+          python research/replay_btc_rsi2_ema720_atrstop_secondary_ytd_2026.py 2>&1 | tee btc-rsi2-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: btc-rsi2-ema720-atrstop-secondary-ytd-2026
+          path: btc-rsi2-output/
+          if-no-files-found: warn
+          retention-days: 90
