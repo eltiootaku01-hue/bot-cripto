@@ -41,7 +41,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
         with:
-          name: btc-secondary-family-screen-ytd-2026-\${{ github.sha }}
+          name: btc-secondary-family-screen-ytd-2026
           path: secondary-output/
           if-no-files-found: warn
           retention-days: 90
