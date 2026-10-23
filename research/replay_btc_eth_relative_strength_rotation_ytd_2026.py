@@ -260,7 +260,7 @@ def _simulate(items, capital, scenario, fee, spread, slippage, closes, opens, em
     losses = sum(pnl < ZERO for pnl in realized_pnls)
     bh_results = {}
     for asset in ASSETS:
-        bh, fees = _buy_hold(eval_items[asset], capital, fee, spread, slippage)
+        bh, fees = _buy_hold(eval_items[asset], capital, asset, fee, spread, slippage)
         bh_results[f"{asset.lower()}_buy_hold_final"] = str(bh)
         bh_results[f"{asset.lower()}_buy_hold_pnl"] = str(bh - capital)
         bh_results[f"{asset.lower()}_buy_hold_fees"] = str(fees)
