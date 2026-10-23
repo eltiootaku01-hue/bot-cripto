@@ -136,7 +136,7 @@ def _momentum_signals_and_weights(items):
     entry = [False] * len(items)
     exit_ = [False] * len(items)
     weights = [None] * len(items)
-    for i in range(90, len(items)):
+    for i in range(200, len(items)):
         momentum = closes[i] / closes[i - 90] - ONE
         prior_momentum = closes[i - 1] / closes[i - 91] - ONE
         entry[i] = momentum > Decimal("0.05") and prior_momentum <= Decimal("0.05") and sma200[i] is not None and closes[i] > sma200[i]
