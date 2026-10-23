@@ -1,0 +1,47 @@
+name: BTC 180-day momentum + ATR14 target proxy 8% — fixed historical windows
+
+on:
+  push:
+    branches:
+      - research/btc-momentum-180d-atr8-secondary
+    paths:
+      - research/replay_btc_momentum_180d_atr8_secondary.py
+      - .github/workflows/btc-momentum-180d-atr8-secondary.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-momentum-180d-atr8-secondary
+  cancel-in-progress: false
+
+jobs:
+  frozen-risk-control-replay:
+    name: Replay frozen BTC 180d momentum with ATR14 8% risk budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile and run fixed risk-control replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p momentum-atr8-output
+          python -m py_compile research/replay_btc_momentum_180d_atr8_secondary.py
+          python research/replay_btc_momentum_180d_atr8_secondary.py 2>&1 | tee momentum-atr8-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: btc-momentum-180d-atr8-secondary-ytd-2026
+          path: momentum-atr8-output/
+          if-no-files-found: warn
+          retention-days: 90
