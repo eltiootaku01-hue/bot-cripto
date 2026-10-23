@@ -1,0 +1,47 @@
+name: BTC momentum ATR overlay — historical holdout 2020-2022
+
+on:
+  push:
+    branches:
+      - research/btc-momentum-90d-atr-risk-overlay-holdout-2020-2022
+    paths:
+      - research/replay_btc_momentum_90d_atr_risk_overlay_holdout_2020_2022.py
+      - .github/workflows/btc-momentum-90d-atr-risk-overlay-holdout-2020-2022.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-momentum-90d-atr-risk-overlay-holdout-2020-2022
+  cancel-in-progress: false
+
+jobs:
+  frozen-holdout:
+    name: Validate frozen ATR momentum profile on 2020-2022
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile, run frozen historical holdout, and test engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p atr-risk-overlay-holdout-output
+          python -m py_compile research/replay_btc_momentum_90d_atr_risk_overlay_holdout_2020_2022.py
+          python research/replay_btc_momentum_90d_atr_risk_overlay_holdout_2020_2022.py 2>&1 | tee atr-risk-overlay-holdout-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound historical holdout evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: btc-momentum-90d-atr-risk-overlay-holdout-2020-2022
+          path: atr-risk-overlay-holdout-output/
+          if-no-files-found: warn
+          retention-days: 90
