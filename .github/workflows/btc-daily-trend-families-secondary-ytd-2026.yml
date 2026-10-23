@@ -1,0 +1,47 @@
+name: BTC daily trend families — fixed YTD 2026
+
+on:
+  push:
+    branches:
+      - research/btc-daily-trend-families-secondary-ytd-2026
+    paths:
+      - research/replay_btc_daily_trend_families_secondary_ytd_2026.py
+      - .github/workflows/btc-daily-trend-families-secondary-ytd-2026.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-daily-trend-families-secondary-ytd-2026
+  cancel-in-progress: false
+
+jobs:
+  frozen-btc-trend-families:
+    name: Replay three fixed BTC daily trend families
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile, execute frozen screen, and test the backtest engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p btc-trend-families-output
+          python -m py_compile research/replay_btc_daily_trend_families_secondary_ytd_2026.py
+          python research/replay_btc_daily_trend_families_secondary_ytd_2026.py 2>&1 | tee btc-trend-families-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: btc-daily-trend-families-secondary-ytd-2026
+          path: btc-trend-families-output/
+          if-no-files-found: warn
+          retention-days: 90
