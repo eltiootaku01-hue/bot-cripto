@@ -1,0 +1,47 @@
+name: Cross-asset crypto momentum rotation — fixed YTD 2026
+
+on:
+  push:
+    branches:
+      - research/cross-asset-momentum-rotation-ytd-2026
+    paths:
+      - research/replay_cross_asset_momentum_rotation_ytd_2026.py
+      - .github/workflows/cross-asset-momentum-rotation-ytd-2026.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-asset-momentum-rotation-ytd-2026
+  cancel-in-progress: false
+
+jobs:
+  frozen-rotation-replay:
+    name: Replay fixed 5-asset weekly rotation hypothesis
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile, execute fixed rotation replay, and test market-data engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rotation-output
+          python -m py_compile research/replay_cross_asset_momentum_rotation_ytd_2026.py
+          python research/replay_cross_asset_momentum_rotation_ytd_2026.py 2>&1 | tee rotation-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound replay evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: cross-asset-momentum-rotation-ytd-2026
+          path: rotation-output/
+          if-no-files-found: warn
+          retention-days: 90
