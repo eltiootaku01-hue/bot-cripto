@@ -1,0 +1,47 @@
+name: BTC ETH 4h rotation 50 percent — 2025 to 2026 validation
+
+on:
+  push:
+    branches:
+      - research/btc-eth-rotation-50pct-2025-2026-validation
+    paths:
+      - research/replay_btc_eth_rotation_50pct_2025_2026_validation.py
+      - .github/workflows/btc-eth-rotation-50pct-2025-2026-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-eth-rotation-50pct-2025-2026-validation
+  cancel-in-progress: false
+
+jobs:
+  frozen-rotation-validation:
+    name: Replay fixed 42-bar BTC ETH rotation over 2025 and 2026 YTD
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile and run fixed multi-window validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rotation-50pct-2025-2026-output
+          python -m py_compile research/replay_btc_eth_rotation_50pct_2025_2026_validation.py
+          python research/replay_btc_eth_rotation_50pct_2025_2026_validation.py 2>&1 | tee rotation-50pct-2025-2026-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: btc-eth-rotation-50pct-2025-2026-validation
+          path: rotation-50pct-2025-2026-output/
+          if-no-files-found: warn
+          retention-days: 90
