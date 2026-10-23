@@ -1,0 +1,47 @@
+name: Event-driven BTC daily trend families — fixed YTD 2026
+
+on:
+  push:
+    branches:
+      - research/btc-daily-event-driven-trend-families-ytd-2026
+    paths:
+      - research/replay_btc_daily_event_driven_trend_families_ytd_2026.py
+      - .github/workflows/btc-daily-event-driven-trend-families-ytd-2026.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-daily-event-driven-trend-families-ytd-2026
+  cancel-in-progress: false
+
+jobs:
+  frozen-event-driven-screen:
+    name: Replay three event-driven BTC strategies across annual windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile, run fixed screen, and test backtest engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p event-driven-output
+          python -m py_compile research/replay_btc_daily_event_driven_trend_families_ytd_2026.py
+          python research/replay_btc_daily_event_driven_trend_families_ytd_2026.py 2>&1 | tee event-driven-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: btc-daily-event-driven-trend-families-ytd-2026
+          path: event-driven-output/
+          if-no-files-found: warn
+          retention-days: 90
