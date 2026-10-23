@@ -37,6 +37,7 @@ STRATEGIES = (
     "BTC_REGIME_DONCHIAN_55_20",
     "BTC_REGIME_SQUEEZE_BREAKOUT_20",
     "BTC_REGIME_EMA50_200",
+    "ETH_KELTNER_DIP_BTC200",
 )
 
 
@@ -102,6 +103,22 @@ def _bollinger_previous(values: list[Decimal], period: int = 20):
     return upper, width
 
 
+def _atr(highs: list[Decimal], lows: list[Decimal], closes: list[Decimal], period: int = 14):
+    true_ranges: list[Decimal | None] = [None] * len(closes)
+    for i in range(1, len(closes)):
+        true_ranges[i] = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+    values: list[Decimal | None] = [None] * len(closes)
+    for i in range(period, len(closes)):
+        window = true_ranges[i-period+1:i+1]
+        if all(x is not None for x in window):
+            values[i] = sum(window, ZERO) / Decimal(period)
+    return values
+
+
 def _indicators(eth_items, btc_items):
     ec = [x.payload.close for x in eth_items]
     eh = [x.payload.high for x in eth_items]
@@ -112,6 +129,7 @@ def _indicators(eth_items, btc_items):
         "eth_closes": ec, "eth_highs": eh, "eth_lows": el, "btc_closes": bc,
         "eth_ema20": _ema(ec, 20), "eth_ema50": _ema(ec, 50), "eth_ema200": _ema(ec, 200),
         "btc_ema200": _ema(bc, 200), "bb_upper": bb_upper, "bb_width": bb_width,
+        "eth_atr14": _atr(eh, el, ec, 14),
     }
 
 
@@ -148,6 +166,15 @@ def _signals(strategy: str, i: int, ind):
         enter = ema50 > ema200 and close > ema50 and btc_ok
         exit_ = close < ema50 or not btc_ok
         return enter, exit_, "ETH close above EMA50 > EMA200; BTC above EMA200", "ETH close below EMA50 or BTC regime lost"
+    if strategy == "ETH_KELTNER_DIP_BTC200":
+        ema20, ema200 = ind["eth_ema20"][i], ind["eth_ema200"][i]
+        atr = ind["eth_atr14"][i]
+        btc_ema200 = ind["btc_ema200"][i]
+        if ema20 is None or ema200 is None or atr is None or btc_ema200 is None:
+            return False, False, "", ""
+        enter = close < ema20 - Decimal("1.5") * atr and close > ema200 and btc_ok
+        exit_ = close >= ema20 or close < ema200 or close < btc_ema200
+        return enter, exit_, "ETH close below EMA20 - 1.5*ATR14 with ETH and BTC above EMA200", "ETH close recovered to EMA20 or ETH/BTC lost EMA200 regime"
     raise ValueError(f"Unknown frozen strategy: {strategy}")
 
 
