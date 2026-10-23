@@ -11,7 +11,7 @@ from bot_obrero.virtual_backtest import _market_data_record, _validate_history
 UTC=timezone.utc
 INTERVAL="4h"; BAR=timedelta(hours=4)
 FULL_START=datetime(2020,1,1,tzinfo=UTC); END=datetime(2026,10,22,tzinfo=UTC)
-WARMUP_BARS=300; WARMUP_START=FULL_START-BAR*WARMUP_BARS
+WARMUP_BARS=260; WARMUP_START=FULL_START-BAR*WARMUP_BARS
 EXPECTED_BARS=int((END-WARMUP_START)/BAR)
 ZERO,ONE,HUNDRED,BPS=Decimal("0"),Decimal("1"),Decimal("100"),Decimal("10000")
 POSITION_FRACTION=Decimal("0.50"); BENCHMARK_FRACTION=Decimal("0.95")
