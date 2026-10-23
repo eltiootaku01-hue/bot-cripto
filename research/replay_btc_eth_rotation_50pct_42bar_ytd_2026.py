@@ -261,7 +261,7 @@ def main():
         "max_drawdown_no_worse_than_minus15_at_both_capitals":drawdown,
         "beats_cash_btc_and_eth_buy_hold_at_both_capitals":benchmark}
     passed=full_positive and closures and drawdown and benchmark
-    report=["# BTC/ETH weekly relative-strength rotation — fixed 50% allocation, multi-regime replay","",
+    report=["# BTC/ETH 4h relative-strength rotation — fixed 50% allocation, 2026 YTD-only replay","",
         "**Disposition:** retrospective research only; NO_TRADE remains in force.","",
         f"- Full interval: [{FULL_START.isoformat()}, {END.isoformat()}); {EXPECTED_BARS-WARMUP_BARS} evaluation bars per asset plus {WARMUP_BARS} warm-up bars.",
         f"- Combined SHA-256: {combined}; BTC SHA-256: {hashes['BTCUSDT']}; ETH SHA-256: {hashes['ETHUSDT']}.",
