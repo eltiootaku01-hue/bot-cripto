@@ -381,12 +381,12 @@ def main():
         "data": records,
     }
     (output / "dataset-evidence.json").write_text(
-        json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8"
+        json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
     results, all_fills, all_curves = [], [], []
     for candidate, lookback in CANDIDATE_CONFIGS:
-        print(f"\\nCANDIDATE {candidate} (lookback={lookback}d)")
+        print(f"\nCANDIDATE {candidate} (lookback={lookback}d)")
         for window, start, end in WINDOWS:
             for capital in CAPITALS:
                 for cost_name, fee, spread, slip in SCENARIOS:
@@ -427,7 +427,7 @@ def main():
                 writer.writeheader()
                 writer.writerows(rows)
             else:
-                f.write("\\n")
+                f.write("\n")
 
     stress = [r for r in results if r["cost_scenario"] == "STRESS_2"]
     annual_windows = ("2020", "2021", "2022", "2023", "2024", "2025", "2026_YTD")
@@ -527,7 +527,7 @@ def main():
         "The target-volatility proxy and tested momentum horizons are a new research configuration after prior screens. All candidates are tested in the same registered batch, but the work is still retrospective strategy development, not a blind prospective result. Point-in-time data availability is UNKNOWN and spread/slippage are assumed.",
         "",
     ])
-    (output / "report.md").write_text("\\n".join(report), encoding="utf-8")
+    (output / "report.md").write_text("\n".join(report), encoding="utf-8")
     print("PROMOTION_GATES:", json.dumps(gates, sort_keys=True))
     print(f"Evidence written to {output}/.")
 
