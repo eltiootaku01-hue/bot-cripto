@@ -1,0 +1,47 @@
+name: BTC momentum horizons with ATR14 target proxy 15% — fixed windows
+
+on:
+  push:
+    branches:
+      - research/btc-momentum-horizons-atr15-secondary
+    paths:
+      - research/replay_btc_momentum_horizons_atr15_secondary.py
+      - .github/workflows/btc-momentum-horizons-atr15-secondary.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-momentum-horizons-atr15-secondary
+  cancel-in-progress: false
+
+jobs:
+  frozen-momentum-horizon-screen:
+    name: Replay BTC 60/126/180-day momentum candidates across fixed windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, immutable SHA
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, immutable SHA
+        with:
+          python-version: '3.12'
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile, run fixed multi-horizon screen, and test engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p momentum-horizons-output
+          python -m py_compile research/replay_btc_momentum_horizons_atr15_secondary.py
+          python research/replay_btc_momentum_horizons_atr15_secondary.py 2>&1 | tee momentum-horizons-output/console.txt
+          python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound multi-horizon evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: btc-momentum-horizons-atr15-secondary
+          path: momentum-horizons-output/
+          if-no-files-found: warn
+          retention-days: 90
