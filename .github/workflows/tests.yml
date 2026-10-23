@@ -27,3 +27,17 @@ jobs:
         run: pytest -q tests/test_hueso_05d_final_admission.py
       - name: Full regression suite
         run: pytest -q
+      - name: Research replay — ETH BBMR EMA720, January–October 2026
+        if: github.ref == 'refs/heads/research/eth-bbmr-168-ema720-ytd-2026' && matrix.python-version == '3.12'
+        run: |
+          set -euo pipefail
+          mkdir -p historical-output
+          python research/replay_eth_bbmr_ema720_ytd_2026.py 2>&1 | tee historical-output/console.txt
+      - name: Upload research replay evidence
+        if: always() && github.ref == 'refs/heads/research/eth-bbmr-168-ema720-ytd-2026' && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, immutable SHA
+        with:
+          name: eth-bbmr-ema720-ytd-2026-research
+          path: historical-output/
+          if-no-files-found: warn
+          retention-days: 90
