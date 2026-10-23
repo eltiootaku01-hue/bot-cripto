@@ -248,7 +248,7 @@ def _simulate(candidate, items, rules, entries, exits, weights, atr14, window, s
                         "side": "BUY", "quantity_btc": str(qty), "price_usdt": str(price),
                         "fee_usdt": str(buy_fee), "realized_pnl_usdt": "", "risk_weight": str(position_weight),
                         "atr14_at_signal": str(atr14[i - 1] if i > 0 and atr14[i - 1] is not None else ""),
-                        "reason": f"{lookback if False else candidate}: completed momentum-cross signal; ATR14 sizing fixed on signal close; next open fill",
+                        "reason": "completed momentum-cross signal; ATR14 sizing fixed on signal close; next open fill",
                     })
             elif pending[0] == "SELL" and qty > ZERO:
                 price = candle.open * (ONE - adverse)
@@ -328,65 +328,98 @@ def _simulate(candidate, items, rules, entries, exits, weights, atr14, window, s
     return result, fills, curve
 
 def main():
-    output = Path("atr-risk-overlay-output")
+    output = Path("momentum-horizons-output")
     output.mkdir(exist_ok=True)
-    print("Frozen signal: BTC 90d momentum crosses >+5% with close>SMA200; ATR14 risk sizing.")
-    print("Risk size = min(0.95, 0.20 / ((ATR14/close) * sqrt(365))); weight frozen at signal close.")
+    print("Frozen BTC momentum-cross screen: lookbacks 60/126/180d, close>SMA200, ATR14 target proxy 15%.")
+    print("Weight=min(0.95, 0.15 / ((ATR14/close)*sqrt(365))); fixed at completed signal close, no daily rebalance.")
     print("Research HEAD:", subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip())
-    print(f"Full interval [{FULL_START.isoformat()}, {END.isoformat()}); warmup={WARMUP_BARS} bars from {WARMUP_START.isoformat()}.")
-    print("Virtual Spot only; protocol issue #143.")
+    print(f"Evaluation UTC: [{FULL_START.isoformat()}, {END.isoformat()}); warm-up={WARMUP_BARS} daily bars from {WARMUP_START.isoformat()}.")
+    print("Virtual Spot only; preregistered protocol: GitHub issue #145.")
+
     rules = _rules()
     items, records, data_sha, unknown_comp, unknown_final = _fetch(rules)
     entries, exits, weights, atr14, sma200 = _momentum_signals_and_weights(items)
-    print(f"BTC bars={len(items)} SHA256={data_sha}; completeness UNKNOWN={unknown_comp}; finality UNKNOWN={unknown_final}")
     sample_weights = [w for w in weights if w is not None]
+    print(
+        f"BTCUSDT bars={len(items)} SHA256={data_sha}; LOT_SIZE step={rules['step']}; "
+        f"minQty={rules['min_qty']}; minNotional={rules['min_notional']}; filterSHA={rules['sha256']}; "
+        f"market completeness UNKNOWN={unknown_comp}; candle finality UNKNOWN={unknown_final}"
+    )
     evidence = {
-        "symbol": SYMBOL, "interval": INTERVAL, "full_evaluation_start": FULL_START.isoformat(),
-        "evaluation_end_exclusive": END.isoformat(), "warmup_start": WARMUP_START.isoformat(),
-        "warmup_bars": WARMUP_BARS, "expected_bars": EXPECTED_BARS, "observed_bars": len(items),
-        "data_gaps_interpolated": 0, "dataset_sha256": data_sha,
-        "market_data_completeness_unknown_count": unknown_comp, "candle_finality_unknown_count": unknown_final,
+        "symbol": SYMBOL, "interval": INTERVAL,
+        "evaluation_start": FULL_START.isoformat(), "evaluation_end_exclusive": END.isoformat(),
+        "warmup_start": WARMUP_START.isoformat(), "warmup_bars": WARMUP_BARS,
+        "expected_bars": EXPECTED_BARS, "observed_bars": len(items), "data_gaps_interpolated": 0,
+        "dataset_sha256": data_sha,
+        "market_data_completeness_unknown_count": unknown_comp,
+        "candle_finality_unknown_count": unknown_final,
         "current_exchange_filters": {
-            "step_size": str(rules["step"]), "min_qty": str(rules["min_qty"]), "min_notional": str(rules["min_notional"]),
-            "snapshot": rules["snapshot"], "sha256": rules["sha256"], "retrieved_at_utc": rules["retrieved_at"], "scope": rules["scope"],
+            "step_size": str(rules["step"]), "min_qty": str(rules["min_qty"]),
+            "min_notional": str(rules["min_notional"]), "snapshot": rules["snapshot"],
+            "sha256": rules["sha256"], "retrieved_at_utc": rules["retrieved_at"], "scope": rules["scope"],
         },
-        "strategy": {
-            "signal": "Buy when 90d momentum first crosses above +5% and close>SMA200; exit when 90d momentum<=0 or close<SMA200.",
-            "risk_sizing": "At completed signal bar, weight=min(0.95, 0.20/((ATR14/close)*sqrt(365))); simple 14-bar arithmetic ATR from true range; fixed for the position until exit, no daily rebalance.",
-            "target_label": "20% annualized ATR proxy; not guaranteed realized volatility target",
-            "min_observed_weight": str(min(sample_weights)) if sample_weights else None,
-            "max_observed_weight": str(max(sample_weights)) if sample_weights else None,
+        "candidate_rules": {
+            name: {
+                "lookback_days": lookback,
+                "entry": f"{lookback}-day close momentum crosses from <=0 to >0 and close>SMA200",
+                "exit": f"{lookback}-day momentum<=0 or close<SMA200",
+            } for name, lookback in CANDIDATE_CONFIGS
+        },
+        "risk_sizing": {
+            "atr_period": 14, "target_annualized_atr_proxy": str(TARGET_ANNUAL_ATR_PROXY),
+            "formula": "min(0.95, 0.15 / ((ATR14/close) * sqrt(365)))",
+            "min_computed_weight": str(min(sample_weights)) if sample_weights else None,
+            "max_computed_weight": str(max(sample_weights)) if sample_weights else None,
+            "note": "ATR scaled exposure proxy, not a guarantee of realized volatility; held constant until exit",
         },
         "windows": [{"name": n, "start": s.isoformat(), "end_exclusive": e.isoformat()} for n, s, e in WINDOWS],
         "cost_scenarios": [
-            {"name": n, "fee_per_fill": str(f), "assumed_full_spread_bps": str(sp), "assumed_slippage_bps_per_fill": str(sl)}
-            for n, f, sp, sl in SCENARIOS
+            {"name": n, "fee_per_fill": str(fee), "assumed_full_spread_bps": str(spread),
+             "assumed_slippage_bps_per_fill": str(slippage)}
+            for n, fee, spread, slippage in SCENARIOS
         ],
         "data": records,
     }
-    (output / "dataset-evidence.json").write_text(json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (output / "dataset-evidence.json").write_text(
+        json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8"
+    )
+
     results, all_fills, all_curves = [], [], []
-    for window, start, end in WINDOWS:
-        for capital in CAPITALS:
-            for cost, fee, spread, slip in SCENARIOS:
-                result, fills, curve = _simulate(items, rules, entries, exits, weights, atr14, sma200, window, start, end, capital, cost, fee, spread, slip)
-                bh, bh_fees = _buy_hold(items, rules, start, end, capital, fee, spread, slip)
-                result.update({
-                    "btc_buy_hold_final_equity_usdt": str(bh),
-                    "btc_buy_hold_net_pnl_usdt": str(bh - capital),
-                    "btc_buy_hold_fees_usdt": str(bh_fees),
-                    "cash_final_equity_usdt": str(capital), "dataset_sha256": data_sha,
-                    "filter_sha256": rules["sha256"],
-                })
-                results.append(result)
-                all_fills.extend({"capital_initial_usdt": str(capital), "cost_scenario": cost, **f} for f in fills)
-                all_curves.extend({"capital_initial_usdt": str(capital), "cost_scenario": cost, **c} for c in curve)
-                print(
-                    f"RESULT | {window} | capital={capital} | {cost} | PnL={Decimal(result['net_pnl_usdt']):+.6f} | "
-                    f"return={Decimal(result['return_pct']):+.3f}% | DD={Decimal(result['max_drawdown_pct']):.3f}% | "
-                    f"trips={result['completed_round_trips']} | weight-pos range=[{evidence['strategy']['min_observed_weight']},{evidence['strategy']['max_observed_weight']}] | "
-                    f"BTC_BH={Decimal(result['btc_buy_hold_net_pnl_usdt']):+.4f}"
-                )
+    for candidate, lookback in CANDIDATE_CONFIGS:
+        print(f"\\nCANDIDATE {candidate} (lookback={lookback}d)")
+        for window, start, end in WINDOWS:
+            for capital in CAPITALS:
+                for cost_name, fee, spread, slip in SCENARIOS:
+                    result, fills, curve = _simulate(
+                        candidate, items, rules, entries, exits, weights, atr14,
+                        window, start, end, capital, cost_name, fee, spread, slip,
+                    )
+                    bh_final, bh_fees = _buy_hold(items, rules, start, end, capital, fee, spread, slip)
+                    result.update({
+                        "lookback_days": lookback,
+                        "btc_buy_hold_final_equity_usdt": str(bh_final),
+                        "btc_buy_hold_net_pnl_usdt": str(bh_final - capital),
+                        "btc_buy_hold_fees_usdt": str(bh_fees),
+                        "cash_final_equity_usdt": str(capital),
+                        "dataset_sha256": data_sha,
+                        "filter_sha256": rules["sha256"],
+                    })
+                    results.append(result)
+                    all_fills.extend(
+                        {"capital_initial_usdt": str(capital), "cost_scenario": cost_name, **fill}
+                        for fill in fills
+                    )
+                    all_curves.extend(
+                        {"capital_initial_usdt": str(capital), "cost_scenario": cost_name, **point}
+                        for point in curve
+                    )
+                    print(
+                        f"RESULT | {candidate} | {window} | capital={capital} | {cost_name} | "
+                        f"PnL={Decimal(result['net_pnl_usdt']):+.6f} | return={Decimal(result['return_pct']):+.3f}% | "
+                        f"DD={Decimal(result['max_drawdown_pct']):.3f}% | cycles={result['completed_round_trips']} | "
+                        f"BTC_BH={Decimal(result['btc_buy_hold_net_pnl_usdt']):+.4f}"
+                    )
+
     for filename, rows in (("summary.csv", results), ("fills.csv", all_fills), ("equity.csv", all_curves)):
         with (output / filename).open("w", newline="", encoding="utf-8") as f:
             if rows:
@@ -394,38 +427,109 @@ def main():
                 writer.writeheader()
                 writer.writerows(rows)
             else:
-                f.write("\n")
-    full_stress = [r for r in results if r["window"] == "FULL_2023_2026_YTD" and r["cost_scenario"] == "STRESS_2"]
-    ytd_stress = [r for r in results if r["window"] == "2026_YTD" and r["cost_scenario"] == "STRESS_2"]
-    yearly_stress = [r for r in results if r["window"] in ("2023", "2024", "2025", "2026_YTD") and r["cost_scenario"] == "STRESS_2"]
-    gate = (
-        len(full_stress) == 2 and len(ytd_stress) == 2 and len(yearly_stress) == 8
-        and all(Decimal(r["net_pnl_usdt"]) > ZERO and r["completed_round_trips"] >= 5 and Decimal(r["max_drawdown_pct"]) >= Decimal("-15") for r in full_stress)
-        and all(Decimal(r["max_drawdown_pct"]) >= Decimal("-15") for r in yearly_stress)
-        and all(Decimal(r["net_pnl_usdt"]) > ZERO and Decimal(r["net_pnl_usdt"]) > Decimal(r["btc_buy_hold_net_pnl_usdt"]) for r in ytd_stress)
-    )
-    report = [
-        "# BTC 90-day momentum + ATR14 risk sizing — annual fixed-window screen", "",
-        "**Disposition:** research only; this is a risk overlay on a signal selected in prior screen #142, not a blind hypothesis.", "",
-        f"- Full interval [{FULL_START.isoformat()}, {END.isoformat()}); warm-up {WARMUP_BARS}; observed {len(items)} daily candles; dataset SHA-256 {data_sha}.",
-        f"- Current BTCUSDT filter snapshot SHA-256 {rules['sha256']}; LOT_SIZE step {rules['step']}; minQty {rules['min_qty']}; minimum notional {rules['min_notional']}. Historical filters not established.",
-        "- Signal unchanged: enter when 90d momentum crosses above +5% and close>SMA200; exit when momentum<=0 or close<SMA200; next-open fills, terminal liquidation per window.",
-        "- Risk layer: weight=min(95%, 20%/((ATR14/close)*sqrt(365))), simple 14-bar arithmetic average true range from completed candles; no intratrade rebalance; not a guarantee of 20% realized volatility.",
-        "- Costs BASE 10 bps fee/10 bps full assumed spread/5 bps slippage per fill; STRESS_1 10/25/10; STRESS_2 20/50/20. Spread/slippage are assumptions, not historical bookTicker observations.",
-        "- Yearly windows each reset capital to cash; 400 pre-window bars are indicator warm-up only.", "",
-        "| Window | Capital | Cost | Net PnL | Return | Max DD | Cycles | BTC B&H PnL |",
-        "|---|---:|---|---:|---:|---:|---:|---:|",
-    ]
-    for r in results:
-        report.append(
-            f"| {r['window']} | {r['capital_initial_usdt']} | {r['cost_scenario']} | {Decimal(r['net_pnl_usdt']):+.4f} | "
-            f"{Decimal(r['return_pct']):+.2f}% | {Decimal(r['max_drawdown_pct']):.2f}% | {r['completed_round_trips']} | "
-            f"{Decimal(r['btc_buy_hold_net_pnl_usdt']):+.4f} |"
+                f.write("\\n")
+
+    stress = [r for r in results if r["cost_scenario"] == "STRESS_2"]
+    annual_windows = ("2020", "2021", "2022", "2023", "2024", "2025", "2026_YTD")
+    gates = {}
+    for candidate, lookback in CANDIDATE_CONFIGS:
+        subset = [r for r in stress if r["candidate"] == candidate]
+        by_window = {name: [r for r in subset if r["window"] == name] for name, _, _ in WINDOWS}
+
+        def two_capital_rows(name):
+            return len(by_window.get(name, [])) == len(CAPITALS)
+
+        def pnl_positive(name):
+            return two_capital_rows(name) and all(
+                Decimal(r["net_pnl_usdt"]) > ZERO for r in by_window[name]
+            )
+
+        def full_block_ok(name):
+            return two_capital_rows(name) and all(
+                Decimal(r["net_pnl_usdt"]) > ZERO
+                and r["completed_round_trips"] >= 5
+                and Decimal(r["max_drawdown_pct"]) >= Decimal("-15")
+                for r in by_window[name]
+            )
+
+        full_ok = full_block_ok("FULL_2020_2026")
+        holdout_ok = full_block_ok("HOLDOUT_2020_2022")
+        recent_ok = full_block_ok("RECENT_2023_2026")
+
+        annual_rows = [r for name in annual_windows for r in by_window.get(name, [])]
+        annual_dd_ok = len(annual_rows) == len(annual_windows) * len(CAPITALS) and all(
+            Decimal(r["max_drawdown_pct"]) >= Decimal("-15") for r in annual_rows
         )
-    report.extend(["", f"**Preregistered gate: {'PASS' if gate else 'FAIL'}.** Full STRESS_2 positive at both capitals with 5+ cycles, full and all annual/YTD drawdowns no worse than 15%, and 2026 YTD positive and better than BTC B&H.", "",
-                   "Any pass only qualifies this retrospectively selected risk overlay for a truly untouched forward/holdout validation. Market-data point-in-time availability remains unknown; spread/slippage are assumptions. No operational approval.", ""])
-    (output / "report.md").write_text("\n".join(report), encoding="utf-8")
-    print(f"PROMOTION_GATE={'PASS' if gate else 'FAIL'}; evidence written to {output}/.")
+        bear_rows = by_window.get("2022", [])
+        bear_ok = len(bear_rows) == len(CAPITALS) and all(
+            Decimal(r["net_pnl_usdt"]) >= ZERO for r in bear_rows
+        )
+
+        profitable_years = {}
+        for capital in CAPITALS:
+            profitable_years[str(capital)] = sum(
+                Decimal(r["net_pnl_usdt"]) > ZERO
+                for r in annual_rows
+                if Decimal(r["capital_initial_usdt"]) == capital
+            )
+        four_years_ok = all(profitable_years[str(capital)] >= 4 for capital in CAPITALS)
+
+        ytd_rows = by_window.get("2026_YTD", [])
+        ytd_ok = len(ytd_rows) == len(CAPITALS) and all(
+            Decimal(r["net_pnl_usdt"]) > ZERO
+            and Decimal(r["net_pnl_usdt"]) > Decimal(r["btc_buy_hold_net_pnl_usdt"])
+            for r in ytd_rows
+        )
+        gates[candidate] = {
+            "full_period_pass": full_ok,
+            "2020_2022_holdout_pass": holdout_ok,
+            "2023_2026_recent_pass": recent_ok,
+            "annual_drawdown_pass": annual_dd_ok,
+            "2022_cash_or_profit_pass": bear_ok,
+            "profitable_year_counts_by_capital": profitable_years,
+            "at_least_4_profitable_year_windows_each_capital": four_years_ok,
+            "2026_ytd_profit_and_beat_btc_buy_hold": ytd_ok,
+            "passes_all_preregistered_gates": (
+                full_ok and holdout_ok and recent_ok and annual_dd_ok and bear_ok and four_years_ok and ytd_ok
+            ),
+        }
+
+    report = [
+        "# BTC momentum 60/126/180-day horizons — ATR14 target proxy 15%", "",
+        "**Disposition:** retrospective research only; NO_TRADE remains in force.", "",
+        f"- Full interval: [{FULL_START.isoformat()}, {END.isoformat()}); warm-up: {WARMUP_BARS} bars; candles: {len(items)}.",
+        f"- Dataset SHA-256: {data_sha}; current filter snapshot SHA-256: {rules['sha256']}.",
+        f"- Current public LOT_SIZE step {rules['step']}, minQty {rules['min_qty']}, minNotional {rules['min_notional']}; historical filters are UNKNOWN.",
+        "- Signal: lookback momentum crosses <=0 to >0 while close>SMA200; exit when momentum<=0 or close<SMA200. Signals are on completed daily candles; fills at next daily open; terminal liquidation each window.",
+        "- Risk layer: weight=min(95%, 15%/((ATR14/close)*sqrt(365))); simple ATR14 mean true range, weight fixed on signal close and held to exit. This is an ATR proxy, not guaranteed realized volatility.",
+        "- Cost assumptions: BASE fee 10 bps/fill, full assumed spread 10 bps, slippage 5 bps/fill; STRESS_1 10/25/10; STRESS_2 20/50/20. Spread and slippage are not historical bookTicker observations.",
+        "- Windows: full 2020–2026; reset-capital HOLDOUT 2020–2022 and RECENT 2023–2026; annual/YTD resets for 2020 through 2026 YTD.", "",
+        "| Candidate | Window | Capital | Cost | Net PnL | Return | Max DD | Cycles | BTC B&H PnL |",
+        "|---|---|---:|---|---:|---:|---:|---:|---:|",
+    ]
+    for result in results:
+        report.append(
+            f"| {result['candidate']} | {result['window']} | {result['capital_initial_usdt']} | {result['cost_scenario']} | "
+            f"{Decimal(result['net_pnl_usdt']):+.4f} | {Decimal(result['return_pct']):+.2f}% | "
+            f"{Decimal(result['max_drawdown_pct']):.2f}% | {result['completed_round_trips']} | "
+            f"{Decimal(result['btc_buy_hold_net_pnl_usdt']):+.4f} |"
+        )
+    report.extend(["", "## Preregistered promotion gate", ""])
+    for candidate, gate in gates.items():
+        report.append(
+            f"- **{candidate}: {'PASS' if gate['passes_all_preregistered_gates'] else 'FAIL'}** — "
+            f"{json.dumps(gate, sort_keys=True)}"
+        )
+    report.extend([
+        "",
+        "The gate requires positive STRESS_2 PnL for both capital levels in full, 2020–2022 and 2023–2026 blocks; >=5 cycles in each block; drawdown no worse than 15% in full and each annual/YTD slice; nonnegative 2022; at least 4 positive year/YTD slices at both capitals; and positive 2026 YTD profit greater than BTC B&H.",
+        "",
+        "The target-volatility proxy and tested momentum horizons are a new research configuration after prior screens. All candidates are tested in the same registered batch, but the work is still retrospective strategy development, not a blind prospective result. Point-in-time data availability is UNKNOWN and spread/slippage are assumed.",
+        "",
+    ])
+    (output / "report.md").write_text("\\n".join(report), encoding="utf-8")
+    print("PROMOTION_GATES:", json.dumps(gates, sort_keys=True))
+    print(f"Evidence written to {output}/.")
 
 
 if __name__ == "__main__":
