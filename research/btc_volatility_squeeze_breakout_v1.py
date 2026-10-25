@@ -5,6 +5,11 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Sequence
+# Running this file directly puts research/ rather than the repository root on sys.path.
+import os
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 from research import btc_volume_shock_reversal_v1 as core
 
 STRATEGY="VOLATILITY_SQUEEZE_BREAKOUT"
