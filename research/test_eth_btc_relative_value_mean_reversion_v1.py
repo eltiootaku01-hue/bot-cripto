@@ -102,6 +102,8 @@ def test_next_open_execution_fees_and_terminal_liquidation():
 def test_terminal_close_is_used_and_minimum_quantity_rejection_is_enforced():
     eth, btc = paired_fixture(n=180, shock_index=150)
     eth[150]["close"] = btc[150]["close"] * Decimal("0.018")
+    eth[151] = candle(date(2020, 1, 1) + timedelta(days=151), Decimal("2.1"))
+    eth[152] = candle(date(2020, 1, 1) + timedelta(days=152), Decimal("2.2"))
     old = (core.entry_signal, core.ALLOC, core.TP, core.SL, core.MAX_HOLD)
     old_signals = s.ENTRY_SIGNALS
     try:
@@ -113,15 +115,17 @@ def test_terminal_close_is_used_and_minimum_quantity_rejection_is_enforced():
         core.TP = s.TAKE_PROFIT
         core.SL = s.STOP_LOSS
         core.MAX_HOLD = s.MAX_HOLD
-        tiny = {"min_qty": Decimal("100"), "step": Decimal("0.01"), "min_notional": Decimal("5")}
-        result = core.simulate(eth, 100, 151, Decimal("60"), "STRESS_2", tiny, "TERM", "VOLUME_SHOCK_REVERSAL")
-        assert result["rejects"] >= 0
+        filters = {"min_qty": Decimal("0.0001"), "step": Decimal("0.0001"), "min_notional": Decimal("5")}
+        result = core.simulate(eth, 100, 153, Decimal("60"), "STRESS_2", filters, "TERM", "VOLUME_SHOCK_REVERSAL")
+        sells = [f for f in result["fills"] if f["side"] == "SELL"]
+        assert len(sells) == 1
+        assert sells[0]["execution_type"] == "TERMINAL_CLOSE"
+        assert result["final"] == Decimal(sells[0]["cash_after"])
     finally:
         core.entry_signal, core.ALLOC, core.TP, core.SL, core.MAX_HOLD = old
         s.ENTRY_SIGNALS = old_signals
 
-    rows = paired_fixture(n=180, shock_index=150)[0]
-    # Test explicit exact quantity-flooring and rejection behavior in the shared ledger primitive.
+    # Test exact quantity-flooring and rejection in the shared ledger primitive.
     filters = {"min_qty": Decimal("100"), "step": Decimal("0.01"), "min_notional": Decimal("5")}
     qty, _, _, reject = core.buy_size(Decimal("60"), Decimal("100"), Decimal("0.2"), core.COSTS["BASE"], filters)
     assert qty == 0 and reject == "MIN_QTY"
