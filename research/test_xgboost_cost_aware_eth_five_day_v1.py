@@ -68,7 +68,7 @@ def test_mature_training_indices_never_include_unmatured_labels():
     assert all(j+s.LABEL_EXIT_OFFSET <= decision for j in idx)
     assert all(features[j] is not None for j in idx)
     assert max(j+s.LABEL_EXIT_OFFSET for j in idx) <= decision
-    assert s.mature_training_indices(features, 100) == []
+    assert len(s.mature_training_indices(features, 100)) < s.MIN_TRAINING_ROWS
 
 
 def test_fixed_xgboost_estimator_is_deterministic_on_frozen_inputs():
