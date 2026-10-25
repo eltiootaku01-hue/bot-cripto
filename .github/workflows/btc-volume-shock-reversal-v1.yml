@@ -1,0 +1,47 @@
+name: BTC daily volume-shock reversal V1 frozen replay
+on:
+  push:
+    branches:
+      - research/btc-volume-shock-reversal-multiregime
+    paths:
+      - research/btc_volume_shock_reversal_v1.py
+      - research/test_btc_volume_shock_reversal_v1.py
+      - .github/workflows/btc-volume-shock-reversal-v1.yml
+      - docs/research/BTC_VOLUME_SHOCK_REVERSAL_V1_PROTOCOL.md
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: btc-volume-shock-reversal-v1
+  cancel-in-progress: false
+jobs:
+  frozen-replay:
+    name: Validate contracts and replay public historical data
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check "pytest==8.4.2"
+      - name: Compile research code
+        run: python -m py_compile research/btc_volume_shock_reversal_v1.py research/test_btc_volume_shock_reversal_v1.py
+      - name: Run deterministic unit and accounting tests
+        run: python -m pytest -q research/test_btc_volume_shock_reversal_v1.py
+      - name: Acquire exact daily candles and run frozen replay
+        shell: bash
+        run: |
+          python research/btc_volume_shock_reversal_v1.py --output-dir volume-shock-output
+      - name: Upload reports, including blocked evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: btc-volume-shock-reversal-v1
+          path: volume-shock-output/
+          if-no-files-found: warn
+          retention-days: 90
