@@ -1,0 +1,46 @@
+name: Cost-aware walk-forward XGBoost ETH 5-day frozen replay
+on:
+  push:
+    branches:
+      - research/xgboost-cost-aware-eth-five-day-v1
+    paths:
+      - research/btc_volume_shock_reversal_v1.py
+      - research/xgboost_cost_aware_eth_five_day_v1.py
+      - research/test_xgboost_cost_aware_eth_five_day_v1.py
+      - .github/workflows/xgboost-cost-aware-eth-five-day-v1.yml
+      - docs/research/COST_AWARE_XGBOOST_ETH_5D_V1_PROTOCOL.md
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: xgboost-cost-aware-eth-five-day-v1
+  cancel-in-progress: false
+jobs:
+  frozen-replay:
+    name: Causal ML tests and preregistered multi-regime replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout isolated research branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install pinned model and test dependencies
+        run: python -m pip install --disable-pip-version-check "numpy==2.1.3" "xgboost==2.1.4" "pytest==8.4.2"
+      - name: Compile research code
+        run: python -m py_compile research/btc_volume_shock_reversal_v1.py research/xgboost_cost_aware_eth_five_day_v1.py research/test_xgboost_cost_aware_eth_five_day_v1.py
+      - name: Run deterministic feature, maturity and accounting tests
+        run: python -m pytest -q research/test_xgboost_cost_aware_eth_five_day_v1.py
+      - name: Acquire paired daily data and run frozen walk-forward replay
+        run: python research/xgboost_cost_aware_eth_five_day_v1.py --output-dir xgboost-cost-aware-eth-5d-output
+      - name: Upload output including blocked evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: xgboost-cost-aware-eth-five-day-v1
+          path: xgboost-cost-aware-eth-5d-output/
+          if-no-files-found: warn
+          retention-days: 90
