@@ -19,7 +19,7 @@ MAX_HOLD=10
 
 def true_range_at(rows:Sequence[dict[str,Any]],i:int)->Decimal:
     if i<=0: raise ValueError("TRUE_RANGE_NEEDS_PREVIOUS_CLOSE")
-    high,low,prev=(core.D(rows[i][k]) for k in ("high","low"))
+    high,low=(core.D(rows[i][k]) for k in ("high","low"))
     prev_close=core.D(rows[i-1]["close"])
     return max(high-low,abs(high-prev_close),abs(low-prev_close))
 
