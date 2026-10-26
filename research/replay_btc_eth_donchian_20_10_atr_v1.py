@@ -357,7 +357,7 @@ def main():
         "2026_ytd_beats_btc_and_eth_buy_hold":ytd_benchmark,
         "beats_15pct_atr_rotation_in_combined_and_ytd":beats_current}
     passed=positive and closures and risk and ytd_benchmark and beats_current
-    report=[# BTC/ETH 4h Donchian breakout 20/10 — 15% ATR risk target, 2025–2026 validation,"",
+    report=["# BTC/ETH 4h Donchian breakout 20/10 — 15% ATR risk target, 2025–2026 validation","",
         "**Disposition:** retrospective risk-overlay research only; NO_TRADE remains in force.","",
         f"- Risk-weight series SHA-256: {risk_hash}; weight=min(50%,15%/((ATR14/close)*sqrt(365*6))) frozen from signal close.",
         f"- Full interval: [{FULL_START.isoformat()}, {END.isoformat()}); {EXPECTED_BARS-WARMUP_BARS} evaluation bars per asset plus {WARMUP_BARS} warm-up bars.",
