@@ -1,0 +1,66 @@
+name: BTC ETH 4h rotation DMI ADX14 trend-state ATR15 — no-AI research
+on:
+  push:
+    branches:
+      - research/btc-eth-dmi-adx-atr-v1
+    paths:
+      - research/replay_btc_eth_dmi_adx_atr_v1.py
+      - tests/test_btc_eth_dmi_adx_atr_v1.py
+      - .github/workflows/btc-eth-dmi-adx-atr-v1.yml
+      - docs/research/BTC_ETH_DMI_ADX_ATR_V1.md
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: btc-eth-dmi-adx-atr-v1
+  cancel-in-progress: false
+jobs:
+  frozen-risk-overlay:
+    name: ATR sizing tests and frozen multi-window replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile frozen overlay and tests
+        run: python -m py_compile research/replay_btc_eth_dmi_adx_atr_v1.py tests/test_btc_eth_dmi_adx_atr_v1.py
+      - name: Test Wilder DMI/ADX warm-up, transitions, sizing, cap and no-lookahead
+        run: python -m pytest -q tests/test_btc_eth_dmi_adx_atr_v1.py
+      - name: Run frozen DMI/ADX multi-window validation
+        run: python research/replay_btc_eth_dmi_adx_atr_v1.py
+      - name: Run virtual backtest regression suite
+        run: python -m pytest -q tests/test_virtual_backtest.py
+      - name: Independently verify frozen decision, result counts and artifact hashes
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path("btc-eth-dmi-adx-atr-v1-output")
+          result = json.loads((root / "gate_results.json").read_text())
+          manifest = json.loads((root / "output_manifest.json").read_text())
+          assert result["decision"] in {"PASS_HISTORICAL_SHADOW_ONLY", "FAIL_NO_TRADE"}
+          assert len(result["gates"]) == 5
+          assert result["decision"] == ("PASS_HISTORICAL_SHADOW_ONLY" if all(result["gates"].values()) else "FAIL_NO_TRADE")
+          assert manifest["decision"] == result["decision"]
+          for name, meta in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == meta["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == meta["sha256"], f"SHA mismatch: {name}"
+          print("DECISION:", result["decision"])
+          print("GATES:", result["gates"])
+          print("HASHED_FILES:", len(manifest["files"]))
+          PY
+      - name: Upload hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: btc-eth-dmi-adx-atr-v1
+          path: btc-eth-dmi-adx-atr-v1-output/
+          if-no-files-found: warn
+          retention-days: 90
