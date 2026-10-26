@@ -61,24 +61,24 @@ def test_pullback_reference_excludes_current_candle_and_bounds_are_inclusive():
     assert pullback_fraction_at(closes,highs,i)==Decimal("200")/Decimal("220")-1
 
 def test_entry_requires_ema20_reclaim_bullish_regime_and_4_to_12_percent_pullback():
-    i=40
-    closes=[Decimal("200")]*60
-    highs=[Decimal("220")]*60
-    e20=[Decimal("201")]*60
-    e50=[Decimal("200")]*60
-    e200=[Decimal("180")]*60
+    i=220
+    closes=[Decimal("200")]*240
+    highs=[Decimal("220")]*240
+    e20=[Decimal("201")]*240
+    e50=[Decimal("200")]*240
+    e200=[Decimal("180")]*240
     closes[i-1]=Decimal("198")
     e20[i-1]=Decimal("200")
     closes[i]=Decimal("205")
     e20[i]=Decimal("202")
     assert entry_condition_at(closes,highs,e20,e50,e200,i)
     # Too shallow and too deep pullbacks are both rejected.
-    highs[0:60]=[Decimal("210")]*60
+    highs[:]=[Decimal("210")]*240
     assert not entry_condition_at(closes,highs,e20,e50,e200,i)
-    highs[0:60]=[Decimal("240")]*60
+    highs[:]=[Decimal("240")]*240
     assert not entry_condition_at(closes,highs,e20,e50,e200,i)
     # A valid pullback still rejects if price has not reclaimed EMA20 or is below EMA50/200.
-    highs[0:60]=[Decimal("220")]*60
+    highs[:]=[Decimal("220")]*240
     closes[i]=Decimal("200")
     assert not entry_condition_at(closes,highs,e20,e50,e200,i)
 
