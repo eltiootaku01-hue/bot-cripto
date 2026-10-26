@@ -32,7 +32,7 @@ def test_macd_adx_and_signals_are_invariant_to_future_suffix():
     for s in study.ASSETS:
         for col in columns:
             pd.testing.assert_series_equal(full[s][col].iloc[:check].reset_index(drop=True),
-                prefix[s][col].reset_index(drop=True),check_names=False,check_dtype=False)
+                prefix[s][col].iloc[:check].reset_index(drop=True),check_names=False,check_dtype=False)
 
 def test_wilder_adx_and_macd_warmup_contracts():
     frames=synthetic_frames(380)
