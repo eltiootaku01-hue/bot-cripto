@@ -73,8 +73,10 @@ def test_indicator_arrays_are_causal_and_ema200_has_exact_warmup():
     for i in range(cut+1,len(modified)):
         modified[i]=candle(i,"1000000","999000","999900")
     changed=dmi_signals_and_weights(modified)
-    for component in range(len(base)):
+    for component in range(5):
         assert base[component][cut]==changed[component][cut]
+    for name in base[5]:
+        assert base[5][name][cut]==changed[5][name][cut]
     ema=ema_series([x.payload.close for x in rows],200)
     assert ema[198] is None and ema[199] is not None
 
