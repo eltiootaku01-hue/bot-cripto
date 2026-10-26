@@ -112,8 +112,21 @@ def test_shared_ledger_next_open_execution_and_terminal_liquidation():
         sells=[f for f in fills if f["side"]=="SELL"]
         assert len(buys)==1 and buys[0]["timestamp_utc"]==rows[451].payload.start.isoformat()
         assert len(sells)==1 and sells[0]["timestamp_utc"]==rows[456].payload.start.isoformat()
-        assert result["total_fees_usdt"]>0
-        assert result["final_quote_balance"] if "final_quote_balance" in result else result["final_equity_usdt"]
+        assert Decimal(str(result["total_fees_usdt"])) > Decimal("0")
+        assert len(curve) == 9
+
+        # Replay an otherwise identical account with no exit signal before window end.
+        terminal_result, terminal_fills, terminal_curve = engine._simulate(
+            rows, rules, entries, [False]*len(rows), weights, atr, ema, "TERM",
+            rows[449].payload.start, rows[455].payload.start,
+            Decimal("60"), "STRESS_2", Decimal("0.002"), Decimal("50"), Decimal("20")
+        )
+        terminal_sells = [f for f in terminal_fills if f["side"] == "SELL"]
+        assert len(terminal_sells) == 1
+        assert terminal_sells[0]["timestamp_utc"] == rows[454].payload.end.isoformat()
+        assert terminal_sells[0]["reason"].lower().find("terminal") >= 0
+        assert Decimal(str(terminal_result["total_fees_usdt"])) > Decimal("0")
+        assert len(terminal_curve) == 6
     finally:
         engine.CANDIDATE=original
 
