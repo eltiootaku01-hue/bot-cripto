@@ -1,10 +1,13 @@
 """Frozen BTC Donchian 55-day breakout / 20-day low exit replay; research only."""
 from __future__ import annotations
-import argparse, csv, hashlib, json
+import argparse, csv, hashlib, json, sys
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Sequence
 
+ROOT = str(Path(__file__).resolve().parents[1])
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 from research import replay_btc_momentum_90d_atr_full_2020_2026 as engine
 
 CANDIDATE = "BTC_DONCHIAN_55_20_ATR14_TARGET20"
