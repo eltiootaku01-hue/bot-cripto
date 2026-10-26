@@ -11,6 +11,7 @@ DATA_SHA = "13d90afa798c94d56c18331e676089bc4594266c09d71bdab74146df1829f5a8"
 CONFIG_SHA = "2f6dc2e6021cd32fe5ff9b994f28d638d4f94ec2ce34b5c3873536e86ba0c50a"
 RAW_SHA = "3851a560aafbaa44f7d57081bd12f7dfdae070c2abff3d65e122ad8fcbd6df36"
 CAPITALS = (60.0, 100.0)
+MAX_WEIGHT = 0.50
 LOT_STEP, MIN_NOTIONAL = 0.00001, 5.0
 COSTS = {
     "BASE": {"fee_rate": .001, "spread_bps": 10.0, "slippage_bps": 5.0},
