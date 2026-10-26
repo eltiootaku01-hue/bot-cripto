@@ -61,17 +61,17 @@ def test_kama_smoothing_uses_frozen_fast_and_slow_constants():
 def test_state_requires_efficiency_kama_slope_and_ema200_regime():
     closes=[Decimal("200")]*220
     er=[None]*220; kama=[Decimal("190")]*220; ema=[None]*199+[Decimal("180")]*21
-    er[215]=Decimal("0.35")
+    er[215]=Decimal("0.35"); kama[215]=Decimal("195")
     assert bullish_state_at(closes,er,kama,ema,215) # close>KAMA, rising slope, above EMA
     er[215]=Decimal("0.3499")
     assert not bullish_state_at(closes,er,kama,ema,215)
-    er[215]=Decimal("0.8"); kama[210]=Decimal("191")
-    assert not bullish_state_at(closes,er,kama,ema,215) # slope is not positive
+    er[215]=Decimal("0.8"); kama[210]=Decimal("196")
+    assert not bullish_state_at(closes,er,kama,ema,215) # KAMA slope is not positive
     assert not bullish_state_at(closes,er,kama,ema,198) # EMA200 warm-up
 
 def test_exit_triggers_when_kama_slope_fails_or_price_breaks_ema200():
     closes=[Decimal("100")]*8
-    kama=[Decimal("101"),Decimal("102"),Decimal("103"),Decimal("104"),Decimal("105"),Decimal("106"),Decimal("105"),Decimal("104")]
+    kama=[Decimal("101"),Decimal("102"),Decimal("103"),Decimal("104"),Decimal("105"),Decimal("106"),Decimal("101"),Decimal("100")]
     ema=[Decimal("90")]*8
     assert not exit_condition_at(closes,kama,ema,5)
     assert exit_condition_at(closes,kama,ema,6)
@@ -86,10 +86,8 @@ def test_indicator_series_are_causal_and_sizing_is_bounded():
     for i in range(cut+1,len(changed)):
         changed[i]=item(i,"1")
     other=kama_signals_and_weights(changed)
-    for component in range(7):
+    for component in range(8):
         assert baseline[component][cut]==other[component][cut]
-    for name in ("er","kama"):
-        vector=baseline[6] if name=="unused" else None
     assert all(w is None or Decimal(0)<w<=Decimal("0.95") for w in baseline[2])
 
 def test_shared_ledger_uses_next_open_fills_and_terminal_liquidation():
