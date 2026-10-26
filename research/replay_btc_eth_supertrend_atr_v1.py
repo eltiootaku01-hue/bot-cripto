@@ -358,7 +358,7 @@ def main():
         for period in ("COMBINED_2025_2026","2026_YTD") for cap in caps)
     gates["beats_15pct_candidate_combined_and_ytd_both_capitals"] = beats_15pct
     passed=positive and closures and risk and ytd_benchmark and beats_15pct
-    report=[# BTC/ETH 4h Supertrend ATR(10,3) — 15% ATR-targeted exposure, 2025–2026 validation,"",
+    report=["# BTC/ETH 4h Supertrend ATR(10,3) — 15% ATR-targeted exposure, 2025–2026 validation","",
         "**Disposition:** retrospective risk-overlay research only; NO_TRADE remains in force.","",
         f"- Risk-weight series SHA-256: {risk_hash}; Supertrend state SHA-256: {supertrend_hash}; weight=min(50%,15%/((ATR14/close)*sqrt(365*6))) frozen from signal close.",
         f"- Full interval: [{FULL_START.isoformat()}, {END.isoformat()}); {EXPECTED_BARS-WARMUP_BARS} evaluation bars per asset plus {WARMUP_BARS} warm-up bars.",
