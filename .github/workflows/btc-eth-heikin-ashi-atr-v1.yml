@@ -7,7 +7,7 @@ on:
       - research/replay_btc_eth_heikin_ashi_atr_v1.py
       - tests/test_btc_eth_heikin_ashi_atr_v1.py
       - .github/workflows/btc-eth-heikin-ashi-atr-v1.yml
-      - docs/research/BTC_ETH_ROTATION_10PCT_ATR_TARGET_2025_2026.md
+      - docs/research/BTC_ETH_HEIKIN_ASHI_ATR_V1.md
   workflow_dispatch:
 permissions:
   contents: read
