@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence/btc-eth-pullback-atr-v1
-          python research/btc_eth_pullback_atr_v1.py \
+          python -m research.btc_eth_pullback_atr_v1 \
             --dataset input/btc-eth-follow-365d-dataset.json \
             --output-dir evidence/btc-eth-pullback-atr-v1 \
             --source-sha "$GITHUB_SHA"
