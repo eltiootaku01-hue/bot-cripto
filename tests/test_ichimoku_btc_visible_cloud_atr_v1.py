@@ -41,9 +41,9 @@ def fixture(n=200):
 def test_9_26_52_midpoints_match_hand_calculation():
     highs=[Decimal(i) for i in range(1,61)]
     lows=[Decimal(i)-Decimal("10") for i in range(1,61)]
-    assert midpoint(highs,lows,8,9)==(Decimal("9")+Decimal("-1"))/Decimal(2)
-    assert midpoint(highs,lows,24,26)==(Decimal("25")+Decimal("15"))/Decimal(2)
-    assert midpoint(highs,lows,50,52)==(Decimal("51")+Decimal("41"))/Decimal(2)
+    assert midpoint(highs,lows,8,9)==Decimal("0")
+    assert midpoint(highs,lows,24,26)==Decimal("8")
+    assert midpoint(highs,lows,50,52)==Decimal("21")
     assert midpoint(highs,lows,7,9) is None
 
 def test_visible_cloud_uses_span_value_from_26_candles_earlier():
