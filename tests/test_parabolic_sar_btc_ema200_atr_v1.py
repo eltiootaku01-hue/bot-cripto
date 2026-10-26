@@ -74,7 +74,7 @@ def test_ema_warmup_causality_and_bounded_atr_weight():
     for i in range(cut+1,len(altered)):
         altered[i]=item(i,"100000","100005","99995")
     other=signals_and_weights(altered)
-    for k in range(6):
+    for k in range(5):
         assert base[k][cut]==other[k][cut]
     for key in base[5]:
         assert base[5][key][cut]==other[5][key][cut]
