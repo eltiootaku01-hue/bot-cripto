@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from copy import deepcopy
+import research.replay_btc_eth_supertrend_atr_v1 as study
 from research.replay_btc_eth_supertrend_atr_v1 import (
     _atr_target_weights, ATR_TARGET_ANNUAL, MAX_POSITION_FRACTION, ASSETS, SUPERTREND_ATR_PERIOD,
 )
