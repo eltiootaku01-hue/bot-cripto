@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any
 import numpy as np
 import pandas as pd
+from bot_obrero.binance_instruments import BinanceMetadataBackedAdapter, BinanceSpotInstrumentMetadata
+from bot_obrero.binance_spot import BinanceSpotRestConfig
+from bot_obrero.virtual_backtest import _market_data_record, _validate_history
+from datetime import datetime, timedelta, timezone
 
 STRATEGY = "BTC_ETH_4H_MACD12_26_9_ADX14_TREND_V1"
 ASSETS = ("BTCUSDT", "ETHUSDT")
@@ -157,6 +161,97 @@ def load_dataset(path: Path):
   "filter_hashes":{s:filters[s]["hash"] for s in ASSETS}}
  return frames,filters,provenance
 
+
+def fetch_pinned_live():
+    utc = timezone.utc
+    start = datetime(2024, 11, 12, tzinfo=utc)
+    bars = [start + timedelta(hours=4*i) for i in range(4254)]
+    expected_filter_hashes = {
+        "BTCUSDT": "82b372432bcbfee18363c3ffc6d22c87465f3e7a64e561e4e382c7d331d47725",
+        "ETHUSDT": "2338832043b80849325ceb2d359b180e30ea1b90a866bbacce7c865f38751e0f",
+    }
+    frames, filters, record_hashes, ohlcv_hashes = {}, {}, {}, {}
+    unknown_completeness, unknown_finality = {}, {}
+    raw_records = {}
+    for symbol in ASSETS:
+        metadata = BinanceSpotInstrumentMetadata(config=BinanceSpotRestConfig(endpoint="/api/v3/exchangeInfo"))
+        metadata.resolve_active(symbol)
+        payload = metadata._request(symbol)
+        symbols = payload.get("symbols") if isinstance(payload, dict) else None
+        if not isinstance(symbols, list) or len(symbols) != 1 or not isinstance(symbols[0], dict):
+            raise StudyError("EXCHANGEINFO_SYMBOL_RECORD_INVALID:" + symbol)
+        record = symbols[0]
+        if record.get("symbol") != symbol or record.get("status") != "TRADING" or record.get("isSpotTradingAllowed") is not True:
+            raise StudyError("EXCHANGEINFO_SPOT_NOT_TRADABLE:" + symbol)
+        all_filters = record.get("filters")
+        if not isinstance(all_filters, list):
+            raise StudyError("EXCHANGEINFO_FILTERS_MISSING:" + symbol)
+        lot = next((x for x in all_filters if isinstance(x, dict) and x.get("filterType") == "LOT_SIZE"), None)
+        notion = next((x for x in all_filters if isinstance(x, dict) and x.get("filterType") in ("NOTIONAL", "MIN_NOTIONAL")), None)
+        if not isinstance(lot, dict) or not isinstance(notion, dict):
+            raise StudyError("EXCHANGEINFO_LOT_OR_NOTIONAL_MISSING:" + symbol)
+        snapshot = {"LOT_SIZE": lot, "MIN_NOTIONAL_OR_NOTIONAL": notion}
+        filter_hash = canonical_hash(snapshot)
+        if filter_hash != expected_filter_hashes[symbol]:
+            raise StudyError("CURRENT_FILTER_SNAPSHOT_CHANGED:" + symbol + ":" + filter_hash)
+        try:
+            step, min_qty, min_notional = Decimal(lot["stepSize"]), Decimal(lot["minQty"]), Decimal(notion["minNotional"])
+        except Exception as exc:
+            raise StudyError("EXCHANGEINFO_FILTER_PARSE_ERROR:" + symbol) from exc
+        if min(step, min_qty, min_notional) <= ZERO:
+            raise StudyError("EXCHANGEINFO_NONPOSITIVE_FILTER:" + symbol)
+        adapter = BinanceMetadataBackedAdapter(metadata=metadata)
+        items = []
+        for offset in range(0, len(bars), 800):
+            wanted = bars[offset:offset+800]
+            page = adapter.fetch_market_data(
+                symbol=symbol, interval="4h", limit=len(wanted),
+                start_time=int(wanted[0].timestamp()*1000),
+                end_time=int(wanted[-1].timestamp()*1000), allow_empty=False
+            )
+            page = sorted(page, key=lambda x: x.payload.start)
+            observed = [x.payload.start for x in page]
+            if observed != wanted:
+                raise StudyError("FETCH_TIMESTAMP_PAGE_MISMATCH:" + symbol + ":" + str(offset))
+            items.extend(page)
+        if [x.payload.start for x in items] != bars:
+            raise StudyError("FETCH_TIMESTAMP_SEQUENCE_MISMATCH:" + symbol)
+        accepted, excluded, unknown_comp, unknown_final = _validate_history(items, "4h")
+        if len(accepted) != len(bars) or excluded:
+            raise StudyError("FETCH_HISTORY_VALIDATION_FAILED:" + symbol)
+        records = [_market_data_record(x) for x in items]
+        canonical = [{k: rec["candle"][k] for k in ("start", "open", "high", "low", "close", "volume")} for rec in records]
+        ohlcv_hash = canonical_hash(canonical)
+        if ohlcv_hash != OHLCV_HASHES[symbol]:
+            raise StudyError("PINNED_OHLCV_HASH_MISMATCH:" + symbol + ":" + ohlcv_hash)
+        rows = []
+        for rec in records:
+            candle = rec["candle"]
+            rows.append({"timestamp": candle["start"], **{k: float(candle[k]) for k in ("open", "high", "low", "close", "volume")}})
+        frame = pd.DataFrame(rows)
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+        frame = frame.set_index("timestamp", drop=False)
+        if not (frame.index.to_series().diff().dropna() == BAR).all():
+            raise StudyError("FETCHED_CANDLE_GAP:" + symbol)
+        frames[symbol] = frame
+        raw_records[symbol] = records
+        record_hashes[symbol] = canonical_hash(records)
+        ohlcv_hashes[symbol] = ohlcv_hash
+        unknown_completeness[symbol] = int(unknown_comp)
+        unknown_finality[symbol] = int(unknown_final)
+        filters[symbol] = {"step": step, "min_qty": min_qty, "min_notional": min_notional, "hash": filter_hash}
+    if not frames["BTCUSDT"].index.equals(frames["ETHUSDT"].index):
+        raise StudyError("FETCHED_BTC_ETH_INDEX_MISMATCH")
+    prov = {
+        "source_file_sha256": canonical_hash(raw_records),
+        "record_hashes": record_hashes,
+        "ohlcv_hashes": ohlcv_hashes,
+        "metadata_completeness_unknown": unknown_completeness,
+        "metadata_finality_unknown": unknown_finality,
+        "filter_hashes": {s: filters[s]["hash"] for s in ASSETS},
+    }
+    return frames, filters, prov
+
 def _price(ref: Decimal,cost:dict[str,Decimal],side:str):
  if ref<=0: raise StudyError("INVALID_FILL_PRICE")
  adverse=(cost["spread_bps"]/Decimal(2)+cost["slippage_bps"])/BPS
@@ -245,8 +340,13 @@ def write_csv(path,rows):
   w=csv.DictWriter(f,fieldnames=keys,extrasaction="ignore");w.writeheader()
   for r in rows: w.writerow({k:json.dumps(v,sort_keys=True) if isinstance(v,(dict,list)) else v for k,v in r.items()})
 
-def run(dataset,outdir,source_sha):
- frames,filters,prov=load_dataset(dataset); ind={s:_indicators(frames[s]) for s in ASSETS}
+def run(dataset,outdir,source_sha,fetch_pinned=False):
+ if fetch_pinned:
+  frames,filters,prov=fetch_pinned_live()
+ else:
+  if dataset is None: raise StudyError('DATASET_PATH_REQUIRED_UNLESS_FETCHING_PINNED_CANDLES')
+  frames,filters,prov=load_dataset(dataset)
+ ind={s:_indicators(frames[s]) for s in ASSETS}
  cfg={"strategy":STRATEGY,"entry":"MACD12/26 crosses above EMA9 signal; MACD>0; close>EMA200; EMA50>EMA200; close>EMA50; Wilder ADX14>=20",
   "selection":"max MACD histogram / ATR14; tie alphabetic","exit":"MACD crosses below EMA9 signal or close<=EMA50; next open",
   "sizing":"min(50%,15%/((ATR14/close)*sqrt(365*6))); frozen at signal close","EMA":"SMA seed and recursive alpha=2/(period+1)",
@@ -304,7 +404,7 @@ def run(dataset,outdir,source_sha):
  write_json("result.json",result);write_json("gate_results.json",{"decision":decision,"summary":result["gate_summary"],"gates":gates})
  write_csv(outdir/"summary.csv",summaries);write_csv(outdir/"benchmarks.csv",benches);write_csv(outdir/"fills.csv",fills);write_csv(outdir/"equity.csv",equities)
  report=["# BTC/ETH MACD + Wilder ADX trend continuation V1 — deterministic, no AI","",f"Decision: {decision}",
-  "Historical replay only, not a prospective holdout.",f"Source artifact SHA-256: {prov['source_file_sha256']}",
+  "Historical replay only, not a prospective holdout.",f"Canonical fetched source-bundle SHA-256: {prov['source_file_sha256']}",
   f"BTC source records SHA-256: {prov['record_hashes']['BTCUSDT']}",f"ETH source records SHA-256: {prov['record_hashes']['ETHUSDT']}",
   f"BTC canonical OHLCV SHA-256: {prov['ohlcv_hashes']['BTCUSDT']}",f"ETH canonical OHLCV SHA-256: {prov['ohlcv_hashes']['ETHUSDT']}",
   f"Configuration SHA-256: {cfg_hash}",f"Indicator/signals SHA-256: {ind_hash}",f"Source code SHA: {source_sha}",
@@ -328,8 +428,8 @@ def run(dataset,outdir,source_sha):
 
 def main():
  p=argparse.ArgumentParser(description="Frozen non-AI BTC/ETH MACD ADX backtest")
- p.add_argument("--dataset",type=Path,required=True);p.add_argument("--output-dir",type=Path,required=True);p.add_argument("--source-sha",default="UNKNOWN")
- a=p.parse_args();r=run(a.dataset,a.output_dir,a.source_sha)
+ p.add_argument("--dataset",type=Path);p.add_argument("--output-dir",type=Path,required=True);p.add_argument("--source-sha",default="UNKNOWN");p.add_argument("--fetch-pinned-candles",action="store_true")
+ a=p.parse_args();r=run(a.dataset,a.output_dir,a.source_sha,a.fetch_pinned_candles)
  print("STRATEGY:",r["strategy"]);print("DECISION:",r["decision"]);print("DATASET_SHA256:",r["source_file_sha256"])
  print("CONFIG_SHA256:",r["strategy_configuration_sha256"]);print("INDICATORS_SHA256:",r["indicators_and_signals_sha256"])
  print("GATES:",json.dumps(r["gate_summary"],sort_keys=True))
