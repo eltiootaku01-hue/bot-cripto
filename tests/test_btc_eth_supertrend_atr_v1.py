@@ -3,7 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from copy import deepcopy
 from research.replay_btc_eth_supertrend_atr_v1 import (
-    _atr_target_weights, ATR_TARGET_ANNUAL, MAX_POSITION_FRACTION, ASSETS,
+    _atr_target_weights, ATR_TARGET_ANNUAL, MAX_POSITION_FRACTION, ASSETS, SUPERTREND_ATR_PERIOD,
 )
 UTC=timezone.utc
 
@@ -59,6 +59,10 @@ def test_higher_true_range_does_not_increase_weight():
 
 def test_supertrend_has_expected_warmup_and_boolean_state_contract():
     rows=dataset(100,"2")
+    for asset in ASSETS:
+        for i in range(30,100):
+            price=Decimal("1020")+Decimal(i-30)*Decimal("6")
+            rows[asset][i]=bar(i,price,price+Decimal("2"),price-Decimal("2"))
     states=study._supertrend_states(rows)
     for asset in ASSETS:
         vector=states[asset]
