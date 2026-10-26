@@ -1,0 +1,46 @@
+name: BTC ETH 4h MACD(12,26,9) crossover — 15 percent ATR sizing
+on:
+  push:
+    branches:
+      - research/btc-eth-macd-cross-atr-v1
+    paths:
+      - research/replay_btc_eth_macd_cross_atr_v1.py
+      - tests/test_btc_eth_macd_cross_atr_v1.py
+      - .github/workflows/btc-eth-macd-cross-atr-v1.yml
+      - docs/research/BTC_ETH_ROTATION_10PCT_ATR_TARGET_2025_2026.md
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: btc-eth-macd-cross-atr-v1
+  cancel-in-progress: false
+jobs:
+  frozen-risk-overlay:
+    name: ATR sizing tests and frozen multi-window replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile frozen overlay and tests
+        run: python -m py_compile research/replay_btc_eth_macd_cross_atr_v1.py tests/test_btc_eth_macd_cross_atr_v1.py
+      - name: Test causal ATR sizing and exposure cap
+        run: python -m pytest -q tests/test_btc_eth_macd_cross_atr_v1.py
+      - name: Run frozen multi-window validation
+        run: python research/replay_btc_eth_macd_cross_atr_v1.py
+      - name: Run virtual backtest regression suite
+        run: python -m pytest -q tests/test_virtual_backtest.py
+      - name: Upload hash-bound evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: btc-eth-macd-cross-atr-v1
+          path: macd-cross-atr-2025-2026-output/
+          if-no-files-found: warn
+          retention-days: 90
