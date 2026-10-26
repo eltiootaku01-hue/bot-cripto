@@ -33,7 +33,7 @@ def trend_fixture():
 def test_recursive_ema_matches_manual_formula_and_respects_warmup():
     values = [Decimal("10"), Decimal("12"), Decimal("9"), Decimal("15")]
     result = ema_series(values, 3)
-    assert result[0] is None and result[1] == Decimal("11")
+    assert result[0] is None and result[1] is None
     alpha = Decimal(2) / Decimal(4)
     expected = alpha * Decimal("9") + (Decimal(1)-alpha) * Decimal("11")
     assert result[2] == expected
@@ -69,4 +69,6 @@ def test_periods_and_output_shapes_are_frozen():
     assert (FAST_PERIOD, MEDIUM_PERIOD, SLOW_PERIOD) == (20, 50, 200)
     assert len(result) == 8
     assert all(len(vector) == len(rows) for vector in result)
-    assert result[4][198] is None and result[5][198] is None and result[6][198] is None
+    assert result[4][18] is None and result[4][19] is not None
+    assert result[5][48] is None and result[5][49] is not None
+    assert result[6][198] is None and result[6][199] is not None
