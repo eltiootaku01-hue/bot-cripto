@@ -51,9 +51,9 @@ def test_frozen_entry_and_exit_conditions():
     assert entry_condition_at(closes,rsi,ema,1)
     assert not entry_condition_at(closes,rsi,ema,0)
     assert not entry_condition_at(closes,rsi,ema,2)
-    assert exit_condition_at(closes,rsi,sma,3)
+    assert exit_condition_at(closes,rsi,sma,ema,3)
     ema[2]=Decimal("100")
-    assert exit_condition_at(closes,rsi,sma,2)
+    assert exit_condition_at(closes,rsi,sma,ema,2)
 
 def test_features_are_causal_and_weights_are_bounded():
     rows=fixture(); base=signals_and_weights(rows); cut=350
