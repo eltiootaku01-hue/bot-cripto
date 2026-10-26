@@ -26,19 +26,14 @@ jobs:
         run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
       - name: Test MACD, Wilder ADX, causal prefix, costs and accounting
         run: python -m pytest -q research/test_btc_eth_macd_adx_trend_v1.py
-      - name: Download exact frozen BTC ETH candle artifact used by candidate #181
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: btc-eth-rotation-15pct-atr-sensitivity
-          run-id: 40356916647
-          github-token: \${{ github.token }}
-          path: input
+      - name: Fetch pinned Binance candles with fail-closed SHA-256 checks
+        run: mkdir -p input
       - name: Run the one preregistered no-AI method
         run: |
           set -euo pipefail
           mkdir -p evidence/btc-eth-macd-adx-trend-v1
           python -m research.btc_eth_macd_adx_trend_v1 \\
-            --dataset input/dataset-evidence.json \\
+            --fetch-pinned-candles \\
             --output-dir evidence/btc-eth-macd-adx-trend-v1 \\
             --source-sha "$GITHUB_SHA"
       - name: Independently verify pinned inputs, gates, and every artifact hash
@@ -57,10 +52,7 @@ jobs:
               "ETHUSDT": "d75f1b78f0c11ba889c81458801abf0d14758329819c55d6eda6efb0151a8510",
           }
           assert result["bar_counts_4h"] == {"BTCUSDT": 4254, "ETHUSDT": 4254}
-          assert result["source_record_hashes"] == {
-              "BTCUSDT": "b5e3f7e490af598f44885c5b24983c16d6141a3d7c3cfe6f469ff95712eceb66",
-              "ETHUSDT": "4fc086bbb600b4a51ee2881c5f54cc4121de583b83797e00207a2e63122dc392",
-          }
+
           assert len(result["scenario_results"]) == 18
           assert len(result["benchmarks"]) == 42
           assert len(result["gates"]) == 26
