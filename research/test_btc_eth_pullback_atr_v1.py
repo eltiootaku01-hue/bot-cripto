@@ -61,7 +61,7 @@ def test_modeled_costs_are_strictly_more_adverse_and_capped_weight_is_valid():
         assert (weights <= study.MAX_WEIGHT).all()
 
 def test_virtual_replay_has_next_open_fills_no_overlap_and_nonnegative_equity():
-    indicators = study.prepare_indicators(synthetic_4h(days=650))
+    indicators = study.prepare_indicators(synthetic_4h(days=1050))
     results = [
         study.simulate_window(indicators, "2025", 60.0, "BASE", study.COSTS["BASE"]),
         study.simulate_window(indicators, "2026_YTD", 100.0, "STRESS_2", study.COSTS["STRESS_2"]),
