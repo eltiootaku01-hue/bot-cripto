@@ -124,7 +124,7 @@ def frozen_gate(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
             "missing result" if recent is None else f"strategy={recent['net_pnl_usdt']}; BTC_BH={recent['btc_buy_hold_net_pnl_usdt']}")
     failed = sum(c["status"] != "PASS" for c in checks)
     return {"overall":"PASS" if failed == 0 else "FAIL","passed":len(checks)-failed,"failed":failed,"checks":checks,
-            "candidate_origin":"RSI2 mean-reversion hypothesis preregistered in Issue #171; ATR sizing unchanged.",
+            "candidate_origin":"RSI2 mean-reversion hypothesis preregistered in Issue #172; ATR sizing unchanged.",
             "promotion_note":"Historical archive previously inspected; any pass still needs prospective shadow validation. NO_TRADE."}
 
 def run(output: Path) -> int:
@@ -141,7 +141,7 @@ def run(output: Path) -> int:
                    "risk_weight":None if weights[i] is None else str(weights[i]),
                    "entry_signal":entries[i],"exit_condition":exits[i]} for i,x in enumerate(items)]
     indicator_sha = hashlib.sha256(json.dumps(indicators,sort_keys=True,separators=(",",":")).encode()).hexdigest()
-    evidence = {"protocol":PROTOCOL,"preregistration_issue":171,"candidate":CANDIDATE,"symbol":engine.SYMBOL,"interval":engine.INTERVAL,
+    evidence = {"protocol":PROTOCOL,"preregistration_issue":172,"candidate":CANDIDATE,"symbol":engine.SYMBOL,"interval":engine.INTERVAL,
       "evaluation_start":engine.FULL_START.isoformat(),"evaluation_end_exclusive":engine.END.isoformat(),
       "warmup_start":engine.WARMUP_START.isoformat(),"warmup_bars":engine.WARMUP_BARS,
       "expected_bars":engine.EXPECTED_BARS,"observed_bars":len(items),"dataset_sha256":data_sha,
