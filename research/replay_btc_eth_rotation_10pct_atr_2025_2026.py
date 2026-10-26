@@ -317,7 +317,7 @@ def main():
         f"- Current filter hashes: BTC {rules['BTCUSDT']['sha256']}; ETH {rules['ETHUSDT']['sha256']}; historical filters UNKNOWN.",
         f"- Market-data flags: {json.dumps({a:{'completeness_unknown':metadata[a]['completeness_unknown'],'finality_unknown':metadata[a]['finality_unknown']} for a in ASSETS},sort_keys=True)}.",
         "- Rule frozen: every 42 completed 4h evaluation bars; select BTC or ETH with stronger trailing 180-bar return only if return >0 and close > own EMA200; else cash. Fill at next 4h open; terminal liquidation at each independent window end.",
-        "- Position size 50% of available quote per new position. Buy-and-hold benchmarks use 95% and matched modeled costs.",
+        "- Entry sizing uses a 10% annualized ATR14 proxy, capped at 50% of available quote and frozen from signal close until exit. Buy-and-hold benchmarks use 95% and matched modeled costs.",
         "- Costs are assumptions: BASE fee 10 bps, full spread 10 bps, slippage 5 bps per fill; STRESS_1 10/25/10; STRESS_2 20/50/20. Not reconstructed historical bookTicker fills.",
         "- Independent windows: combined 2025-2026, calendar 2025, and 2026 YTD; capital reset to cash for each window and cost scenario.","",
         "| Period | Capital | Cost | Net PnL | Return | Max DD | Closures | W/L | Fees | BTC B&H PnL | ETH B&H PnL |",
