@@ -80,8 +80,8 @@ def test_dmi_indicators_are_invariant_to_future_suffix_perturbation():
     original=study._dmi_adx(highs,lows,closes,14)
     cut=95
     changed=closes[:cut]+[Decimal("50000")+Decimal(i)*Decimal("700") for i in range(len(closes)-cut)]
-    changed_high=[x+Decimal("300") for x in changed]
-    changed_low=[x-Decimal("250") for x in changed]
+    changed_high=highs[:cut]+[x+Decimal("300") for x in changed[cut:]]
+    changed_low=lows[:cut]+[x-Decimal("250") for x in changed[cut:]]
     updated=study._dmi_adx(changed_high,changed_low,changed,14)
     for key in ("plus_di","minus_di","adx"):
         assert original[key][:cut]==updated[key][:cut]
