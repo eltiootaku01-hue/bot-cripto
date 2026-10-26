@@ -42,8 +42,8 @@ def test_9_26_52_midpoints_match_hand_calculation():
     highs=[Decimal(i) for i in range(1,61)]
     lows=[Decimal(i)-Decimal("10") for i in range(1,61)]
     assert midpoint(highs,lows,8,9)==Decimal("0")
-    assert midpoint(highs,lows,24,26)==Decimal("8")
-    assert midpoint(highs,lows,50,52)==Decimal("21")
+    assert midpoint(highs,lows,25,26)==Decimal("8.5")
+    assert midpoint(highs,lows,51,52)==Decimal("21.5")
     assert midpoint(highs,lows,7,9) is None
 
 def test_visible_cloud_uses_span_value_from_26_candles_earlier():
@@ -91,8 +91,11 @@ def test_indicator_state_and_atr_weights_are_causal():
     for i in range(cut+1,len(altered)):
         altered[i]=item(i,"1")
     other=ichimoku_signals_and_weights(altered)
-    for component in range(6):
+    for component in range(4):
         assert base[component][cut]==other[component][cut]
+    for key in base[4]:
+        assert base[4][key][cut]==other[4][key][cut]
+    assert base[5][cut]==other[5][cut]
     assert all(w is None or Decimal(0)<w<=Decimal("0.95") for w in base[2])
 
 def test_shared_ledger_next_open_and_terminal_liquidation():
