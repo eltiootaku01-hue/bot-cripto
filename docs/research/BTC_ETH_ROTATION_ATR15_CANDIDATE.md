@@ -37,7 +37,7 @@ All five preregistered historical gates passed: positive net PnL for each window
 
 ## Data provenance and caveats
 - 4,254 BTC and 4,254 ETH 4-hour bars; exact OHLCV candles match the verified 10% sizing artifact candle-for-candle.
-- Full record hashes include a capture-time field and differ between runs. Canonical OHLCV hashes: BTC `4365a38250fa4c267e32c8b8512f0039d792c888f9c0c9d2678ed1e2906a5c82`; ETH `c026290290a7fa21a114c96c81002a21b70f6779ff5262e8a0494d36c6000d07`.
+- Full record hashes include a capture-time field and differ between runs. Canonical OHLCV hashes: BTC `a508cb02259c15ec67e6df8c1c8be406b1d5f64350cae17a33c463e728793d9d`; ETH `d75f1b78f0c11ba889c81458801abf0d14758329819c55d6eda6efb0151a8510`.
 - Full source record hashes: BTC `b5e3f7e490af598f44885c5b24983c16d6141a3d7c3cfe6f469ff95712eceb66`; ETH `4fc086bbb600b4a51ee2881c5f54cc4121de583b83797e00207a2e63122dc392`; combined `ab3d502ee849274926fd1b3fbb4a2e04f51c38b66249c161bb4f8584e2964a9e`; risk-weight series `531c286416450f86686cb60f4a40d50c7e981ecd244d0c8e9c3211b7397e81b7`.
 - Data-completeness metadata is UNKNOWN on all bars. Historical point-in-time availability and historical executable quotes are UNKNOWN; current filter snapshots do not prove historical filter equivalence.
 - Costs are modeled assumptions, not reconstructed historical book/ticker fills. Results are before any taxes, conversion fees, withdrawal costs, or personal operational overhead.
