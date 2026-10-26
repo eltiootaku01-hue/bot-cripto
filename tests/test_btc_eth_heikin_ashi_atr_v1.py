@@ -10,7 +10,7 @@ UTC=timezone.utc
 
 def bar(i,close,high,low):
     start=datetime(2024,1,1,tzinfo=UTC)+timedelta(hours=4*i)
-    return SimpleNamespace(payload=SimpleNamespace(start=start,close=Decimal(str(close)),high=Decimal(str(high)),low=Decimal(str(low))))
+    return SimpleNamespace(payload=SimpleNamespace(start=start,open=Decimal(str(close)),close=Decimal(str(close)),high=Decimal(str(high)),low=Decimal(str(low))))
 
 def dataset(n=120,volatility="2"):
     rows={}
