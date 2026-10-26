@@ -272,7 +272,7 @@ def _simulate(items,window_name,start,end,capital,scenario,fee,spread,slip,close
     return result,fills,curve
 
 def main():
-    out=Path("rotation-10pct-atr-2025-2026-output"); out.mkdir(exist_ok=True)
+    out=Path("btc-eth-supertrend-atr-v1-output"); out.mkdir(exist_ok=True)
     print("Frozen BTC/ETH 4h Supertrend ATR10x3, 6-bar cadence, 15% ATR-targeted exposure capped at 50%.")
     print("Rule: every 6 completed 4h evaluation bars, select Supertrend-bullish assets with positive 42-bar momentum and close > own EMA200; else cash.")
     print("Research HEAD:",subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip())
@@ -295,6 +295,9 @@ def main():
         for i in range(len(items["BTCUSDT"]))]
     risk_hash=hashlib.sha256(json.dumps(risk_series,sort_keys=True,separators=(",",":")).encode()).hexdigest()
     combined=hashlib.sha256(json.dumps(raw,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+    supertrend_states=_supertrend_states(items)
+    supertrend_series=[{'index':i,'timestamp_utc':items['BTCUSDT'][i].payload.start.isoformat(),'BTCUSDT_bullish':supertrend_states['BTCUSDT'][i],'ETHUSDT_bullish':supertrend_states['ETHUSDT'][i]} for i in range(len(items['BTCUSDT']))]
+    supertrend_hash=hashlib.sha256(json.dumps(supertrend_series,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     manifest={"full_start":FULL_START.isoformat(),"end_exclusive":END.isoformat(),"warmup_start":WARMUP_START.isoformat(),
         "warmup_bars":WARMUP_BARS,"interval":INTERVAL,"expected_bars_per_asset":EXPECTED_BARS,"missing_or_interpolated_bars":0,
         "combined_dataset_sha256":combined,"asset_dataset_sha256":hashes,"metadata":metadata,
@@ -311,9 +314,6 @@ def main():
     closes={a:[x.payload.close for x in items[a]] for a in ASSETS}
     opens={a:[x.payload.open for x in items[a]] for a in ASSETS}
     emas={a:_ema(closes[a],EMA_PERIOD) for a in ASSETS}
-    supertrend_states=_supertrend_states(items)
-    supertrend_series=[{'index':i,'timestamp_utc':items['BTCUSDT'][i].payload.start.isoformat(),'BTCUSDT_bullish':supertrend_states['BTCUSDT'][i],'ETHUSDT_bullish':supertrend_states['ETHUSDT'][i]} for i in range(len(items['BTCUSDT']))]
-    supertrend_hash=hashlib.sha256(json.dumps(supertrend_series,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     evidence_hashes={"btc_dataset_sha256":hashes["BTCUSDT"],"eth_dataset_sha256":hashes["ETHUSDT"],
         "combined_dataset_sha256":combined,"btc_filter_sha256":rules["BTCUSDT"]["sha256"],"eth_filter_sha256":rules["ETHUSDT"]["sha256"],"supertrend_state_sha256":supertrend_hash}
     results,all_fills,all_curves=[],[],[]
