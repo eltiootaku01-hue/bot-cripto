@@ -1,5 +1,5 @@
 # BTC_RSI2_EMA200_MEAN_REVERSION_V1 — frozen replay
-- Preregistered Issue: https://github.com/eltiootaku01-hue/bot-cripto/issues/171
+- Preregistered Issue: https://github.com/eltiootaku01-hue/bot-cripto/issues/172
 - Branch: research/btc-rsi2-ema200-mean-reversion-v1.
 - Family: short-horizon mean reversion with RSI(2) oversold conditions within an EMA200 bull regime. This is distinct from breakout, KAMA, Ichimoku, DMI/ADX and prior volume-shock reversal hypotheses.
 - ATR14 sizing reuses the previously frozen formula unchanged.
