@@ -24,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.13.5"
+          python-version: "3.13"
       - name: Install pinned research and test dependencies
         run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
       - name: Test signal causality, daily regime alignment, costs, sizing and ledger
