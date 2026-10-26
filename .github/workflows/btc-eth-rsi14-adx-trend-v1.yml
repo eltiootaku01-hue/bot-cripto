@@ -1,0 +1,76 @@
+name: BTC ETH RSI14 ADX deterministic strategy replay
+on:
+  push:
+    branches:
+      - research/btc-eth-rsi14-adx-trend-v1
+    paths:
+      - "research/btc_eth_rsi14_adx_trend_v1.py"
+      - "research/test_btc_eth_rsi14_adx_trend_v1.py"
+      - ".github/workflows/btc-eth-rsi14-adx-trend-v1.yml"
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  frozen-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact study revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
+      - name: Test RSI14, Wilder ADX, causal prefix, costs and accounting
+        run: python -m pytest -q research/test_btc_eth_rsi14_adx_trend_v1.py
+      - name: Fetch pinned Binance candles with fail-closed SHA-256 checks
+        run: mkdir -p input
+      - name: Run the one preregistered no-AI method
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/btc-eth-rsi14-adx-trend-v1
+          python -m research.btc_eth_rsi14_adx_trend_v1 --fetch-pinned-candles --output-dir evidence/btc-eth-rsi14-adx-trend-v1 --source-sha "$GITHUB_SHA"
+      - name: Independently verify pinned inputs, gates, and every artifact hash
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path("evidence/btc-eth-rsi14-adx-trend-v1")
+          result = json.loads((root / "result.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert result["status"] == "HISTORICAL_REPLAY_NOT_PROSPECTIVE_HOLDOUT"
+          assert result["decision"] in {"PASS_HISTORICAL_SHADOW_ONLY", "FAIL_NO_TRADE"}
+          assert result["source_git_sha"] == os.environ["GITHUB_SHA"]
+          assert result["canonical_ohlcv_hashes"] == {
+              "BTCUSDT": "a508cb02259c15ec67e6df8c1c8be406b1d5f64350cae17a33c463e728793d9d",
+              "ETHUSDT": "d75f1b78f0c11ba889c81458801abf0d14758329819c55d6eda6efb0151a8510",
+          }
+          assert result["bar_counts_4h"] == {"BTCUSDT": 4254, "ETHUSDT": 4254}
+
+          assert len(result["scenario_results"]) == 18
+          assert len(result["benchmarks"]) == 42
+          assert len(result["gates"]) == 26
+          assert result["gate_summary"]["passed"] + result["gate_summary"]["failed"] == 26
+          assert manifest["source_git_sha"] == os.environ["GITHUB_SHA"]
+          assert manifest["decision"] == result["decision"]
+          for name, metadata in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == metadata["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == metadata["sha256"], f"SHA-256 mismatch: {name}"
+          print("CANONICAL OHLCV:", result["canonical_ohlcv_hashes"])
+          print("CONFIG SHA-256:", result["strategy_configuration_sha256"])
+          print("INDICATORS SHA-256:", result["indicators_and_signals_sha256"])
+          print("GATES:", result["gate_summary"])
+          print("DECISION:", result["decision"])
+          PY
+      - name: Upload full reproducible evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: btc-eth-rsi14-adx-trend-v1-evidence
+          path: evidence/btc-eth-rsi14-adx-trend-v1/
+          if-no-files-found: error
+          retention-days: 90
