@@ -32,10 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence/btc-eth-macd-adx-trend-v1
-          python -m research.btc_eth_macd_adx_trend_v1 \\
-            --fetch-pinned-candles \\
-            --output-dir evidence/btc-eth-macd-adx-trend-v1 \\
-            --source-sha "$GITHUB_SHA"
+          python -m research.btc_eth_macd_adx_trend_v1 --fetch-pinned-candles --output-dir evidence/btc-eth-macd-adx-trend-v1 --source-sha "$GITHUB_SHA"
       - name: Independently verify pinned inputs, gates, and every artifact hash
         run: |
           python - <<'PY'
