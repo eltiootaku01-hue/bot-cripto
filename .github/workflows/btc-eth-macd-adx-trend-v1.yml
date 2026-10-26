@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install project and test dependencies
-        run: python -m pip install -e ".[test]"
+        run: python -m pip install -e ".[test]" -r research/requirements-btc-eth-strategies-v1.txt
       - name: Test MACD, Wilder ADX, causal prefix, costs and accounting
         run: python -m pytest -q research/test_btc_eth_macd_adx_trend_v1.py
       - name: Download exact frozen BTC ETH candle artifact used by candidate #181
