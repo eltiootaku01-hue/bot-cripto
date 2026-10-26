@@ -31,7 +31,7 @@ jobs:
         with:
           name: btc-eth-rotation-15pct-atr-sensitivity
           run-id: 40356916647
-          github-token: \${{ secrets.GITHUB_TOKEN }}
+          github-token: \${{ github.token }}
           path: input
       - name: Run the one preregistered no-AI method
         run: |
