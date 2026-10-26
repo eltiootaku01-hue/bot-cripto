@@ -282,8 +282,8 @@ def _simulate(items,window_name,start,end,capital,scenario,fee,spread,slip,close
 
 def main():
     out=Path("btc-eth-rsi14-trend-atr-v1-output"); out.mkdir(exist_ok=True)
-    print("Frozen BTC/ETH 4h relative strength, 42-bar cadence, 15% ATR-targeted exposure capped at 50%.")
-    print("Rule: every 42 completed 4h evaluation bars, rank trailing 42-bar momentum; require positive momentum and close > own EMA200; else cash. Entry weight uses signal-close ATR14.")
+    print("Frozen BTC/ETH RSI14 50/40 trend-state, 6-bar cadence, 15% ATR-targeted exposure capped at 50%.")
+    print("Rule: every 6 completed 4h bars, enter on RSI14 cross >50 with positive 42-bar momentum and close > EMA200; retain while RSI14 >40 and close > EMA200.")
     print("Research HEAD:",subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip())
     print(f"Interval [{FULL_START.isoformat()}, {END.isoformat()}); warmup {WARMUP_BARS}; expected bars per asset {EXPECTED_BARS}")
     items,raw,hashes,metadata,rules={},{},{},{},{}
@@ -312,7 +312,7 @@ def main():
         "combined_dataset_sha256":combined,"asset_dataset_sha256":hashes,"metadata":metadata,
         "risk_weight_series_sha256":risk_hash,"risk_weight_series":risk_series,"rsi14_state_sha256":rsi_hash,"rsi14_state_series":rsi_series,
         "rule":{"entry_signal":"RSI14 crosses above 50 across daily samples, close > own EMA200 and positive 42-bar return; exit when RSI14 <= 40 or close <= EMA200","rsi_period":14,"entry_rsi_threshold":"50","exit_rsi_threshold":"40","risk_overlay":"weight=min(50%,15%/((ATR14/close)*sqrt(365*6))); signal-close weight frozen until exit",
-            "atr_target_annualized_proxy":"10%","position_weight_cap":str(MAX_POSITION_FRACTION),
+            "atr_target_annualized_proxy":"15%","position_weight_cap":str(MAX_POSITION_FRACTION),
             "benchmark_fraction":str(BENCHMARK_FRACTION),
             "rebalance":"every 6 completed 4h evaluation bars; fill next 4h open",
             "signal":"RSI14 crosses above 50, positive 42-bar momentum and close > own EMA200; retain while RSI14 > 40 and close > EMA200; otherwise cash",
@@ -367,15 +367,15 @@ def main():
         for period in ("COMBINED_2025_2026","2026_YTD") for cap in caps)
     gates["beats_15pct_candidate_combined_and_ytd_both_capitals"] = beats_15pct
     passed=positive and closures and risk and ytd_benchmark and beats_15pct
-    report=["# BTC/ETH 4h relative-strength rotation — 15% ATR-targeted exposure, 2025–2026 validation","",
+    report=["# BTC/ETH 4h RSI14 trend-state — 15% ATR-targeted exposure, 2025–2026 validation","",
         "**Disposition:** retrospective risk-overlay research only; NO_TRADE remains in force.","",
-        f"- Risk-weight series SHA-256: {risk_hash}; weight=min(50%,15%/((ATR14/close)*sqrt(365*6))) frozen from signal close.",
+        f"- Risk-weight series SHA-256: {risk_hash}; RSI14 state SHA-256: {rsi_hash}; weight=min(50%,15%/((ATR14/close)*sqrt(365*6))) frozen from signal close.",
         f"- Full interval: [{FULL_START.isoformat()}, {END.isoformat()}); {EXPECTED_BARS-WARMUP_BARS} evaluation bars per asset plus {WARMUP_BARS} warm-up bars.",
         f"- Combined SHA-256: {combined}; BTC SHA-256: {hashes['BTCUSDT']}; ETH SHA-256: {hashes['ETHUSDT']}.",
         f"- Current filter hashes: BTC {rules['BTCUSDT']['sha256']}; ETH {rules['ETHUSDT']['sha256']}; historical filters UNKNOWN.",
         f"- Market-data flags: {json.dumps({a:{'completeness_unknown':metadata[a]['completeness_unknown'],'finality_unknown':metadata[a]['finality_unknown']} for a in ASSETS},sort_keys=True)}.",
-        "- Rule frozen: every 42 completed 4h evaluation bars; select BTC or ETH with stronger trailing 42-bar return only if return >0 and close > own EMA200; else cash. Fill at next 4h open; terminal liquidation at each independent window end.",
-        "- Entry sizing uses a 10% annualized ATR14 proxy, capped at 50% of available quote and frozen from signal close until exit. Buy-and-hold benchmarks use 95% and matched modeled costs.",
+        "- Rule frozen: daily sample every 6 completed 4h bars; enter on RSI14 crossing above 50 with close>EMA200 and positive 42-bar momentum; exit if RSI14<=40 or close<=EMA200. Fill at next open; terminal liquidation at each window.",
+        "- Entry sizing uses a 15% annualized ATR14 proxy, capped at 50% of available quote and frozen from signal close until exit. Buy-and-hold benchmarks use 95% and matched modeled costs.",
         "- Costs are assumptions: BASE fee 10 bps, full spread 10 bps, slippage 5 bps per fill; STRESS_1 10/25/10; STRESS_2 20/50/20. Not reconstructed historical bookTicker fills.",
         "- Independent windows: combined 2025-2026, calendar 2025, and 2026 YTD; capital reset to cash for each window and cost scenario.","",
         "| Period | Capital | Cost | Net PnL | Return | Max DD | Closures | W/L | Fees | BTC B&H PnL | ETH B&H PnL |",
