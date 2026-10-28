@@ -99,7 +99,7 @@ def test_exit_reasons_prioritize_stop_then_timeout_then_mean_and_rsi():
     assert _exit_reason(Decimal("99"),Decimal("100"),Decimal("35"),Decimal("95"),MAX_HOLD_BARS)=="TIME_EXIT_18_BARS_NEXT_OPEN"
     assert _exit_reason(Decimal("101"),Decimal("100"),Decimal("35"),Decimal("95"),4)=="BB_MID_REVERSION_NEXT_OPEN"
     assert _exit_reason(Decimal("99"),Decimal("100"),Decimal("50"),Decimal("95"),4)=="RSI14_NORMALIZED_NEXT_OPEN"
-    assert _exit_reason(Decimal("99"),Decimal("100"),Decimal("40"),Decimal("95"),4)=="BB_MID_REVERSION_NEXT_OPEN"
+    assert _exit_reason(Decimal("99"),Decimal("98"),Decimal("40"),Decimal("95"),4)=="BB_MID_REVERSION_NEXT_OPEN"
     assert _exit_reason(Decimal("99"),Decimal("90"),Decimal("40"),Decimal("95"),4) is None
 
 def test_atr_weight_formula_and_cap_match_frozen_15_percent_rule():
