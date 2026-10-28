@@ -485,7 +485,31 @@ def main():
     report += ["",f"Historical gate: {'PASS' if passed else 'FAIL'}","",
         "This is a retrospective result, not a clean holdout or future-profit guarantee. Data completeness and point-in-time availability, historical exchange filters and executable quotes remain UNKNOWN; spread/slippage are modeled. Even a historical PASS only qualifies for prospective shadow consideration; it does not authorize PAPER/LIVE. Preserve main, PRIME and NO_TRADE.",""]
     (out/"report.md").write_text("\n".join(report),encoding="utf-8")
+    gate_payload={"strategy":"BTC_ETH_BOLLINGER_RSI14_MEAN_REVERSION_V1",
+        "decision":"PASS_HISTORICAL_SHADOW_ONLY" if passed else "FAIL_NO_TRADE",
+        "gate_summary":{"passed":sum(bool(v) for v in gates.values()),"failed":sum(not bool(v) for v in gates.values()),"total":len(gates)},
+        "gates":gates}
+    (out/"gate_results.json").write_text(json.dumps(gate_payload,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+    result_payload={"strategy":"BTC_ETH_BOLLINGER_RSI14_MEAN_REVERSION_V1",
+        "decision":gate_payload["decision"],"source_git_sha":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
+        "source_raw_dataset_sha256":combined,"canonical_ohlcv_sha256":canonical_hashes,
+        "risk_weight_series_sha256":risk_hash,"indicator_series_sha256":indicator_hash,"signal_series_sha256":signal_hash,
+        "scenario_results":[{k:r.get(k) for k in ("period","capital_initial_usdt","cost_scenario","net_pnl_usdt","return_pct","max_drawdown_pct","completed_round_trips","realized_wins","realized_losses","total_fees_usdt")} for r in results],
+        "gates":gates}
+    (out/"result.json").write_text(json.dumps(result_payload,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+    file_hashes={}
+    for path in sorted(out.iterdir()):
+        if path.is_file() and path.name!="manifest.json":
+            payload=path.read_bytes()
+            file_hashes[path.name]={"size_bytes":len(payload),"sha256":hashlib.sha256(payload).hexdigest()}
+    artifact_manifest={"strategy":"BTC_ETH_BOLLINGER_RSI14_MEAN_REVERSION_V1",
+        "decision":gate_payload["decision"],"source_git_sha":result_payload["source_git_sha"],
+        "dataset_sha256":combined,"canonical_ohlcv_sha256":canonical_hashes,
+        "risk_weight_series_sha256":risk_hash,"indicator_series_sha256":indicator_hash,"signal_series_sha256":signal_hash,
+        "files":file_hashes}
+    (out/"manifest.json").write_text(json.dumps(artifact_manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     print("PROMOTION_GATES:",json.dumps(gates,sort_keys=True))
+    print("GATE_SUMMARY:",json.dumps(gate_payload["gate_summary"],sort_keys=True))
     print("Evidence written to",out)
 
 if __name__=="__main__": main()
