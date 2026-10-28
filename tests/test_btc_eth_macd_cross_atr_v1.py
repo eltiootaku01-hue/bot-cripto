@@ -3,7 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from copy import deepcopy
 from research.replay_btc_eth_macd_cross_atr_v1 import (
-    _atr_target_weights, _atr_series, ATR_TARGET_ANNUAL, MAX_POSITION_FRACTION, ASSETS, MACD_FAST, MACD_SLOW, MACD_SIGNAL,
+    _atr_target_weights, _atr_series, ATR_TARGET_ANNUAL, MAX_POSITION_FRACTION, ASSETS, MACD_FAST, MACD_SLOW, MACD_SIGNAL, _macd_indicators,
 )
 UTC=timezone.utc
 
