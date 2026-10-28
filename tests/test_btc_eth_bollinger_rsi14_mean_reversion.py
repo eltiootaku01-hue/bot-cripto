@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from copy import deepcopy
 import math
 import pandas as pd
+import numpy as np
 from research.replay_btc_eth_bollinger_rsi14_mean_reversion import (
     _atr_target_weights, _atr_series, _bollinger_rsi_indicators,
     _target_mean_reversion, _exit_reason, _canonical_ohlcv_sha256,
