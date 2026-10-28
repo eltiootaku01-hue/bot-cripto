@@ -3,8 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from copy import deepcopy
 import math
-import pandas as pd
-import numpy as np
+import math
 from research.replay_btc_eth_bollinger_rsi14_mean_reversion import (
     _atr_target_weights, _atr_series, _bollinger_rsi_indicators,
     _target_mean_reversion, _exit_reason, _canonical_ohlcv_sha256,
@@ -26,16 +25,14 @@ def bar(i, close, high=None, low=None):
 
 def synthetic_bars(n=400, volatility="1.5", phase=0.0):
     rows={}
-    t=np.arange(n,dtype=float)
     for asset,base,drift,amp in (
         ("BTCUSDT",Decimal("1000"),0.0005,0.022),
         ("ETHUSDT",Decimal("500"),0.0004,0.029),
     ):
-        mult=float(base)
-        close=mult*np.exp(drift*t+amp*np.sin(t/23.0+phase)+0.012*np.sin(t/4.7+phase))
         values=[]
         width=float(volatility)
-        for i,x in enumerate(close):
+        for i in range(n):
+            x=float(base)*math.exp(drift*i+amp*math.sin(i/23.0+phase)+0.012*math.sin(i/4.7+phase))
             c=Decimal(str(x))
             w=c*Decimal(str(width))/Decimal("100")
             values.append(bar(i,c,c+w,c-w))
