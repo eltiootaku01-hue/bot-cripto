@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install project dependencies
-        run: python -m pip install -e ".[test]"
+        run: python -m pip install -e ".[test]" numpy pandas
       - name: Compile and run deterministic strategy contract tests
         run: |
           set -euo pipefail
