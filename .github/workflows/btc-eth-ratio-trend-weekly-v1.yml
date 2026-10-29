@@ -1,0 +1,92 @@
+name: BTC ETH daily ratio trend weekly V1 — historical replay
+
+on:
+  push:
+    branches:
+      - research/btc-eth-ratio-trend-weekly-v1
+    paths:
+      - "research/btc_eth_ratio_trend_weekly_v1.py"
+      - "research/test_btc_eth_ratio_trend_weekly_v1.py"
+      - ".github/workflows/btc-eth-ratio-trend-weekly-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  frozen-ratio-trend:
+    name: Frozen no-AI weekly ratio trend replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact research commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install project dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Compile and run deterministic strategy contract tests
+        run: |
+          set -euo pipefail
+          python -m py_compile research/btc_eth_ratio_trend_weekly_v1.py research/test_btc_eth_ratio_trend_weekly_v1.py
+          python -m pytest -q research/test_btc_eth_ratio_trend_weekly_v1.py
+      - name: Download immutable archived BTC ETH daily data from Issue 160 research run
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: eth-btc-relative-value-mean-reversion-v1
+          run-id: 40230553637
+          repository: eltiootaku01-hue/bot-cripto
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: input
+      - name: Run the single frozen rule under three cost scenarios
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/btc-eth-ratio-trend-weekly-v1
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          python -m research.btc_eth_ratio_trend_weekly_v1 \
+            --candles input/candles.csv \
+            --dataset-manifest input/dataset_manifest.json \
+            --output-dir evidence/btc-eth-ratio-trend-weekly-v1 \
+            --source-sha "$SOURCE_SHA"
+      - name: Independently verify pinned data, gates and every output hash
+        run: |
+          python - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          root = Path("evidence/btc-eth-ratio-trend-weekly-v1")
+          result = json.loads((root / "result.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          expected_head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          assert result["status"] == "HISTORICAL_REPLAY_NOT_PROSPECTIVE_HOLDOUT"
+          assert result["decision"] in {"PASS_HISTORICAL_SHADOW_ONLY", "FAIL_NO_TRADE"}
+          assert result["source_git_sha"] == expected_head
+          assert result["source_data"]["candles_csv_sha256"] == "584eb746f0cae21ad688b762c715fd55568bdbb4a27ca017a90867bd17b4e8a6"
+          assert result["source_data"]["manifest_sha256"] == "4ef8547f3605a51e905cebc94b8da956dc0f57228ac0e5bef047c939764d76f6"
+          assert result["source_data"]["rows_per_asset"] == {"BTCUSDT": 2851, "ETHUSDT": 2851}
+          assert len(result["scenario_results"]) == 36
+          assert len(result["benchmarks"]) == 112
+          assert len(result["gates"]) == 42
+          assert result["gate_summary"]["passed"] + result["gate_summary"]["failed"] == 42
+          assert manifest["source_git_sha"] == expected_head
+          assert manifest["decision"] == result["decision"]
+          for name, meta in manifest["files"].items():
+              payload = (root / name).read_bytes()
+              assert len(payload) == meta["size_bytes"], f"size mismatch: {name}"
+              assert hashlib.sha256(payload).hexdigest() == meta["sha256"], f"SHA-256 mismatch: {name}"
+          print("INPUT SHA-256:", result["source_data"]["candles_csv_sha256"])
+          print("CONFIG SHA-256:", result["configuration_sha256"])
+          print("SIGNALS SHA-256:", result["indicators_signals_sha256"])
+          print("GATES:", json.dumps(result["gate_summary"], sort_keys=True))
+          print("DECISION:", result["decision"])
+          PY
+      - name: Upload metrics, fills, equity, data manifest and hashes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: btc-eth-ratio-trend-weekly-v1-evidence
+          path: evidence/btc-eth-ratio-trend-weekly-v1/
+          if-no-files-found: error
+          retention-days: 90
