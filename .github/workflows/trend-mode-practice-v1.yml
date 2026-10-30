@@ -21,7 +21,7 @@ permissions:
 jobs:
   trend-practice-replay:
     name: Frozen Donchian trend rule, 21-month OHLC replay, integrity gates
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout tested source
