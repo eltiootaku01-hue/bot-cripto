@@ -23,7 +23,7 @@ permissions:
 jobs:
   fixed-episode-study:
     name: Frozen hypothesis, monthly benchmarks, circular block bootstrap
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout exact workflow revision
